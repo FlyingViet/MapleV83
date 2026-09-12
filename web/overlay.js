@@ -669,7 +669,9 @@
     // ---------------------------------------------------------------- boot
 
     let inGame = false;
+    let runtimeReady = false;
     function pollGameState() {
+        if (!runtimeReady) return; // calling an export before the runtime is up aborts the module
         try {
             const now = (typeof Module !== 'undefined' && typeof Module._mw_in_game === 'function') ? Module._mw_in_game() === 1 : false;
             if (now !== inGame) { inGame = now; applyVisibility(); if (!now) releaseAll(); }
@@ -718,7 +720,7 @@
 
     window.MapleOverlay = {
         onResize: () => { if (layout) positionAll(); },
-        onRuntimeReady: () => { console.log('[overlay] key injection', typeof Module._mw_key === 'function' ? 'native' : 'DOM fallback'); },
+        onRuntimeReady: () => { runtimeReady = true; console.log('[overlay] key injection', typeof Module._mw_key === 'function' ? 'native' : 'DOM fallback'); pollGameState(); },
         press, release, tap, layout: () => layout
     };
 
