@@ -39,12 +39,20 @@ namespace ms
 
 		UIElement::Type get_type() const override;
 
-		void send_naming_result(bool nameused);
+		// Server answer to NameCharPacket. Default: a free name creates the
+		// character at once; screens whose look step follows the name check
+		// (v83 Explorer) override this and call create_character() later.
+		virtual void send_naming_result(bool nameused);
 
 	protected:
 		UICreationBase(uint16_t creation_job);
 
 		Button::State naming_ok_pressed();
+		// Dispatches CreateCharPacket from the current look and hands over to the
+		// key-layout prompt, which closes the creation screens on OK.
+		void create_character();
+		// NAME_IN_USE notice; its OK re-focuses the field and re-enables OK/Cancel.
+		void reject_name();
 		const std::string& get_equipname(EquipSlot::Id slot) const;
 
 		// Uniform 800x600 content scaling, centered in the view (same treatment

@@ -80,46 +80,56 @@ namespace ms
 			{
 				named = true;
 
-				std::string cname = namechar.get_text();
-				int32_t cface = faces[female][face];
-				int32_t chair = hairs[female][hair];
-				uint8_t chairc = haircolors[female][haircolor];
-				uint8_t cskin = skins[female][skin];
-				int32_t ctop = tops[female][top];
-				int32_t cbot = bots[female][bot];
-				int32_t cshoe = shoes[female][shoe];
-				int32_t cwep = weapons[female][weapon];
-
-				CreateCharPacket(cname, creation_job, cface, chair, chairc, cskin, ctop, cbot, cshoe, cwep, female).dispatch();
-
-				auto onok = [&](bool alternate)
-				{
-					Sound(Sound::Name::SCROLLUP).play();
-
-					UI::get().remove(UIElement::Type::LOGINNOTICE_CONFIRM);
-					UI::get().remove(UIElement::Type::LOGINNOTICE);
-					UI::get().remove(UIElement::Type::CLASSCREATION);
-					UI::get().remove(UIElement::Type::RACESELECT);
-
-					if (auto charselect = UI::get().get_element<UICharSelect>())
-						charselect->post_add_character();
-				};
-
-				UI::get().emplace<UIKeySelect>(onok, true);
+				create_character();
 			}
 			else
 			{
-				auto onok = [&]()
-				{
-					namechar.set_state(Textfield::State::FOCUSED);
-
-					buttons[Buttons::BT_CHARC_OK]->set_state(Button::State::NORMAL);
-					buttons[Buttons::BT_CHARC_CANCEL]->set_state(Button::State::NORMAL);
-				};
-
-				UI::get().emplace<UILoginNotice>(UILoginNotice::Message::NAME_IN_USE, onok);
+				reject_name();
 			}
 		}
+	}
+
+	void UICreationBase::create_character()
+	{
+		std::string cname = namechar.get_text();
+		int32_t cface = faces[female][face];
+		int32_t chair = hairs[female][hair];
+		uint8_t chairc = haircolors[female][haircolor];
+		uint8_t cskin = skins[female][skin];
+		int32_t ctop = tops[female][top];
+		int32_t cbot = bots[female][bot];
+		int32_t cshoe = shoes[female][shoe];
+		int32_t cwep = weapons[female][weapon];
+
+		CreateCharPacket(cname, creation_job, cface, chair, chairc, cskin, ctop, cbot, cshoe, cwep, female).dispatch();
+
+		auto onok = [&](bool alternate)
+		{
+			Sound(Sound::Name::SCROLLUP).play();
+
+			UI::get().remove(UIElement::Type::LOGINNOTICE_CONFIRM);
+			UI::get().remove(UIElement::Type::LOGINNOTICE);
+			UI::get().remove(UIElement::Type::CLASSCREATION);
+			UI::get().remove(UIElement::Type::RACESELECT);
+
+			if (auto charselect = UI::get().get_element<UICharSelect>())
+				charselect->post_add_character();
+		};
+
+		UI::get().emplace<UIKeySelect>(onok, true);
+	}
+
+	void UICreationBase::reject_name()
+	{
+		auto onok = [&]()
+		{
+			namechar.set_state(Textfield::State::FOCUSED);
+
+			buttons[Buttons::BT_CHARC_OK]->set_state(Button::State::NORMAL);
+			buttons[Buttons::BT_CHARC_CANCEL]->set_state(Button::State::NORMAL);
+		};
+
+		UI::get().emplace<UILoginNotice>(UILoginNotice::Message::NAME_IN_USE, onok);
 	}
 
 	Point<int16_t> UICreationBase::lay(int16_t x, int16_t y) const
