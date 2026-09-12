@@ -51,7 +51,7 @@ namespace ms
 		// The page configures the client through the JS object Module.LazyFS
 		// (see nmnsnv's Journey.cpp). Copy each string it defines into the
 		// matching setting before anything reads them.
-		auto loadConfigString = [](const char* key, auto& setting)
+		auto readConfig = [](const char* key) -> std::string
 		{
 			char* val = (char*)EM_ASM_INT({
 				var k = UTF8ToString($0);
@@ -65,11 +65,25 @@ namespace ms
 				return 0;
 			}, key);
 
+			std::string out;
 			if (val)
 			{
-				setting.save(std::string(val));
+				out = val;
 				std::free(val);
 			}
+			return out;
+		};
+		auto loadConfigString = [&readConfig](const char* key, auto& setting)
+		{
+			std::string v = readConfig(key);
+			if (!v.empty())
+				setting.save(v);
+		};
+		auto loadConfigShort = [&readConfig](const char* key, auto& setting)
+		{
+			std::string v = readConfig(key);
+			if (!v.empty())
+				setting.save(static_cast<uint16_t>(std::stoi(v)));
 		};
 
 		// nmnsnv's page uses MapleStoryServerIp/Port for the game server
@@ -82,8 +96,8 @@ namespace ms
 		loadConfigString("AssetsServerIP", Setting<AssetsServerIP>::get());
 		loadConfigString("AssetsServerPort", Setting<AssetsServerPort>::get());
 		loadConfigString("AssetsServerPath", Setting<AssetsServerPath>::get());
-		loadConfigString("Width", Setting<Width>::get());
-		loadConfigString("Height", Setting<Height>::get());
+		loadConfigShort("Width", Setting<Width>::get());
+		loadConfigShort("Height", Setting<Height>::get());
 #endif
 
 		std::cout << "[Init] Connecting to server..." << std::endl;
