@@ -423,3 +423,12 @@ namespace jrc
         return text ? text : "";
     }
 }
+
+#ifdef MS_PLATFORM_WASM
+// Touch overlay hook (web/overlay.js): feed a GLFW key code straight into the UI,
+// bypassing DOM keyboard events so on-screen buttons behave exactly like keys.
+extern "C" EMSCRIPTEN_KEEPALIVE void mw_key(int key, int down)
+{
+    jrc::UI::get().send_key(key, down != 0);
+}
+#endif

@@ -135,6 +135,9 @@ namespace
 				ws_url += WEB_SOCK_PORT; // Proxy server port fallback
 			}
 
+			// Optional path for path-routed reverse proxies (tailscale serve, nginx, ...).
+			ws_url += jrc::Setting<jrc::ProxyPath>::get().load();
+
 			jrc::Console::get().print("Connecting to WebSocket proxy: " + ws_url);
 
 			// Check if WebSocket is supported

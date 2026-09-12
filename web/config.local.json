@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy over config.json for a plain local run (http://localhost:8000 with the three python services).",
+  "AssetsServerProtocol": "ws",
+  "AssetsServerPort": "8765",
+  "AssetsServerPath": "",
+  "ProxyPort": "8082",
+  "ProxyPath": "",
+  "MapleStoryServerIp": "127.0.0.1",
+  "MapleStoryServerPort": "8484"
+}

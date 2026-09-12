@@ -3,3 +3,8 @@
 /assets/
 /serverAssets/
 __pycache__
+/nxFiles/
+/wz/
+/logs/
+*.override.yml
+.env

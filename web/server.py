@@ -16,13 +16,21 @@ import http.server
 import socketserver
 import os
 
-PORT = 8000
+PORT = int(os.environ.get("WEB_PORT", "8000"))
 # Serve from parent directory (project root) to access assets/
 DIRECTORY = os.path.join(os.path.dirname(__file__), "..")
+# When the site is mounted under a path by a reverse proxy that keeps the prefix
+# (e.g. `tailscale serve --set-path /maple`), strip it before resolving files.
+PATH_PREFIX = os.environ.get("WEB_PATH_PREFIX", "").rstrip("/")
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
+
+    def translate_path(self, path):
+        if PATH_PREFIX and (path == PATH_PREFIX or path.startswith(PATH_PREFIX + "/")):
+            path = path[len(PATH_PREFIX):] or "/"
+        return super().translate_path(path)
 
     def end_headers(self):
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")

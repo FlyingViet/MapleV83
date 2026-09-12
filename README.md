@@ -9,6 +9,27 @@ MapleStory WASM brings the classic MapleStory v83 client to modern web browsers 
 
 ---
 
+## 📱 This fork: play on phones, one public URL
+
+This repository is a fork of [nmnsnv/maplestory-wasm](https://github.com/nmnsnv/maplestory-wasm) that adds:
+
+- **Touch overlay** (`web/overlay.js`, `web/overlay.css`, `web/overlay-config.json`): a joystick and
+  on-screen buttons drawn over the game. Pushing the stick up also jumps (ropes, portals and jumps
+  all work from the stick). Every control can be moved, resized, recoloured, given an icon and
+  remapped to any key from the ⚙ menu; layouts are saved in the browser and can be exported/imported
+  as JSON. The ⌨ button summons the phone keyboard for login and chat; ⛶ goes fullscreen.
+  Presses are injected through an exported `mw_key(glfwKey, down)` hook in `src/client/IO/Window.cpp`.
+- **Path-routed deployment**: `ProxyPath` / `AssetsServerPath` config keys let the game proxy and
+  asset stream share one HTTPS port behind a path-routing reverse proxy (`scripts/tailscale_serve.sh`
+  publishes `/maple`, `/maple-ws`, `/maple-assets` through Tailscale Serve/Funnel). `web/server.py`
+  strips the prefix (`WEB_PATH_PREFIX`).
+- Host ports in `docker-compose.yml` are overridable (`.env.example`) so they don't collide with
+  other services on the game host.
+
+No game assets are included. You need your own v83 `.wz` files converted to `.nx` (see below).
+
+---
+
 ## 🏗️ Architecture
 
 ```

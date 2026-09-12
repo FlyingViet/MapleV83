@@ -179,6 +179,19 @@ namespace jrc
         AssetsServerProtocol() : StringEntry("AssetsServerProtocol", "ws") {}
     };
 
+    // Optional URL path appended to the proxy WebSocket URL (e.g. "/maple-ws" when
+    // several services share one HTTPS port behind a path-routing reverse proxy).
+    struct ProxyPath : public Configuration::StringEntry
+    {
+        ProxyPath() : StringEntry("ProxyPath", "") {}
+    };
+
+    // Optional URL path appended to the LazyFS assets WebSocket URL (e.g. "/maple-assets").
+    struct AssetsServerPath : public Configuration::StringEntry
+    {
+        AssetsServerPath() : StringEntry("AssetsServerPath", "") {}
+    };
+
     // Wether to start in fullscreen mode.
     struct Fullscreen : public Configuration::BoolEntry
     {
