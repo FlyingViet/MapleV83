@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Tooltip.h"
+#include "../../Graphics/Texture.h"
 
 #include "../../Graphics/Geometry.h"
 #include "../../Graphics/Text.h"
