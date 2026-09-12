@@ -1,89 +1,103 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "Tooltip.h"
 
 #include "Charset.h"
+#include "Tooltip.h"
 
 #include "../../Character/MapleStat.h"
-#include "../../Character/Inventory/Equip.h"
-#include "../../Character/Inventory/Weapon.h"
 #include "../../Graphics/Text.h"
 #include "../../Template/BoolPair.h"
-#include "../../Template/EnumMap.h"
 
-namespace jrc
+#include "../../Character/Inventory/Equip.h"
+
+namespace ms
 {
-    class CharStats;
-    class EquipData;
+	class EquipTooltip : public Tooltip
+	{
+	public:
+		EquipTooltip();
 
-    class EquipTooltip : public Tooltip
-    {
-    public:
-        EquipTooltip();
+		void set_equip(Tooltip::Parent parent, int16_t invpos);
+		void draw(Point<int16_t> position) const override;
+		void draw_preview(Point<int16_t> position) const;
 
-        void set_equip(Parent parent, int16_t invpos);
-        void set_item(Parent parent, int32_t itemid);
-        void draw(Point<int16_t> position) const override;
+	private:
+		int16_t invpos;
+		int16_t invpos_preview;
+		int16_t height;
+		int16_t height_preview;
+		bool hasdesc;
+		bool hasdesc_preview;
+		bool hasslots;
+		bool hasslots_preview;
+		bool is_weapon;
+		bool is_weapon_preview;
+		EnumMap<MapleStat::Id, std::string> reqstatstrings;
+		EnumMap<MapleStat::Id, std::string> reqstatstrings_preview;
+		Texture itemicon;
+		Texture itemicon_preview;
 
-    private:
-        void load(const Equip& equip, const EquipData& equipdata, const CharStats& stats);
+		Text name;
+		Text name_preview;
+		Text desc;
+		Text desc_preview;
+		Text potflag;
+		Text potflag_preview;
+		Text category;
+		Text category_preview;
+		Text wepspeed;
+		Text wepspeed_preview;
+		Text slots;
+		Text slots_preview;
+		Text hammers;
+		Text hammers_preview;
+		Text atkinc;
+		Text atkinc_preview;
+		EnumMap<EquipStat::Id, Text> statlabels;
+		EnumMap<EquipStat::Id, Text> statlabels_preview;
 
-        int16_t invpos;
-        Parent source_parent;
-        int32_t source_itemid;
-        int16_t height;
-        bool hasdesc;
-        bool hasslots;
-        bool is_weapon;
-        EnumMap<Maplestat::Id, std::string> reqstatstrings;
-        Texture itemicon;
+		Texture top;
+		Texture mid;
+		Texture line;
+		Texture bot;
+		Texture base;
 
-        Text name;
-        Text desc;
-        Text potflag;
-        Text flag;
-        Text category;
-        Text wepspeed;
-        Text slots;
-        Text hammers;
-        EnumMap<Equipstat::Id, Text> statlabels;
+		EnumMap<Equip::Potential, Texture> potential;
+		Equip::Potential prank;
+		Equip::Potential prank_preview;
 
-        Texture top;
-        Texture mid;
-        Texture line;
-        Texture bot;
-        Texture base;
+		Texture cover;
+		Texture itemcover;
+		BoolPair<Texture> type;
 
-        EnumMap<Equip::Potential, Texture> potential;
-        Equip::Potential prank;
+		std::vector<MapleStat::Id> requirements;
+		EnumMap<MapleStat::Id, BoolPair<Texture>> reqstattextures;
+		EnumMap<MapleStat::Id, bool> canequip;
+		EnumMap<MapleStat::Id, bool> canequip_preview;
+		EnumMap<MapleStat::Id, Point<int16_t>> reqstatpositions;
+		BoolPair<Charset> reqset;
+		BoolPair<Charset> lvset;
+		BoolPair<Charset> atkincset;
 
-        Texture cover;
-        Texture shade;
-
-        std::vector<Maplestat::Id> requirements;
-        EnumMap<Maplestat::Id, BoolPair<Texture>> reqstattextures;
-        EnumMap<Maplestat::Id, bool> canequip;
-        EnumMap<Maplestat::Id, Point<int16_t>> reqstatpositions;
-        BoolPair<Charset> reqset;
-
-        Texture jobsback;
-        BoolPair<std::map<uint8_t, Texture>> jobs;
-        std::vector<uint8_t> okjobs;
-    };
+		Texture jobsback;
+		BoolPair<std::map<uint8_t, Texture>> jobs;
+		std::vector<uint8_t> okjobs;
+		std::vector<uint8_t> okjobs_preview;
+	};
 }

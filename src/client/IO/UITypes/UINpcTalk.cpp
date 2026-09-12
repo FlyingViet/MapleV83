@@ -1,1050 +1,1479 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+﻿//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "UINpcTalk.h"
+
+#include "../Components/ChatBalloon.h"
+
+#include "../UI.h"
 
 #include "../Components/MapleButton.h"
 
-#include "../../Console.h"
-#include "../../Constants.h"
-#include "../../Data/ItemData.h"
 #include "../../Gameplay/Stage.h"
-#include "../../Graphics/GraphicsGL.h"
+
 #include "../../Net/Packets/NpcInteractionPackets.h"
-#include "../../Util/Misc.h"
 
-#include "nlnx/nx.hpp"
-#include "nlnx/node.hpp"
+#include "../../Data/ItemData.h"
+#include "../../Constants.h"
+#include "../../Graphics/Geometry.h"
 
-#include <algorithm>
 #include <cctype>
-#include <unordered_set>
+#include <cmath>
+#include <algorithm>
 
-namespace jrc
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
+
+namespace ms
 {
-    namespace
-    {
-        constexpr int16_t MIN_DIALOGUE_TILES = 8;
-        constexpr int16_t TEXT_WIDTH = 320;
-        constexpr int16_t TEXT_VERTICAL_PADDING = 16;
-        constexpr int16_t BUTTON_MARGIN = 20;
-        constexpr int16_t BUTTON_GAP = 6;
-        constexpr int16_t DIALOG_TEXT_X = 156;
-        constexpr int16_t DIALOG_TEXT_Y_OFFSET = 16;
-        constexpr int16_t OPTION_VERTICAL_GAP = 2;
-        constexpr int16_t HOVER_UNDERLINE_THICKNESS = 1;
-        constexpr int8_t SELECTION_DIALOGUE_TYPE = 4;
-        constexpr int8_t LEGACY_SELECTION_DIALOGUE_TYPE = 5;
-
-        // Zero-parameter formatting tokens: bold, color switches, etc.
-        // These must be handled before number-parsing to avoid greedily
-        // consuming content like #e1000#k → stripping "1000".
-        bool is_formatting_token(char ch)
-        {
-            switch (std::tolower(static_cast<unsigned char>(ch)))
-            {
-            case 'b':  // blue
-            case 'd':  // dark/purple
-            case 'e':  // bold on
-            case 'f':  // dark-grey
-            case 'g':  // green
-            case 'k':  // black
-            case 'n':  // normal
-            case 'r':  // red
-                return true;
-            default:
-                return false;
-            }
-        }
-
-        bool is_selection_dialogue_type(int8_t msgtype)
-        {
-            // Cosmic-compatible servers have been observed using both values
-            // for menu prompts with #L...#l options.
-            return msgtype == SELECTION_DIALOGUE_TYPE || msgtype == LEGACY_SELECTION_DIALOGUE_TYPE;
-        }
-
-        size_t find_next_selection_tag(const std::string& source, size_t start)
-        {
-            size_t cursor = source.find("#L", start);
-            while (cursor != std::string::npos)
-            {
-                size_t id_start = cursor + 2;
-                size_t id_end = id_start;
-                while (id_end < source.size() && std::isdigit(static_cast<unsigned char>(source[id_end])))
-                {
-                    id_end++;
-                }
-
-                if (id_end > id_start && id_end < source.size() && source[id_end] == '#')
-                {
-                    return cursor;
-                }
-
-                cursor = source.find("#L", cursor + 2);
-            }
-
-            return std::string::npos;
-        }
-
-        std::string trim_selection_text(std::string text)
-        {
-            while (!text.empty())
-            {
-                char ch = text.back();
-                if (ch != '\r' && ch != '\n' && ch != ' ' && ch != '\t')
-                {
-                    break;
-                }
-
-                text.pop_back();
-            }
-
-            return text;
-        }
-
-        bool try_parse_int32(const std::string& token, int32_t& value)
-        {
-            if (token.empty())
-            {
-                return false;
-            }
-
-            try
-            {
-                value = std::stoi(token);
-            }
-            catch (...)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        bool try_parse_delimited_number(
-            const std::string& source,
-            size_t number_start,
-            size_t& delimiter_pos,
-            int32_t& value
-        )
-        {
-            size_t number_end = number_start;
-            while (number_end < source.size() && std::isdigit(static_cast<unsigned char>(source[number_end])))
-            {
-                number_end++;
-            }
-
-            if (number_end == number_start || number_end >= source.size() || source[number_end] != '#')
-            {
-                return false;
-            }
-
-            if (!try_parse_int32(source.substr(number_start, number_end - number_start), value))
-            {
-                return false;
-            }
-
-            delimiter_pos = number_end;
-            return true;
-        }
-
-        std::string try_get_item_name(int32_t itemid)
-        {
-            const ItemData& item_data = ItemData::get(itemid);
-            if (item_data.is_valid())
-            {
-                return item_data.get_name();
-            }
-
-            return {};
-        }
-
-        std::string try_get_npc_name(int32_t npcid)
-        {
-            nl::node npc_name = nl::nx::string["Npc.img"][std::to_string(npcid)]["name"];
-            if (npc_name)
-            {
-                return npc_name.get_string();
-            }
-
-            return {};
-        }
-
-        std::string try_get_mob_name(int32_t mobid)
-        {
-            nl::node mob_name = nl::nx::string["Mob.img"][std::to_string(mobid)]["name"];
-            if (mob_name)
-            {
-                return mob_name.get_string();
-            }
-
-            return {};
-        }
-
-        std::string try_get_map_name(int32_t mapid)
-        {
-            const NxHelper::Map::MapInfo map_info = NxHelper::Map::get_map_info_by_id(mapid);
-            if (!map_info.full_name.empty())
-            {
-                return map_info.full_name;
-            }
-
-            return map_info.name;
-        }
-
-        std::string resolve_prefixed_reference(char prefix, int32_t id)
-        {
-            switch (prefix)
-            {
-            case 'm':
-            case 'M':
-                return try_get_map_name(id);
-            case 't':
-            case 'T':
-            case 'z':
-            case 'Z':
-                return try_get_item_name(id);
-            case 'p':
-            case 'P':
-                return try_get_npc_name(id);
-            case 'o':
-            case 'O':
-                return try_get_mob_name(id);
-            default:
-                return {};
-            }
-        }
-
-        std::string resolve_numeric_reference(int32_t id)
-        {
-            if (id >= 100000000)
-            {
-                return try_get_map_name(id);
-            }
-
-            // Some server scripts send bare "#123456#" placeholders without a
-            // token prefix. Resolve by trying the most common string tables.
-            std::string resolved = try_get_item_name(id);
-            if (!resolved.empty())
-            {
-                return resolved;
-            }
-
-            resolved = try_get_npc_name(id);
-            if (!resolved.empty())
-            {
-                return resolved;
-            }
-
-            resolved = try_get_mob_name(id);
-            if (!resolved.empty())
-            {
-                return resolved;
-            }
-
-            return try_get_map_name(id);
-        }
-
-        void log_unresolved_npc_token(const std::string& token)
-        {
-            static std::unordered_set<std::string> logged_tokens;
-            static bool emitted_log_limit_message = false;
-            constexpr size_t MAX_UNRESOLVED_TOKEN_LOGS = 20;
-
-            if (logged_tokens.find(token) != logged_tokens.end())
-            {
-                return;
-            }
-
-            if (logged_tokens.size() >= MAX_UNRESOLVED_TOKEN_LOGS)
-            {
-                if (!emitted_log_limit_message)
-                {
-                    Console::get().print(
-                        "[npc] unresolved token log limit reached; suppressing additional unique token logs."
-                    );
-                    emitted_log_limit_message = true;
-                }
-                return;
-            }
-
-            logged_tokens.insert(token);
-            Console::get().print("[npc] unresolved dialogue token: " + token);
-        }
-    }
-
-    UINpcTalk::UINpcTalk()
-        : height(0),
-          vtile(0),
-          dialogue_mode(DialogueMode::UNKNOWN),
-          slider(false),
-          type(0),
-          end_confirms_dialogue(false),
-          selected(0),
-          hovered_selection(-1),
-          scroll_offset(0),
-          max_scroll(0)
-    {
-        nl::node src = nl::nx::ui["UIWindow2.img"]["UtilDlgEx"];
-
-        top = src["t"];
-        fill = src["c"];
-        bottom = src["s"];
-        nametag = src["bar"];
-
-        buttons[OK] = std::make_unique<MapleButton>(src["BtOK"]);
-        buttons[NEXT] = std::make_unique<MapleButton>(src["BtNext"]);
-        buttons[PREV] = std::make_unique<MapleButton>(src["BtPrev"]);
-        buttons[END] = std::make_unique<MapleButton>(src["BtClose"]);
-        buttons[YES] = std::make_unique<MapleButton>(src["BtYes"]);
-        buttons[NO] = std::make_unique<MapleButton>(src["BtNo"]);
-
-        active = false;
-    }
-
-    UINpcTalk::DialogueMode UINpcTalk::resolve_dialogue_mode(int8_t msgtype, bool has_navigation_flags)
-    {
-        if (is_selection_dialogue_type(msgtype))
-        {
-            return DialogueMode::SELECTION;
-        }
-
-        switch (msgtype)
-        {
-        case 0:
-            return DialogueMode::TEXT;
-        case 1:
-            // Cosmic servers use type=1 for text dialogue with navigation flags,
-            // while some older variants used it for yes/no prompts.
-            return has_navigation_flags ? DialogueMode::TEXT : DialogueMode::YES_NO;
-        case 2:
-            return DialogueMode::YES_NO;
-        case 12:
-        case 14:
-            return DialogueMode::ACCEPT_DECLINE;
-        default:
-            return DialogueMode::UNKNOWN;
-        }
-    }
-
-    void UINpcTalk::draw(float inter) const
-    {
-        Point<int16_t> drawpos = position;
-        top.draw(drawpos);
-        drawpos.shift_y(top.height());
-        fill.draw({ drawpos, Point<int16_t>(0, vtile) * fill.height() });
-        drawpos.shift_y(vtile * fill.height());
-        bottom.draw(drawpos);
-
-        UIElement::draw(inter);
-
-        speaker.draw({ position + Point<int16_t>(80, 100), true });
-        nametag.draw(position + Point<int16_t>(25, 100));
-        name.draw(position + Point<int16_t>(80, 99));
-
-        // Visible content bounds (relative to dialog position).
-        int16_t content_top = static_cast<int16_t>(top.height() + TEXT_VERTICAL_PADDING);
-        int16_t content_bottom = static_cast<int16_t>(top.height() + height - TEXT_VERTICAL_PADDING);
-
-        int16_t text_y = static_cast<int16_t>(get_dialogue_text_y() - scroll_offset);
-        if (text_y + text.height() > content_top && text_y < content_bottom)
-        {
-            text.draw(position + Point<int16_t>(DIALOG_TEXT_X, text_y));
-        }
-
-        if (!selection_labels.empty())
-        {
-            int16_t option_y = static_cast<int16_t>(get_options_start_y() - scroll_offset);
-            for (size_t i = 0; i < selection_labels.size(); ++i)
-            {
-                const Text& option_label = selection_labels[i];
-
-                // Only draw options within visible content area.
-                if (option_y + option_label.height() > content_top && option_y < content_bottom)
-                {
-                    option_label.draw(position + Point<int16_t>(DIALOG_TEXT_X, option_y));
-
-                    if (static_cast<int32_t>(i) == hovered_selection)
-                    {
-                        int16_t underline_width = std::min<int16_t>(
-                            TEXT_WIDTH,
-                            std::max<int16_t>(1, option_label.width())
-                        );
-                        GraphicsGL::get().drawrectangle(
-                            static_cast<int16_t>(position.x() + DIALOG_TEXT_X),
-                            static_cast<int16_t>(position.y() + option_y + option_label.height()),
-                            underline_width,
-                            HOVER_UNDERLINE_THICKNESS,
-                            1.0f, 0.5f, 0.0f, 1.0f
-                        );
-                    }
-                }
-
-                option_y += option_label.height();
-                if (i + 1 < selection_labels.size())
-                    option_y += OPTION_VERTICAL_GAP;
-            }
-        }
-    }
-
-    bool UINpcTalk::is_in_range(Point<int16_t> cursorpos) const
-    {
-        if (UIElement::is_in_range(cursorpos))
-            return true;
-
-        if (active && dialogue_mode == DialogueMode::SELECTION && !selection_labels.empty())
-        {
-            Point<int16_t> relative = cursorpos - position;
-            int16_t text_y = get_dialogue_text_y();
-            Point<int16_t> rect_tl(DIALOG_TEXT_X, text_y);
-            Point<int16_t> rect_br(DIALOG_TEXT_X + TEXT_WIDTH, text_y + get_dialogue_content_height());
-            if (Rectangle<int16_t>(rect_tl, rect_br).contains(relative)) return true;
-        }
-
-        for (const auto& button : buttons)
-        {
-            if (button.second->is_active() && button.second->bounds(position).contains(cursorpos))
-                return true;
-        }
-
-        return false;
-    }
-
-    Button::State UINpcTalk::button_pressed(uint16_t buttonid)
-    {
-        switch (buttonid)
-        {
-        case OK:
-            if (dialogue_mode == DialogueMode::SELECTION)
-            {
-                int32_t selection = selections.empty() ? 0 : selections[selected];
-                NpcTalkMorePacket::selection(type, selection).dispatch();
-                active = false;
-            }
-            else
-            {
-                NpcTalkMorePacket(type, 1).dispatch();
-                active = false;
-            }
-            break;
-        case NEXT:
-            if (dialogue_mode == DialogueMode::SELECTION)
-            {
-                if (!selections.empty())
-                {
-                    selected = (selected + 1) % static_cast<int32_t>(selections.size());
-                    refresh_selection_styles();
-                }
-            }
-            else if (dialogue_mode == DialogueMode::TEXT)
-            {
-                NpcTalkMorePacket(type, 1).dispatch();
-                active = false;
-            }
-            break;
-        case PREV:
-            if (dialogue_mode == DialogueMode::SELECTION)
-            {
-                if (!selections.empty())
-                {
-                    selected = (selected + static_cast<int32_t>(selections.size()) - 1)
-                        % static_cast<int32_t>(selections.size());
-                    refresh_selection_styles();
-                }
-            }
-            else if (dialogue_mode == DialogueMode::TEXT)
-            {
-                NpcTalkMorePacket(type, 0).dispatch();
-                active = false;
-            }
-            break;
-        case YES:
-            if (dialogue_mode == DialogueMode::YES_NO || dialogue_mode == DialogueMode::ACCEPT_DECLINE)
-            {
-                NpcTalkMorePacket(type, 1).dispatch();
-                active = false;
-            }
-            break;
-        case NO:
-            if (dialogue_mode == DialogueMode::YES_NO || dialogue_mode == DialogueMode::ACCEPT_DECLINE)
-            {
-                NpcTalkMorePacket(type, 0).dispatch();
-                active = false;
-            }
-            break;
-        case END:
-            if (end_confirms_dialogue)
-            {
-                NpcTalkMorePacket(type, 1).dispatch();
-            }
-            else
-            {
-                NpcTalkMorePacket::close(type).dispatch();
-            }
-            active = false;
-            break;
-        }
-        return Button::PRESSED;
-    }
-
-    void UINpcTalk::change_text(
-        int32_t npcid,
-        int8_t msgtype,
-        int16_t style,
-        bool has_navigation_flags,
-        int8_t speakerbyte,
-        const std::string& tx
-    )
-    {
-        std::string processed_tx = replace_macros(tx);
-        dialogue_mode = resolve_dialogue_mode(msgtype, has_navigation_flags);
-
-        selections.clear();
-        selection_texts.clear();
-        selection_labels.clear();
-        selected = 0;
-        hovered_selection = -1;
-        end_confirms_dialogue = false;
-
-        if (dialogue_mode == DialogueMode::SELECTION)
-        {
-            parse_selections(processed_tx, prompttext);
-            text = { Text::A12M, Text::LEFT, Text::DARKGREY, prompttext, TEXT_WIDTH, false };
-            selection_labels.reserve(selection_texts.size());
-            for (const std::string& option_text : selection_texts)
-            {
-                selection_labels.emplace_back(Text::A12M, Text::LEFT, Text::BLUE, option_text, TEXT_WIDTH, false);
-            }
-            refresh_selection_styles();
-        }
-        else
-        {
-            prompttext = strip_npc_tokens(processed_tx);
-            text = { Text::A12M, Text::LEFT, Text::DARKGREY, prompttext, TEXT_WIDTH, false };
-        }
-
-        if (speakerbyte == 0)
-        {
-            std::string strid = std::to_string(npcid);
-            strid.insert(0, 7 - strid.size(), '0');
-            strid.append(".img");
-            speaker = nl::nx::npc[strid]["stand"]["0"];
-            std::string namestr = nl::nx::string["Npc.img"][std::to_string(npcid)]["name"];
-            name = { Text::A11M, Text::CENTER, Text::WHITE, namestr };
-        }
-        else
-        {
-            speaker = {};
-            name.change_text("");
-        }
-
-        scroll_offset = 0;
-
-        int16_t minimum_fill_height = MIN_DIALOGUE_TILES * fill.height();
-        int16_t content_h = get_dialogue_content_height();
-        int16_t required_fill_height = std::max<int16_t>(
-            minimum_fill_height,
-            static_cast<int16_t>(content_h + TEXT_VERTICAL_PADDING * 2)
-        );
-        vtile = std::max<int16_t>(
-            MIN_DIALOGUE_TILES,
-            static_cast<int16_t>((required_fill_height + fill.height() - 1) / fill.height())
-        );
-
-        // Cap dialog so it fits on screen (leave room for top/bottom chrome + margin).
-        int16_t max_fill = static_cast<int16_t>(
-            (Constants::viewheight() - top.height() - bottom.height() - 40) / fill.height()
-        );
-        if (max_fill > MIN_DIALOGUE_TILES && vtile > max_fill)
-        {
-            vtile = max_fill;
-        }
-
-        height = vtile * fill.height();
-
-        // Calculate scrollable overflow.
-        int16_t visible_content = static_cast<int16_t>(height - TEXT_VERTICAL_PADDING * 2);
-        max_scroll = std::max<int16_t>(0, static_cast<int16_t>(content_h - visible_content));
-
-        for (auto& button : buttons)
-        {
-            button.second->set_active(false);
-            button.second->set_state(Button::NORMAL);
-        }
-        auto place_button = [&](Buttons id, int16_t x) {
-            int16_t footer_y = top.height() + height;
-            int16_t button_y = footer_y + std::max<int16_t>(0, (bottom.height() - buttons[id]->height()) / 2);
-            buttons[id]->set_position({ x, button_y });
-            buttons[id]->set_active(true);
-        };
-
-        int16_t right_edge = top.width() - BUTTON_MARGIN;
-        auto place_button_from_right = [&](Buttons id) {
-            right_edge -= buttons[id]->width();
-            place_button(id, right_edge);
-            right_edge -= BUTTON_GAP;
-        };
-
-        place_button(END, BUTTON_MARGIN);
-        switch (dialogue_mode)
-        {
-        case DialogueMode::TEXT:
-        {
-            // Text-only NPC dialogue carries the Prev/Next flags in two trailing
-            // bytes. When no flags are present the dialog expects a plain OK button.
-            bool has_prev = has_navigation_flags && (style & 0x00FF) != 0;
-            bool has_next = has_navigation_flags && (style & 0xFF00) != 0;
-
-            if (has_next)
-                place_button_from_right(NEXT);
-            if (has_prev)
-                place_button_from_right(PREV);
-            if (!has_prev && !has_next)
-            {
-                place_button_from_right(OK);
-            }
-            break;
-        }
-        case DialogueMode::YES_NO:
-        case DialogueMode::ACCEPT_DECLINE:
-            place_button_from_right(NO);
-            place_button_from_right(YES);
-            break;
-        case DialogueMode::SELECTION:
-            place_button_from_right(OK);
-            place_button_from_right(NEXT);
-            place_button_from_right(PREV);
-            break;
-        case DialogueMode::UNKNOWN:
-            // Older scripts and some server variants use dialogue types that this
-            // client does not model yet. Showing OK keeps the flow usable.
-            place_button_from_right(OK);
-            break;
-        }
-
-        auto has_visible_action_button = [&](Buttons id) {
-            return buttons[id]->is_active() && buttons[id]->width() > 0 && buttons[id]->height() > 0;
-        };
-
-        // If text-only dialogue effectively has no visible action button besides
-        // END, treat END as confirm to avoid trapping the player in mode=0 exits.
-        if (dialogue_mode == DialogueMode::TEXT &&
-            !has_visible_action_button(OK) &&
-            !has_visible_action_button(NEXT) &&
-            !has_visible_action_button(PREV))
-        {
-            end_confirms_dialogue = true;
-        }
-
-        // Same fallback for accept/decline prompts when YES/NO buttons fail
-        // to render in some WZ/UI variants: END acts as accept so flow advances.
-        if ((dialogue_mode == DialogueMode::YES_NO || dialogue_mode == DialogueMode::ACCEPT_DECLINE) &&
-            !has_visible_action_button(YES) &&
-            !has_visible_action_button(NO))
-        {
-            end_confirms_dialogue = true;
-        }
-
-        type = msgtype;
-
-        dimension = { top.width(), static_cast<int16_t>(top.height() + height + bottom.height()) };
-        position = {
-            static_cast<int16_t>(Constants::viewwidth() / 2 - dimension.x() / 2),
-            static_cast<int16_t>(Constants::viewheight() / 2 - dimension.y() / 2)
-        };
-
-    }
-
-    void UINpcTalk::send_key(int32_t, bool pressed, bool escape)
-    {
-        if (!pressed || !escape)
-        {
-            return;
-        }
-
-        active = false;
-        NpcTalkMorePacket::close(type).dispatch();
-    }
-
-    void UINpcTalk::send_scroll(double yoffset)
-    {
-        if (max_scroll <= 0)
-            return;
-
-        constexpr int16_t SCROLL_STEP = 24;
-        scroll_offset = std::clamp<int16_t>(
-            static_cast<int16_t>(scroll_offset - static_cast<int16_t>(yoffset * SCROLL_STEP)),
-            0, max_scroll
-        );
-    }
-
-    UIElement::CursorResult UINpcTalk::send_cursor(bool clicked, Point<int16_t> cursorpos)
-    {
-        if (active && dialogue_mode == DialogueMode::SELECTION && !selection_labels.empty())
-        {
-            Point<int16_t> relative = cursorpos - position;
-            int32_t hovered_option = get_option_at(relative);
-
-            bool style_changed = false;
-            if (hovered_selection != hovered_option)
-            {
-                hovered_selection = hovered_option;
-                style_changed = true;
-            }
-
-            if (hovered_option >= 0 && selected != hovered_option)
-            {
-                selected = hovered_option;
-                style_changed = true;
-            }
-
-            if (style_changed)
-            {
-                refresh_selection_styles();
-            }
-
-            if (hovered_option >= 0)
-            {
-                if (clicked)
-                {
-                    button_pressed(OK);
-                }
-                return { clicked ? Cursor::CLICKING : Cursor::CANCLICK, true };
-            }
-        }
-
-        return UIElement::send_cursor(clicked, cursorpos);
-    }
-
-    void UINpcTalk::parse_selections(const std::string& source, std::string& rendered_text)
-    {
-        rendered_text.clear();
-        selections.clear();
-        selection_texts.clear();
-
-        size_t cursor = 0;
-        while (cursor < source.size())
-        {
-            size_t begin = source.find("#L", cursor);
-            if (begin == std::string::npos)
-            {
-                rendered_text += source.substr(cursor);
-                break;
-            }
-
-            rendered_text += source.substr(cursor, begin - cursor);
-
-            size_t id_start = begin + 2;
-            size_t id_end = id_start;
-            while (id_end < source.size() && std::isdigit(static_cast<unsigned char>(source[id_end])))
-                id_end++;
-
-            if (id_end >= source.size() || source[id_end] != '#')
-            {
-                rendered_text += source.substr(begin);
-                break;
-            }
-
-            size_t option_start = id_end + 1;
-            size_t option_end = source.find("#l", option_start);
-            bool has_explicit_end = option_end != std::string::npos;
-            if (!has_explicit_end)
-            {
-                option_end = find_next_selection_tag(source, option_start);
-                if (option_end == std::string::npos)
-                {
-                    option_end = source.size();
-                }
-            }
-
-            if (id_end == id_start)
-            {
-                rendered_text += source.substr(begin, option_end - begin);
-                cursor = has_explicit_end ? option_end + 2 : option_end;
-                continue;
-            }
-
-            int32_t selection_id = 0;
-            if (!try_parse_int32(source.substr(id_start, id_end - id_start), selection_id))
-            {
-                rendered_text += source.substr(begin, option_end - begin);
-                cursor = has_explicit_end ? option_end + 2 : option_end;
-                continue;
-            }
-
-            selections.push_back(selection_id);
-            selection_texts.push_back(
-                trim_selection_text(
-                    strip_npc_tokens(source.substr(option_start, option_end - option_start))
-                )
-            );
-            cursor = has_explicit_end ? option_end + 2 : option_end;
-        }
-
-        rendered_text = strip_npc_tokens(rendered_text);
-    }
-
-    void UINpcTalk::refresh_selection_styles()
-    {
-        for (size_t i = 0; i < selection_labels.size(); ++i)
-        {
-            Text::Color option_color = Text::BLUE;
-            if (static_cast<int32_t>(i) == selected)
-            {
-                option_color = Text::MEDIUMBLUE;
-            }
-            if (static_cast<int32_t>(i) == hovered_selection)
-            {
-                option_color = Text::ORANGE;
-            }
-            selection_labels[i].change_color(option_color);
-        }
-    }
-
-    int16_t UINpcTalk::get_selection_text_height() const
-    {
-        int16_t selection_height = 0;
-        for (size_t i = 0; i < selection_labels.size(); ++i)
-        {
-            selection_height += selection_labels[i].height();
-            if (i + 1 < selection_labels.size())
-            {
-                selection_height += OPTION_VERTICAL_GAP;
-            }
-        }
-        return selection_height;
-    }
-
-    int16_t UINpcTalk::get_dialogue_content_height() const
-    {
-        int16_t content_height = text.height();
-        if (!selection_labels.empty())
-        {
-            if (!prompttext.empty())
-            {
-                content_height += OPTION_VERTICAL_GAP;
-            }
-            content_height += get_selection_text_height();
-        }
-        return content_height;
-    }
-
-    int16_t UINpcTalk::get_dialogue_text_y() const
-    {
-        return DIALOG_TEXT_Y_OFFSET + ((vtile * fill.height() - get_dialogue_content_height()) / 2);
-    }
-
-    int16_t UINpcTalk::get_options_start_y() const
-    {
-        int16_t options_y = get_dialogue_text_y() + text.height();
-        if (!prompttext.empty())
-        {
-            options_y += OPTION_VERTICAL_GAP;
-        }
-        return options_y;
-    }
-
-    int32_t UINpcTalk::get_option_at(Point<int16_t> relative) const
-    {
-        int16_t options_y = static_cast<int16_t>(get_options_start_y() - scroll_offset);
-        for (size_t i = 0; i < selection_labels.size(); ++i)
-        {
-            int16_t option_height = selection_labels[i].height();
-            Rectangle<int16_t> option_rect(
-                Point<int16_t>(DIALOG_TEXT_X, options_y),
-                Point<int16_t>(DIALOG_TEXT_X + TEXT_WIDTH, options_y + option_height)
-            );
-            if (option_rect.contains(relative))
-            {
-                return static_cast<int32_t>(i);
-            }
-
-            options_y += option_height;
-            if (i + 1 < selection_labels.size())
-            {
-                options_y += OPTION_VERTICAL_GAP;
-            }
-        }
-
-        return -1;
-    }
-
-    std::string UINpcTalk::strip_npc_tokens(const std::string& source)
-    {
-        std::string stripped;
-        stripped.reserve(source.size());
-
-        size_t cursor = 0;
-        while (cursor < source.size())
-        {
-            if (source[cursor] != '#' || cursor + 1 >= source.size())
-            {
-                stripped.push_back(source[cursor]);
-                cursor++;
-                continue;
-            }
-
-            char token = source[cursor + 1];
-
-            if (token == '#')
-            {
-                stripped.push_back('#');
-                cursor += 2;
-                continue;
-            }
-
-            if (is_formatting_token(token))
-            {
-                cursor += 2;
-                continue;
-            }
-
-            if (std::isalpha(static_cast<unsigned char>(token)))
-            {
-                int32_t ignored_value = 0;
-                size_t token_end = 0;
-                if (try_parse_delimited_number(source, cursor + 2, token_end, ignored_value))
-                {
-                    cursor = token_end + 1;
-                    continue;
-                }
-
-                if (token == 'h' || token == 'H')
-                {
-                    size_t token_end_h = source.find('#', cursor + 2);
-                    if (token_end_h != std::string::npos)
-                    {
-                        cursor = token_end_h + 1;
-                        continue;
-                    }
-                }
-
-                cursor += 2;
-                continue;
-            }
-
-            if (std::isdigit(static_cast<unsigned char>(token)))
-            {
-                int32_t ignored_value = 0;
-                size_t token_end = 0;
-                if (try_parse_delimited_number(source, cursor + 1, token_end, ignored_value))
-                {
-                    cursor = token_end + 1;
-                    continue;
-                }
-            }
-
-            stripped.push_back(source[cursor]);
-            cursor++;
-        }
-
-        return stripped;
-    }
-
-    std::string UINpcTalk::replace_macros(const std::string& source)
-    {
-        std::string result;
-        result.reserve(source.size());
-
-        size_t cursor = 0;
-        while (cursor < source.size())
-        {
-            if (source[cursor] != '#' || cursor + 1 >= source.size())
-            {
-                result.push_back(source[cursor]);
-                cursor++;
-                continue;
-            }
-
-            char token = source[cursor + 1];
-
-            // Skip zero-parameter formatting tokens (#b, #e, #k, #n, #r, etc.)
-            if (is_formatting_token(token))
-            {
-                cursor += 2;
-                continue;
-            }
-
-            if (token == 'h' || token == 'H')
-            {
-                size_t token_end = source.find('#', cursor + 2);
-                if (token_end != std::string::npos)
-                {
-                    result += Stage::get().get_player().get_stats().get_name();
-                    cursor = token_end + 1;
-                    continue;
-                }
-            }
-
-            if (token == 'm' || token == 'M' ||
-                token == 't' || token == 'T' ||
-                token == 'z' || token == 'Z' ||
-                token == 'p' || token == 'P' ||
-                token == 'o' || token == 'O')
-            {
-                int32_t id = 0;
-                size_t token_end = 0;
-                if (try_parse_delimited_number(source, cursor + 2, token_end, id))
-                {
-                    std::string replacement = resolve_prefixed_reference(token, id);
-                    std::string token_text = source.substr(cursor, token_end + 1 - cursor);
-                    if (!replacement.empty())
-                    {
-                        result += replacement;
-                    }
-                    else
-                    {
-                        log_unresolved_npc_token(token_text);
-                        result += token_text;
-                    }
-
-                    cursor = token_end + 1;
-                    continue;
-                }
-            }
-
-            if (std::isdigit(static_cast<unsigned char>(token)))
-            {
-                int32_t id = 0;
-                size_t token_end = 0;
-                if (try_parse_delimited_number(source, cursor + 1, token_end, id))
-                {
-                    std::string replacement = resolve_numeric_reference(id);
-                    std::string token_text = source.substr(cursor, token_end + 1 - cursor);
-                    if (!replacement.empty())
-                    {
-                        result += replacement;
-                    }
-                    else
-                    {
-                        log_unresolved_npc_token(token_text);
-                        result += token_text;
-                    }
-
-                    cursor = token_end + 1;
-                    continue;
-                }
-            }
-
-            result.push_back(source[cursor]);
-            cursor++;
-        }
-
-        return result;
-    }
+	UINpcTalk::UINpcTalk() : offset(0), unitrows(0), rowmax(0), show_slider(false), draw_text(false), formatted_text(""), formatted_text_pos(0), timestep(0), selection_top(0), hovered_selection(-1)
+	{
+		nl::node UtilDlgEx = nl::nx::ui["UIWindow2.img"]["UtilDlgEx"];
+
+		top = UtilDlgEx["t"];
+		fill = UtilDlgEx["c"];
+		bottom = UtilDlgEx["s"];
+		nametag = UtilDlgEx["bar"];
+
+		// dot0/dot1/list0/list1 don't exist at UIWindow2.img/UtilDlgEx in v83
+		// and the node lookup was picking up unrelated bitmaps ("QUESTS IN
+		// PROGRESS" stickers) that rendered over each selection row. Try
+		// the v83 path (UIWindow.img/UtilDlgEx) first and only accept nodes
+		// that actually resolve to something.
+		nl::node UtilDlgEx_v83 = nl::nx::ui["UIWindow.img"]["UtilDlgEx"];
+
+		auto pick = [](nl::node a, nl::node b) -> nl::node
+		{
+			return a ? a : b;
+		};
+
+		dot_normal = pick(UtilDlgEx_v83["dot0"], UtilDlgEx["dot0"]);
+		dot_hovered = pick(UtilDlgEx_v83["dot1"], UtilDlgEx["dot1"]);
+		list_normal = pick(UtilDlgEx_v83["list0"], UtilDlgEx["list0"]);
+		list_hovered = pick(UtilDlgEx_v83["list1"], UtilDlgEx["list1"]);
+
+		min_height = 8 * fill.height() + 14;
+
+		buttons[Buttons::CLOSE] = std::make_unique<MapleButton>(UtilDlgEx["BtClose"]);
+		buttons[Buttons::NEXT] = std::make_unique<MapleButton>(UtilDlgEx["BtNext"]);
+		buttons[Buttons::NO] = std::make_unique<MapleButton>(UtilDlgEx["BtNo"]);
+		buttons[Buttons::OK] = std::make_unique<MapleButton>(UtilDlgEx["BtOK"]);
+		buttons[Buttons::PREV] = std::make_unique<MapleButton>(UtilDlgEx["BtPrev"]);
+		buttons[Buttons::QNO] = std::make_unique<MapleButton>(UtilDlgEx["BtQNo"]);
+		buttons[Buttons::QYES] = std::make_unique<MapleButton>(UtilDlgEx["BtQYes"]);
+		buttons[Buttons::YES] = std::make_unique<MapleButton>(UtilDlgEx["BtYes"]);
+		buttons[Buttons::QSTART] = std::make_unique<MapleButton>(UtilDlgEx["BtQStart"]);
+		buttons[Buttons::QAFTER] = std::make_unique<MapleButton>(UtilDlgEx["BtQAfter"]);
+		buttons[Buttons::QCYES] = std::make_unique<MapleButton>(UtilDlgEx["BtQCYes"]);
+		buttons[Buttons::QCNO] = std::make_unique<MapleButton>(UtilDlgEx["BtQCNo"]);
+		buttons[Buttons::QGIVEUP] = std::make_unique<MapleButton>(UtilDlgEx["BtQGiveup"]);
+
+		name = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE);
+
+		// Quest-state icons painted next to SENDSIMPLE option rows:
+		//   QuestIcon/0 = available (!), /1 = in-progress (?), /2 = complete
+		if (nl::node qi = nl::nx::ui["UIWindow.img"]["QuestIcon"])
+		{
+			if (qi["0"] && qi["0"].size() > 0) mark_available  = Animation(qi["0"]);
+			if (qi["1"] && qi["1"].size() > 0) mark_in_progress = Animation(qi["1"]);
+			if (qi["2"] && qi["2"].size() > 0) mark_complete   = Animation(qi["2"]);
+		}
+
+		onmoved = [&](bool upwards)
+		{
+			// The Slider drives one row per notch; offset mirrors its row (each row
+			// == SCROLL_STEP px of text). Clamp to the scrollable range.
+			int16_t maxoff = rowmax - unitrows;
+
+			if (upwards)
+			{
+				if (offset > 0)
+					offset--;
+			}
+			else if (offset < maxoff)
+			{
+				offset++;
+			}
+		};
+
+		UI::get().remove_textfield();
+	}
+
+	void UINpcTalk::draw(float inter) const
+	{
+		Point<int16_t> drawpos = position;
+		top.draw(drawpos);
+		drawpos.shift_y(top.height());
+		fill.draw(DrawArgument(drawpos, Point<int16_t>(0, height)));
+		drawpos.shift_y(height);
+		bottom.draw(drawpos);
+		drawpos.shift_y(bottom.height());
+
+		UIElement::draw(inter);
+
+		int16_t speaker_y = (top.height() + height + bottom.height()) / 2;
+		Point<int16_t> speaker_pos = position + Point<int16_t>(22, 11 + speaker_y);
+		Point<int16_t> center_pos = speaker_pos + Point<int16_t>(nametag.width() / 2, 0);
+
+		// Oversized (AI-generated) NPC art: shrink it about its feet anchor so
+		// it never grows past the dialog panel. Vanilla-sized art is untouched.
+		constexpr int16_t SPEAKER_MAX_W = 100;
+		const int16_t speaker_max_h = static_cast<int16_t>(speaker_y - 6);
+		float fit = 1.0f;
+
+		if (speaker.height() > speaker_max_h)
+			fit = static_cast<float>(speaker_max_h) / speaker.height();
+
+		if (speaker.width() * fit > SPEAKER_MAX_W)
+			fit = static_cast<float>(SPEAKER_MAX_W) / speaker.width();
+
+		if (fit < 1.0f)
+			speaker.draw(DrawArgument(center_pos, center_pos, Point<int16_t>(0, 0), -fit, fit, 1.0f, 0.0f));
+		else
+			speaker.draw(DrawArgument(center_pos, true));
+		nametag.draw(speaker_pos);
+		name.draw(center_pos + Point<int16_t>(0, -4));
+
+		// Overlay inline icons reserved by `#v<id>#`, `#i<id>#`,
+		// `#q<id>#`, `#s<id>#`, `#f<id>#` macros. LayoutBuilder
+		// records each macro's pixel position and kind; we resolve
+		// the bitmap from the appropriate NX source and stamp it on
+		// top of the reserved 32-px slot.
+		// clip is the visible panel body (absolute screen Y). Icons whose slot
+		// falls outside it (scrolled out, or past the bottom border) are skipped
+		// so they never spill out of the chat window.
+		auto draw_inline_icons = [&](Point<int16_t> text_origin, Range<int16_t> clip)
+		{
+			for (const auto& img : text.images())
+			{
+				if (img.item_id <= 0) continue;
+
+				Texture tex;
+				switch (img.kind)
+				{
+				case Text::Layout::ImageKind::ITEM:
+					// The small inventory icon (~32px), NOT iconRaw (full-size art),
+					// which is far bigger than the reserved slot.
+					tex = ItemData::get(img.item_id).get_icon(false);
+					break;
+				case Text::Layout::ImageKind::QUEST:
+				{
+					nl::node qnode = nl::nx::ui["UIWindow.img"]["QuestIcon"][std::to_string(img.item_id)];
+					if (qnode)
+						tex = Texture(qnode);
+					break;
+				}
+				case Text::Layout::ImageKind::SKILL:
+				{
+					// Skill icons live under Skill.wz/<job>.img/skill/
+					// /<skill_id>/icon. Job is derived from the high
+					// digits of the skill id (skillid / 10000).
+					int32_t job = img.item_id / 10000;
+					std::string job_strid = std::to_string(job);
+					while (job_strid.size() < 3) job_strid.insert(0, 1, '0');
+					nl::node snode = nl::nx::skill[job_strid + ".img"]["skill"][std::to_string(img.item_id)]["icon"];
+					if (snode)
+						tex = Texture(snode);
+					break;
+				}
+				case Text::Layout::ImageKind::FACE:
+				{
+					std::string fid = std::to_string(img.item_id);
+					while (fid.size() < 5) fid.insert(0, 1, '0');
+					nl::node fnode = nl::nx::character["Face"][fid + ".img"]["default"]["face"];
+					if (fnode)
+						tex = Texture(fnode);
+					break;
+				}
+				case Text::Layout::ImageKind::EMOTE:
+					// Face expressions -- v83 has no UI.wz/Emote.img.
+					tex = ChatBalloon::resolve_inline_image(img.kind, img.item_id);
+					break;
+				}
+
+				if (!tex.is_valid()) continue;
+
+				Point<int16_t> icon_dims = tex.get_dimensions();
+				if (icon_dims.x() <= 0 || icon_dims.y() <= 0) continue;
+
+				// Icons arrive in many sizes (item icons, faces, skill icons can be
+				// larger than the 32-px slot the layout reserves). Scale to fit that
+				// slot, preserving aspect, so an icon never spills over the text.
+				float scale = 1.0f;
+				int16_t maxdim = std::max(icon_dims.x(), icon_dims.y());
+				if (maxdim > img.size)
+					scale = static_cast<float>(img.size) / static_cast<float>(maxdim);
+
+				int16_t dw = static_cast<int16_t>(icon_dims.x() * scale);
+				int16_t dh = static_cast<int16_t>(icon_dims.y() * scale);
+
+				Point<int16_t> slot_pos = text_origin + img.pos;
+				Point<int16_t> tl(
+					slot_pos.x() + (img.size - dw) / 2,
+					slot_pos.y() + (img.size - dh) / 2);
+
+				// Skip icons that don't fully fit inside the visible panel body so
+				// a scrolled-out or bottom-edge icon can't draw over the frame.
+				if (tl.y() < clip.first() || tl.y() + dh > clip.second())
+					continue;
+
+				// draw() pins the texture ORIGIN at pos and scales about it, so add
+				// the scaled origin to land the bitmap's top-left exactly at tl.
+				Point<int16_t> origin = tex.get_origin();
+				Point<int16_t> pos(
+					static_cast<int16_t>(tl.x() + origin.x() * scale),
+					static_cast<int16_t>(tl.y() + origin.y() * scale));
+				tex.draw(DrawArgument(pos, scale, scale, 1.0f));
+			}
+		};
+
+		if (show_slider)
+		{
+			int16_t text_min_height = position.y() + top.height() - 1;
+			int16_t clip_bot = text_min_height + height - 18;
+			Point<int16_t> text_origin = position + Point<int16_t>(162, 19 - offset * SCROLL_STEP);
+
+			// Hover band for the option under the cursor (send_cursor sets
+			// hovered_selection with the same scrolled geometry). The non-slider
+			// path draws this in its selection loop; the slider path skipped it,
+			// which is why many-option menus showed no hover feedback. Clip it to
+			// the visible band so a scrolled-out row doesn't paint over the frame.
+			if (type == TalkType::SENDSIMPLE && hovered_selection >= 0
+				&& hovered_selection < static_cast<int32_t>(selections.size()))
+			{
+				const auto& sel = selections[hovered_selection];
+				std::string pref_escaped;
+				pref_escaped.reserve(sel.prefix.size() + 8);
+				for (char c : sel.prefix)
+				{
+					if (c == '\n') pref_escaped += "\\n";
+					else pref_escaped += c;
+				}
+				Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
+					Color::Name::DARKGREY, Text::Background::NONE, pref_escaped, 320, true);
+
+				int16_t base_y = position.y() + 19 - offset * SCROLL_STEP;
+				int16_t row_y = base_y + prefix_text.height() - 16;
+
+				if (row_y + 16 > text_min_height && row_y < clip_bot)
+				{
+					ColorBox band(360, 16, Color::Name::LIGHTBLUE, 0.30f);
+					band.draw(DrawArgument(Point<int16_t>(position.x() + 162 - 36, row_y)));
+				}
+			}
+
+			text.draw(text_origin, Range<int16_t>(text_min_height, text_min_height + height - 18));
+			draw_inline_icons(text_origin, Range<int16_t>(text_min_height, text_min_height + height - 18));
+			slider.draw(position);
+		}
+		else
+		{
+			// Text sits at a FIXED offset below the header. It used to be
+			// position.y() + 48 - (height - min_height), which drifted UP as the
+			// window grew to fit longer text — pushing the text out the top of the
+			// frame. A constant top keeps it inside; the window is already sized
+			// to the text (needed = text_height + pad), so it fills downward.
+			int16_t text_x = position.x() + 166;
+			int16_t text_y = position.y() + 48;
+			int16_t line_h = 16;
+
+			// Draw selection list backgrounds and dots for SENDSIMPLE
+			if (type == TalkType::SENDSIMPLE && !selections.empty())
+			{
+				for (size_t i = 0; i < selections.size(); i++)
+				{
+					auto& sel = selections[i];
+					// Measure the rendered height of everything before this
+					// option so word-wrapped intro text produces the right
+					// Y position (sel.line counts source newlines, not the
+					// visual lines the layout produces).
+					std::string pref_escaped;
+					pref_escaped.reserve(sel.prefix.size() + 8);
+					for (char c : sel.prefix)
+					{
+						if (c == '\n') pref_escaped += "\\n";
+						else pref_escaped += c;
+					}
+					Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
+						Color::Name::DARKGREY, Text::Background::NONE,
+						pref_escaped, 320, true);
+					// height() returns the baseline y of the next row after
+					// the prefix; subtract linespace so row_y points at the
+					// TOP of the option's row (where list_bg/dot sprites
+					// would normally anchor).
+					int16_t row_y = text_y + prefix_text.height() - line_h;
+					Point<int16_t> row_pos(text_x - 36, row_y);
+					Point<int16_t> dot_pos(text_x - 14, row_y + 3);
+
+					bool is_hovered = (static_cast<int32_t>(i) == hovered_selection);
+
+					// Selection bullet — the UtilDlgEx list / dot sprites
+					// aren't a selection-row hover; they're used by the
+					// quest-progress view (intro text + divider + reqs).
+					// Plain grey bullet here keeps the simple-selection
+					// list visually clean.
+					ColorBox bullet(4, 4, Color::Name::DUSTYGRAY, 1.0f);
+					bullet.draw(DrawArgument(Point<int16_t>(dot_pos.x() + 1, dot_pos.y() + 1)));
+
+					// Quest-state icon (available/in-progress/complete) if
+					// the server tagged this option. Drawn just to the
+					// right of the bullet, before the option's text.
+					const Animation* mark_anim = nullptr;
+					switch (sel.mark)
+					{
+					case QuestMark::AVAILABLE:   mark_anim = &mark_available;  break;
+					case QuestMark::IN_PROGRESS: mark_anim = &mark_in_progress; break;
+					case QuestMark::COMPLETE:    mark_anim = &mark_complete;   break;
+					default: break;
+					}
+					if (mark_anim && mark_anim->get_dimensions().x() > 0)
+					{
+						Point<int16_t> mark_pos(
+							text_x - 6, row_y + line_h / 2);
+						mark_anim->draw(DrawArgument(mark_pos), 1.0f);
+					}
+
+					// Translucent hover band so the player can see
+					// which option the cursor is on.
+					if (is_hovered)
+					{
+						constexpr int16_t HIGHLIGHT_W = 360;
+						constexpr int16_t HIGHLIGHT_H = 16;
+						ColorBox band(HIGHLIGHT_W, HIGHLIGHT_H,
+							Color::Name::LIGHTBLUE, 0.30f);
+						band.draw(DrawArgument(
+							Point<int16_t>(text_x - 36, row_y)));
+					}
+				}
+			}
+
+			Point<int16_t> text_origin = position + Point<int16_t>(166, 48);
+
+			// Always draw the NPC text first, clipped to the panel body so it can
+			// never bleed above the header or below the bottom border even if the
+			// measured text height drifts from the actual layout.
+			text.draw(text_origin, Range<int16_t>(position.y() + top.height(), position.y() + top.height() + height));
+			draw_inline_icons(text_origin, Range<int16_t>(position.y() + top.height(), position.y() + top.height() + height));
+
+			quest_banner_hits.clear();
+
+			// Quest-progress banner is disabled for now per user
+			// request. Re-enable by flipping this guard to true; the
+			// banner-rendering, hover/click hit-tests and the per-quest
+			// expanded_quest_ids state are all still wired up below.
+			constexpr bool QUEST_BANNER_ENABLED = false;
+			if (QUEST_BANNER_ENABLED
+				&& type != TalkType::SENDSIMPLE
+				&& current_npcid > 0
+				&& list_normal.is_valid())
+			{
+				const auto& quests = Stage::get().get_player().get_quests();
+				const auto& started = quests.get_started();
+				nl::node quest_check = nl::nx::quest["Check.img"];
+
+				int16_t cur_y = text_origin.y() + text.height() + 6;
+				const auto& inv = Stage::get().get_player().get_inventory();
+
+				for (auto& it : started)
+				{
+					int16_t qid = it.first;
+					const std::string& qdata = it.second;
+					nl::node check = quest_check[std::to_string(qid)];
+					if (!check) continue;
+					nl::node sc = check["0"];
+					nl::node ec = check["1"];
+					int32_t sn = sc ? static_cast<int32_t>((int64_t)sc["npc"]) : 0;
+					int32_t en = ec ? static_cast<int32_t>((int64_t)ec["npc"]) : 0;
+					if (sn != current_npcid && en != current_npcid)
+						continue;
+
+					Point<int16_t> banner_pos(text_origin.x() - 8, cur_y);
+
+					bool hovered = (quest_banner_hovered_qid == qid);
+					const Texture& banner_tex =
+						(hovered && list_hovered.is_valid())
+							? list_hovered : list_normal;
+					banner_tex.draw(DrawArgument(banner_pos));
+
+					Point<int16_t> dims = banner_tex.get_dimensions();
+					quest_banner_hits.push_back({
+						qid,
+						Rectangle<int16_t>(banner_pos, banner_pos + dims)
+					});
+					cur_y += dims.y();
+
+					// If expanded, draw the requirements right under
+					// this banner before moving on to the next quest.
+					if (expanded_quest_ids.count(qid) && ec)
+					{
+						int16_t req_y = cur_y + 2;
+
+						size_t qpos = 0;
+						for (auto m : ec["mob"])
+						{
+							int32_t mobid = static_cast<int32_t>((int64_t)m["id"]);
+							int32_t need = static_cast<int32_t>((int64_t)m["count"]);
+							if (mobid <= 0) continue;
+							int32_t have = 0;
+							if (qpos + 3 <= qdata.size())
+							{
+								try { have = std::stoi(qdata.substr(qpos, 3)); }
+								catch (...) { have = 0; }
+							}
+							qpos += 3;
+							std::string mname = (std::string)nl::nx::string["Mob.img"][std::to_string(mobid)]["name"];
+							if (mname.empty())
+								mname = "Monster " + std::to_string(mobid);
+							std::string line = mname + " " + std::to_string(have) + "/" + std::to_string(need);
+							Color::Name col = (have >= need) ? Color::Name::EMPEROR : Color::Name::BLACK;
+							Text req(Text::Font::A11M, Text::Alignment::LEFT, col, line, 320, false);
+							req.draw(Point<int16_t>(text_origin.x(), req_y));
+							req_y += 14;
+						}
+
+						for (auto i : ec["item"])
+						{
+							int32_t itemid = static_cast<int32_t>((int64_t)i["id"]);
+							int32_t need = static_cast<int32_t>((int64_t)i["count"]);
+							if (itemid <= 0) continue;
+							int32_t have = inv.get_total_item_count(itemid);
+							const ItemData& idata = ItemData::get(itemid);
+							std::string iname = idata.is_valid() ? idata.get_name() : ("Item " + std::to_string(itemid));
+							std::string line = iname + " " + std::to_string(have) + "/" + std::to_string(need);
+							Color::Name col = (have >= need) ? Color::Name::EMPEROR : Color::Name::BLACK;
+							Text req(Text::Font::A11M, Text::Alignment::LEFT, col, line, 320, false);
+							req.draw(Point<int16_t>(text_origin.x(), req_y));
+							req_y += 14;
+						}
+
+						cur_y = req_y;
+					}
+
+					// 5 px spacing before the next banner.
+					cur_y += 5;
+				}
+			}
+		}
+
+		// Draw text input field for SENDGETTEXT / SENDGETNUMBER
+		if (type == TalkType::SENDGETTEXT || type == TalkType::SENDGETNUMBER)
+			input_field.draw(position);
+
+	}
+
+	void UINpcTalk::update()
+	{
+		UIElement::update();
+
+		++hover_pulse_tick;
+
+		// Advance the quest-mark sprites so their animation loops play
+		// while the NPC selection dialog is on screen.
+		mark_available.update();
+		mark_in_progress.update();
+		mark_complete.update();
+
+		if (type == TalkType::SENDGETTEXT || type == TalkType::SENDGETNUMBER)
+			input_field.update(position);
+
+		if (draw_text)
+		{
+			if (timestep > 4)
+			{
+				if (formatted_text_pos < formatted_text.size())
+				{
+					std::string t = text.get_text();
+					char c = formatted_text[formatted_text_pos];
+
+					text.change_text(t + c);
+
+					formatted_text_pos++;
+					timestep = 0;
+				}
+				else
+				{
+					draw_text = false;
+				}
+			}
+			else
+			{
+				timestep++;
+			}
+		}
+	}
+
+	Button::State UINpcTalk::button_pressed(uint16_t buttonid)
+	{
+		deactivate();
+
+		switch (type)
+		{
+			case TalkType::SENDOK:
+			{
+				// msgtype 0 — text + [OK]. Close and OK both report end.
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, -1).dispatch();
+						break;
+					case Buttons::OK:
+						NpcTalkMorePacket(type, 1).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDNEXT:
+			{
+				// msgtype 5 — text + [Next].
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, -1).dispatch();
+						break;
+					case Buttons::NEXT:
+						NpcTalkMorePacket(type, 1).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDNEXTPREV:
+			{
+				// msgtype 6 — text + [Back] [Next].
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, -1).dispatch();
+						break;
+					case Buttons::NEXT:
+						NpcTalkMorePacket(type, 1).dispatch();
+						break;
+					case Buttons::PREV:
+						NpcTalkMorePacket(type, 0).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDYESNO:
+			{
+				// msgtype 1 — text + [Yes] [No].
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, -1).dispatch();
+						break;
+					case Buttons::NO:
+						NpcTalkMorePacket(type, 0).dispatch();
+						break;
+					case Buttons::YES:
+						NpcTalkMorePacket(type, 1).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDACCEPTDECLINE:
+			{
+				// msgtype 7 — quest accept/decline (text + [Accept] [Decline]).
+				// We render this with BtYes / BtNo, but keep the quest-
+				// themed Q* button ids in the routing too so any NX
+				// build that still uses the themed sprites keeps working.
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+					case Buttons::NO:
+					case Buttons::QNO:
+					case Buttons::QAFTER:
+					case Buttons::QCNO:
+					case Buttons::QGIVEUP:
+						NpcTalkMorePacket(type, 0).dispatch();
+						break;
+					case Buttons::YES:
+					case Buttons::QYES:
+					case Buttons::QSTART:
+					case Buttons::QCYES:
+						NpcTalkMorePacket(type, 1).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDGETTEXT:
+			{
+				// msgtype 13 — text input.
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, 0).dispatch();
+						break;
+					case Buttons::OK:
+						NpcTalkMorePacket(input_field.get_text()).dispatch();
+						break;
+				}
+				break;
+			}
+			case TalkType::SENDGETNUMBER:
+			{
+				// msgtype 12 — number input.
+				switch (buttonid)
+				{
+					case Buttons::CLOSE:
+						NpcTalkMorePacket(type, 0).dispatch();
+						break;
+					case Buttons::OK:
+					{
+						int32_t value = num_default;
+						try
+						{
+							value = std::stoi(input_field.get_text());
+						}
+						catch (...) {}
+
+						if (num_min != num_max)
+						{
+							if (value < num_min) value = num_min;
+							if (value > num_max) value = num_max;
+						}
+
+						NpcTalkNumberPacket(value).dispatch();
+						break;
+					}
+				}
+				break;
+			}
+			case TalkType::SENDSIMPLE:
+			{
+				// msgtype 4 — close only; selections handled in send_cursor.
+				if (buttonid == Buttons::CLOSE)
+					NpcTalkMorePacket(type, 0).dispatch();
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+
+		return Button::State::NORMAL;
+	}
+
+	Cursor::State UINpcTalk::send_cursor(bool clicked, Point<int16_t> cursorpos)
+	{
+		Point<int16_t> cursor_relative = cursorpos - position;
+
+		// Handle text input field cursor for SENDGETTEXT / SENDGETNUMBER
+		if (type == TalkType::SENDGETTEXT || type == TalkType::SENDGETNUMBER)
+		{
+			Cursor::State tstate = input_field.send_cursor(cursor_relative, clicked);
+			if (tstate != Cursor::State::IDLE)
+				return tstate;
+		}
+
+		if (show_slider && slider.isenabled())
+			if (Cursor::State sstate = slider.send_cursor(cursor_relative, clicked))
+				return sstate;
+
+		// Quest-progress banner hit-test (one clickable list_normal
+		// sprite per in-progress quest with this NPC). Hover swaps to
+		// list_hovered; click toggles that quest's expanded state in
+		// expanded_quest_ids so its requirements render below the
+		// banner.
+		quest_banner_hovered_qid = -1;
+		for (const auto& hit : quest_banner_hits)
+		{
+			if (hit.rect.contains(cursorpos))
+			{
+				quest_banner_hovered_qid = hit.qid;
+				if (clicked)
+				{
+					if (expanded_quest_ids.count(hit.qid))
+						expanded_quest_ids.erase(hit.qid);
+					else
+						expanded_quest_ids.insert(hit.qid);
+					return Cursor::State::CLICKING;
+				}
+				return Cursor::State::CANCLICK;
+			}
+		}
+
+		// Handle SENDSIMPLE option clicks.
+		// Uses embedded #L<i># codes in the text; reply via NpcTalkMorePacket(index).
+		if (type == TalkType::SENDSIMPLE && !selections.empty())
+		{
+			// Mirror the DRAW path's geometry exactly — the previous
+			// hit-test used text_x = +130 while the visible text
+			// renders at +166, leaving a dead 36-px strip and pushing
+			// every option's hot zone left of where the player sees
+			// it. Y-band is widened by a few pixels above and below
+			// to absorb word-wrap drift between prefix_text.height()
+			// and the formatted_text's actual layout.
+			// Match the DRAW geometry for whichever path is active. With many
+			// options the list scrolls (show_slider): the text renders at
+			// +(162, 19 - offset*400) and is clipped, so the hit-test MUST apply
+			// the same base + scroll offset, or clicks land on the wrong option
+			// (or nothing). The non-slider path renders at a fixed +(166, 48).
+			int16_t text_x = position.x() + (show_slider ? 162 : 166);
+			int16_t text_y = show_slider
+				? (position.y() + 19 - offset * SCROLL_STEP)
+				: (position.y() + 48);
+			int16_t text_w = 320;
+			int16_t line_h = 16; // approximate line height for A12M font
+			int16_t band_pad = 4; // extra px above/below each option row
+
+			// Visible clip band (slider mode) — options scrolled out of view
+			// must not be clickable/hoverable.
+			int16_t clip_top = position.y() + top.height() - 1;
+			int16_t clip_bot = clip_top + height - 18;
+
+			int32_t prev_hovered = hovered_selection;
+			hovered_selection = -1;
+
+			for (size_t i = 0; i < selections.size(); i++)
+			{
+				auto& sel = selections[i];
+				std::string pref_escaped;
+				pref_escaped.reserve(sel.prefix.size() + 8);
+				for (char c : sel.prefix)
+				{
+					if (c == '\n') pref_escaped += "\\n";
+					else pref_escaped += c;
+				}
+				Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
+					Color::Name::DARKGREY, Text::Background::NONE,
+					pref_escaped, 320, true);
+
+				// prefix_text.height() is the baseline-y of where THIS
+				// option's glyphs render. Glyphs extend roughly from
+				// (baseline - 14) to baseline — define the hit-test row
+				// around that range so clicking the visible text registers.
+				int16_t baseline = text_y + prefix_text.height();
+				int16_t row_top  = baseline - line_h - band_pad;
+				int16_t row_bot  = baseline + band_pad;
+
+				// Skip options scrolled out of the visible band when sliding.
+				if (show_slider && (row_bot < clip_top || row_top > clip_bot))
+					continue;
+
+				if (cursorpos.x() >= text_x && cursorpos.x() <= text_x + text_w &&
+					cursorpos.y() >= row_top && cursorpos.y() <= row_bot)
+				{
+					hovered_selection = static_cast<int32_t>(i);
+
+					if (clicked)
+					{
+						hovered_selection = -1;
+						deactivate();
+						NpcTalkMorePacket(sel.index).dispatch();
+						return Cursor::State::IDLE;
+					}
+					else
+					{
+						return Cursor::State::CANCLICK;
+					}
+				}
+			}
+		}
+
+		Cursor::State estate = UIElement::send_cursor(clicked, cursorpos);
+
+		if (estate == Cursor::State::CLICKING && clicked && draw_text)
+		{
+			draw_text = false;
+			text.change_text(formatted_text);
+		}
+
+		return estate;
+	}
+
+	void UINpcTalk::send_key(int32_t keycode, bool pressed, bool escape)
+	{
+		if (pressed && escape)
+		{
+			deactivate();
+
+			NpcTalkMorePacket(type, 0).dispatch();
+		}
+	}
+
+	void UINpcTalk::send_scroll(double yoffset)
+	{
+		if (show_slider)
+			slider.send_scroll(yoffset);
+	}
+
+	UIElement::Type UINpcTalk::get_type() const
+	{
+		return TYPE;
+	}
+
+	bool UINpcTalk::is_valid_type(int8_t value)
+	{
+		switch (value)
+		{
+		case TalkType::SENDOK:
+		case TalkType::SENDYESNO:
+		case TalkType::SENDSIMPLE:
+		case TalkType::SENDNEXT:
+		case TalkType::SENDNEXTPREV:
+		case TalkType::SENDACCEPTDECLINE:
+		case TalkType::SENDGETNUMBER:
+		case TalkType::SENDGETTEXT:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	// NPC text formatting — replaces all # macros with game data
+	// Handles: #h# (player name), #p<id># (NPC name), #m<id># (map name),
+	//          #o<id># (mob name), #t<id># / #z<id># (item name),
+	//          #e...#n (bold on/off), #b #k #r #d #c (color codes — stripped)
+	std::string UINpcTalk::format_text(const std::string& tx, const int32_t& npcid)
+	{
+		std::string result;
+		result.reserve(tx.size());
+
+		// Item IDs we've passed through via `#v<id>#`, `#i<id>#`,
+		// `#t<id>#` or `#z<id>#` macros. After the main pass we run a
+		// cleanup that strips those exact id strings if they appear
+		// later in the text — many quest scripts hard-code the id as
+		// literal digits next to the name (e.g. "#v4031161# #t4031161#
+		// 4031161 / 1"), which surfaces as redundant numbers in the
+		// dialog (Rusty Screw 4031161 / 1).
+		std::vector<std::string> macro_ids;
+
+		for (size_t i = 0; i < tx.size(); i++)
+		{
+			// Strip any ASCII control char below 0x20 except \n and \t —
+			// otherwise the A12M font renders them as a box placeholder
+			// (e.g. "X [] C [] Z [] Space"). This catches \r, \0, \x0b,
+			// \x0c and any other sub-space bytes the server may emit.
+			unsigned char uc = static_cast<unsigned char>(tx[i]);
+			if (uc < 0x20 && uc != '\n' && uc != '\t')
+				continue;
+
+			if (tx[i] != '#')
+			{
+				result += tx[i];
+				continue;
+			}
+
+			if (i + 1 >= tx.size())
+			{
+				result += '#';
+				continue;
+			}
+
+			char code = tx[i + 1];
+
+			// Color/style codes: just skip the marker
+			if (code == 'b' || code == 'k' || code == 'r' || code == 'd' ||
+				code == 'c' || code == 'e' || code == 'n')
+			{
+				i++; // skip the code character
+				continue;
+			}
+
+			// #h# — player name (no ID between markers)
+			if (code == 'h')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					result += Stage::get().get_player().get_name();
+					i = end; // skip past closing #
+					continue;
+				}
+			}
+
+			// #p<id># — NPC name
+			if (code == 'p')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					std::string id_str = tx.substr(i + 2, end - i - 2);
+					if (!id_str.empty())
+					{
+						std::string name = (std::string)nl::nx::string["Npc.img"][id_str]["name"];
+						result += name.empty() ? ("NPC " + id_str) : name;
+					}
+					i = end;
+					continue;
+				}
+			}
+
+			// #m<id># — map name
+			if (code == 'm')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					std::string id_str = tx.substr(i + 2, end - i - 2);
+					if (!id_str.empty())
+					{
+						// Map names: pad to 9 digits, look up in string.nx
+						std::string padded = id_str;
+						while (padded.size() < 9)
+							padded.insert(0, 1, '0');
+
+						std::string name = (std::string)nl::nx::string["Map.img"][padded]["mapName"];
+						result += name.empty() ? ("Map " + id_str) : name;
+					}
+					i = end;
+					continue;
+				}
+			}
+
+			// #o<id># — mob name
+			if (code == 'o')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					std::string id_str = tx.substr(i + 2, end - i - 2);
+					if (!id_str.empty())
+					{
+						std::string name = (std::string)nl::nx::string["Mob.img"][id_str]["name"];
+						result += name.empty() ? ("Mob " + id_str) : name;
+					}
+					i = end;
+					continue;
+				}
+			}
+
+			// #t<id># or #z<id># — item name.
+			if (code == 't' || code == 'z')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					std::string id_str = tx.substr(i + 2, end - i - 2);
+					if (!id_str.empty())
+					{
+						macro_ids.push_back(id_str);
+						try
+						{
+							int32_t itemid = std::stoi(id_str);
+							const ItemData& idata = ItemData::get(itemid);
+							result += idata.is_valid() ? idata.get_name() : ("Item " + id_str);
+						}
+						catch (...)
+						{
+							result += "Item " + id_str;
+						}
+					}
+					i = end;
+					continue;
+				}
+			}
+
+			// Inline-icon macros (item / quest / skill / face). Pass
+			// the whole `#X<id>#` through unchanged so the Text /
+			// LayoutBuilder pipeline reserves a 32-px slot at the
+			// macro position. UINpcTalk::draw_inline_icons paints
+			// the bitmap from the right NX source per kind.
+			if (code == 'v' || code == 'i' || code == 'q'
+				|| code == 's' || code == 'f')
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos)
+				{
+					std::string id_str = tx.substr(i + 2, end - i - 2);
+					if (!id_str.empty() && (code == 'v' || code == 'i'))
+						macro_ids.push_back(id_str);
+					result.append(tx, i, end - i + 1);
+					i = end;
+					continue;
+				}
+			}
+
+			// #L, #l — selection markers, keep them for parse_simple_selections
+			if (code == 'L' || code == 'l')
+			{
+				result += '#';
+				continue;
+			}
+
+			// Catch-all for any other `#X<id>#` macro the script might
+			// emit (e.g. `#q<id>#` quest icon, `#s<id>#` skill icon,
+			// `#f<id>#` face icon). We don't render their bitmaps yet,
+			// but stripping the macro is far better than leaking
+			// "ui/UIWindow.img/QuestIcon/8" path-style text into the
+			// dialog. Recognised by the shape: `#X<digits>#`.
+			if (std::isalpha(static_cast<unsigned char>(code)))
+			{
+				size_t end = tx.find('#', i + 2);
+				if (end != std::string::npos && end > i + 2)
+				{
+					bool all_digits = true;
+					for (size_t k = i + 2; k < end; k++)
+					{
+						if (!std::isdigit(static_cast<unsigned char>(tx[k])))
+						{
+							all_digits = false;
+							break;
+						}
+					}
+					if (all_digits)
+					{
+						i = end;
+						continue;
+					}
+				}
+			}
+
+			// Unknown code — pass through as-is.
+			result += '#';
+		}
+
+		// Strip standalone occurrences of any item id we already
+		// expanded via a macro. Avoids the "Rusty Screw 4031161 / 1"
+		// look — when the script literally writes the id next to its
+		// own name macro. We skip when the id is bounded by digits
+		// (so legitimate larger numbers stay) AND when it's directly
+		// inside a `#X<digits>#` inline-icon macro (e.g. `#v4031161#`),
+		// because eating those breaks the inline-icon layout.
+		for (const std::string& id : macro_ids)
+		{
+			if (id.size() < 4) continue; // skip short ids — too easily a real number
+			size_t pos = 0;
+			while ((pos = result.find(id, pos)) != std::string::npos)
+			{
+				bool left_ok = (pos == 0)
+					|| !std::isdigit(static_cast<unsigned char>(result[pos - 1]));
+				bool right_ok = (pos + id.size() >= result.size())
+					|| !std::isdigit(static_cast<unsigned char>(result[pos + id.size()]));
+
+				// Inside-macro guard: id sits immediately after `#X`
+				// (any single letter), so `result[pos-2]` would be `#`.
+				bool inside_macro = false;
+				if (pos >= 2
+					&& result[pos - 2] == '#'
+					&& std::isalpha(static_cast<unsigned char>(result[pos - 1])))
+				{
+					inside_macro = true;
+				}
+
+				if (left_ok && right_ok && !inside_macro)
+				{
+					size_t start = pos;
+					size_t end = pos + id.size();
+					if (start > 0 && result[start - 1] == ' ')
+						start--;
+					else if (end < result.size() && result[end] == ' ')
+						end++;
+					result.erase(start, end - start);
+					pos = start;
+				}
+				else
+				{
+					pos += id.size();
+				}
+			}
+		}
+
+		return result;
+	}
+
+	std::string UINpcTalk::parse_simple_selections(const std::string& tx)
+	{
+		selections.clear();
+
+		std::string result;
+		int16_t line = 0;
+		size_t pos = 0;
+
+		// Count lines before the selections start (intro text)
+		// by scanning for #L which marks the first selection
+		size_t first_link = tx.find("#L");
+		if (first_link != std::string::npos && first_link > 0)
+		{
+			std::string intro = tx.substr(0, first_link);
+
+			// Strip color codes from intro
+			std::string clean_intro;
+			for (size_t i = 0; i < intro.size(); i++)
+			{
+				if (intro[i] == '#' && i + 1 < intro.size())
+				{
+					char next = intro[i + 1];
+					if (next == 'b' || next == 'k' || next == 'r' || next == 'c')
+					{
+						i++; // skip the code
+						continue;
+					}
+				}
+				clean_intro += intro[i];
+			}
+
+			result = clean_intro;
+
+			// Count newlines in intro to track line position
+			for (char c : clean_intro)
+			{
+				if (c == '\n')
+					line++;
+			}
+		}
+
+		// Parse #L<n>#text#l entries
+		pos = 0;
+		while (pos < tx.size())
+		{
+			size_t link_start = tx.find("#L", pos);
+			if (link_start == std::string::npos)
+				break;
+
+			// Read the selection index
+			size_t idx_start = link_start + 2;
+			size_t idx_end = tx.find('#', idx_start);
+			if (idx_end == std::string::npos)
+				break;
+
+			int32_t sel_index = 0;
+			try { sel_index = std::stoi(tx.substr(idx_start, idx_end - idx_start)); }
+			catch (...) { break; }
+
+			// Read the option text until #l
+			size_t text_start = idx_end + 1;
+			size_t text_end = tx.find("#l", text_start);
+			if (text_end == std::string::npos)
+				text_end = tx.size();
+
+			std::string option_text = tx.substr(text_start, text_end - text_start);
+
+			// Strip any color codes from option text
+			std::string clean_option;
+			for (size_t i = 0; i < option_text.size(); i++)
+			{
+				if (option_text[i] == '#' && i + 1 < option_text.size())
+				{
+					char next = option_text[i + 1];
+					if (next == 'b' || next == 'k' || next == 'r' || next == 'c')
+					{
+						i++;
+						continue;
+					}
+				}
+				clean_option += option_text[i];
+			}
+
+			// Detect quest state tags the server embeds in the option
+			// text ("(Start) …", "(In progress) …", "(Complete) …") and
+			// map them to the QuestMark sprite we'll draw next to the
+			// option. Tags are case-insensitive and can be bracketed by
+			// parentheses or square brackets.
+			QuestMark mark = QuestMark::NONE;
+			{
+				std::string lc;
+				for (char c : clean_option) lc.push_back((char)std::tolower((unsigned char)c));
+
+				auto consume_tag = [&](const std::string& tag, QuestMark m) -> bool
+				{
+					size_t pos = lc.find(tag);
+					if (pos == std::string::npos) return false;
+					mark = m;
+					// Strip the tag from the visible text so the row just
+					// shows "QuestName" next to the icon.
+					clean_option.erase(pos, tag.size());
+					lc.erase(pos, tag.size());
+					// Also strip leading whitespace that remains.
+					while (!clean_option.empty()
+						&& (clean_option.front() == ' ' || clean_option.front() == ':'))
+					{
+						clean_option.erase(clean_option.begin());
+						lc.erase(lc.begin());
+					}
+					return true;
+				};
+
+				// Order matters: try completes before starts so "(Complete
+				// quest)" doesn't match a naive "start" scan first.
+				consume_tag("(complete)", QuestMark::COMPLETE)
+					|| consume_tag("[complete]", QuestMark::COMPLETE)
+					|| consume_tag("(finish)",   QuestMark::COMPLETE)
+					|| consume_tag("[finish]",   QuestMark::COMPLETE)
+					|| consume_tag("(ready)",    QuestMark::COMPLETE)
+					|| consume_tag("(in progress)", QuestMark::IN_PROGRESS)
+					|| consume_tag("[in progress]", QuestMark::IN_PROGRESS)
+					|| consume_tag("(start)",    QuestMark::AVAILABLE)
+					|| consume_tag("[start]",    QuestMark::AVAILABLE)
+					|| consume_tag("(available)", QuestMark::AVAILABLE);
+			}
+
+			// Ensure each option starts on its own rendered line.
+			if (!result.empty() && result.back() != '\n')
+				result += "\n";
+
+			int16_t actual_line = 0;
+			for (char c : result)
+				if (c == '\n')
+					actual_line++;
+
+			// Snapshot the prefix now so draw() can measure visual-row Y
+			// using the real Text layout (handles word-wrapped intro lines).
+			Selection sel;
+			sel.index = sel_index;
+			sel.text = clean_option;
+			sel.line = actual_line;
+			sel.prefix = result;
+			sel.mark = mark;
+			selections.push_back(std::move(sel));
+
+			// Render the option text in blue so it stands out against the
+			// NPC's main dialogue body (DARKGREY). #b turns on blue, #k
+			// turns it off; both are recognised by the Text formatter.
+			result += "#b";
+			result += clean_option;
+			result += "#k";
+			line++;
+
+			pos = text_end + 2; // skip past #l
+		}
+
+		return result;
+	}
+
+	void UINpcTalk::change_text(int32_t npcid, int8_t msgtype, int16_t style, int8_t speakerbyte, const std::string& tx)
+	{
+		type = is_valid_type(msgtype) ? static_cast<TalkType>(msgtype) : TalkType::NONE;
+
+		current_npcid = npcid;
+		expanded_quest_ids.clear();
+		quest_banner_hovered_qid = -1;
+		quest_banner_hits.clear();
+		timestep = 0;
+		draw_text = true;
+		formatted_text_pos = 0;
+
+		if (type == TalkType::SENDSIMPLE)
+		{
+			formatted_text = parse_simple_selections(format_text(tx, npcid));
+			draw_text = false; // Show all text immediately for selection menus
+		}
+		else
+		{
+			formatted_text = format_text(tx, npcid);
+		}
+
+		// The Text/LayoutBuilder only treats the two-char escape "\\n" as a
+		// line break; a raw '\n' byte (0x0A) renders as a missing-glyph box.
+		// Convert real newlines to the escape and enable formatted=true so
+		// multi-line NPC dialogue lays out correctly.
+		{
+			std::string escaped;
+			escaped.reserve(formatted_text.size() + 8);
+			for (char c : formatted_text)
+			{
+				if (c == '\n')
+					escaped += "\\n";
+				else
+					escaped += c;
+			}
+			formatted_text = std::move(escaped);
+		}
+
+		text = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::DARKGREY,
+			Text::Background::NONE, formatted_text, 320, true);
+
+		int16_t text_height = text.height();
+
+		if (type != TalkType::SENDSIMPLE)
+			text.change_text("");
+
+		if (speakerbyte == 0)
+		{
+			std::string strid = std::to_string(npcid);
+			if (strid.size() < 7)
+				strid.insert(0, 7 - strid.size(), '0');
+			strid.append(".img");
+
+			speaker = nl::nx::npc[strid]["stand"]["0"];
+
+			std::string namestr = (std::string)nl::nx::string["Npc.img"][std::to_string(npcid)]["name"];
+			name.change_text(namestr);
+		}
+		else
+		{
+			speaker = Texture();
+			name.change_text("");
+		}
+
+		height = min_height;
+		show_slider = false;
+
+		// Pad the text area so its bottom edge clears the fill region's
+		// own bottom border. Without this, multi-line dialogues whose
+		// total height equals `height` exactly still bleed a few pixels
+		// below the panel because text_y (= position.y + 48 - y_adj)
+		// drifts as y_adj grows and the fill texture has internal padding
+		// that isn't part of `text_height`.
+		constexpr int16_t TEXT_BOTTOM_PAD = 16;
+		// The body text is drawn at a fixed y = 48 from the window top, while the
+		// panel body starts at top.height(). The window height must cover that gap
+		// too, or the last line clips against the bottom border (as seen when a
+		// quest's item list ran one line past the frame).
+		int16_t text_top_offset = 48 - top.height();
+		if (text_top_offset < 0)
+			text_top_offset = 0;
+		int16_t needed = text_top_offset + text_height + TEXT_BOTTOM_PAD;
+
+		if (needed > height)
+		{
+			if (needed > MAX_HEIGHT)
+			{
+				height = MAX_HEIGHT;
+				show_slider = true;
+				offset = 0;
+
+				// Line-based scrolling: a slider row == one text line
+				// (SCROLL_STEP px). unitrows = visible lines (proportional thumb),
+				// rowmax = total content lines; the slider then has
+				// (rowmax - unitrows) scroll positions, each moving the text
+				// SCROLL_STEP px, so every line is reachable.
+				int16_t visible = height - 18;
+				unitrows = visible / SCROLL_STEP;
+				if (unitrows < 1) unitrows = 1;
+
+				rowmax = (text_height + SCROLL_STEP - 1) / SCROLL_STEP + 1;
+				if (rowmax <= unitrows)
+					rowmax = unitrows + 1;
+
+				int16_t slider_y = top.height() - 7;
+				slider = Slider(Slider::Type::DEFAULT_SILVER, Range<int16_t>(slider_y, slider_y + height - 20), top.width() - 26, unitrows, rowmax, onmoved);
+			}
+			else
+			{
+				height = needed;
+			}
+		}
+
+		for (auto& button : buttons)
+		{
+			button.second->set_active(false);
+			button.second->set_state(Button::State::NORMAL);
+		}
+
+		int16_t y_cord = height + 48;
+
+		buttons[Buttons::CLOSE]->set_position(Point<int16_t>(9, y_cord));
+		buttons[Buttons::CLOSE]->set_active(true);
+
+		switch (type)
+		{
+			case TalkType::SENDOK:
+			{
+				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_active(true);
+				break;
+			}
+			case TalkType::SENDNEXT:
+			{
+				buttons[Buttons::NEXT]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::NEXT]->set_active(true);
+				break;
+			}
+			case TalkType::SENDNEXTPREV:
+			{
+				buttons[Buttons::NEXT]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::NEXT]->set_active(true);
+				buttons[Buttons::PREV]->set_position(Point<int16_t>(389, y_cord));
+				buttons[Buttons::PREV]->set_active(true);
+				break;
+			}
+			case TalkType::SENDYESNO:
+			{
+				Point<int16_t> yes_position = Point<int16_t>(389, y_cord);
+
+				buttons[Buttons::YES]->set_position(yes_position);
+				buttons[Buttons::YES]->set_active(true);
+
+				buttons[Buttons::NO]->set_position(yes_position + Point<int16_t>(65, 0));
+				buttons[Buttons::NO]->set_active(true);
+				break;
+			}
+			case TalkType::SENDACCEPTDECLINE:
+			{
+				// Use BtYes / BtNo — the universal Yes/No sprites
+				// shipped in every UtilDlgEx node. The quest-themed
+				// BtQYes / BtQNo / BtQStart / BtQAfter variants
+				// don't always have valid normal/mouseover/pressed
+				// state subnodes, so they rendered as invisible 0×0
+				// hit zones and the player saw no buttons.
+				buttons[Buttons::YES]->set_position(Point<int16_t>(389, y_cord));
+				buttons[Buttons::YES]->set_active(true);
+
+				buttons[Buttons::NO]->set_position(Point<int16_t>(389 + 65, y_cord));
+				buttons[Buttons::NO]->set_active(true);
+				break;
+			}
+			case TalkType::SENDGETTEXT:
+			{
+				int16_t field_y = y_cord - 25;
+				input_field = Textfield(
+					Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK,
+					Rectangle<int16_t>(Point<int16_t>(166, field_y), Point<int16_t>(460, field_y + 18)),
+					50
+				);
+				input_field.set_state(Textfield::State::FOCUSED);
+
+				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_active(true);
+				break;
+			}
+			case TalkType::SENDGETNUMBER:
+			{
+				int16_t field_y = y_cord - 25;
+				input_field = Textfield(
+					Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK,
+					Rectangle<int16_t>(Point<int16_t>(166, field_y), Point<int16_t>(460, field_y + 18)),
+					16
+				);
+				input_field.change_text(std::to_string(num_default));
+				input_field.set_state(Textfield::State::FOCUSED);
+
+				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_active(true);
+				break;
+			}
+			case TalkType::SENDSIMPLE:
+			{
+				// Close-only; options are clicked in the text area.
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+
+		int16_t vw = Constants::Constants::get().get_viewwidth();
+		int16_t vh = Constants::Constants::get().get_viewheight();
+		position = Point<int16_t>(vw / 2 - top.width() / 2, vh / 2 - height / 2);
+		dimension = Point<int16_t>(top.width(), height + 120);
+	}
+
+	void UINpcTalk::set_number_bounds(int32_t def, int32_t lo, int32_t hi)
+	{
+		num_default = def;
+		num_min = lo;
+		num_max = hi;
+
+		if (type == TalkType::SENDGETNUMBER)
+			input_field.change_text(std::to_string(def));
+	}
+
 }

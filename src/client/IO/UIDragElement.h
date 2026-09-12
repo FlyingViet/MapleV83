@@ -1,100 +1,118 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
+
 #include "UIElement.h"
 
 #include "../Configuration.h"
 
-namespace jrc
+namespace ms
 {
-    template <typename T>
-    // Base class for UI Windows which can be moved with the mouse cursor.
-    class UIDragElement : public UIElement
-    {
-    public:
-        bool remove_cursor(bool clicked, Point<int16_t> cursorpos) override
-        {
-            if (dragged)
-            {
-                if (clicked)
-                {
-                    position = cursorpos - cursoroffset;
-                    return true;
-                }
-                else
-                {
-                    dragged = false;
-                    Setting<T>::get().save(position);
-                }
-            }
-            return false;
-        }
+	template <typename T>
+	// Base class for UI Windows which can be moved with the mouse cursor.
+	class UIDragElement : public UIElement
+	{
+	public:
+		void remove_cursor() override
+		{
+			UIElement::remove_cursor();
 
-        CursorResult send_cursor(bool clicked, Point<int16_t> cursorpos) override
-        {
-            if (dragged)
-            {
-                if (clicked)
-                {
-                    position = cursorpos - cursoroffset;
-                    return { Cursor::CLICKING, true };
-                }
+			if (dragged)
+			{
+				dragged = false;
 
-                dragged = false;
-                Setting<T>::get().save(position);
-                return { Cursor::IDLE, true };
-            }
+				Setting<T>::get().save(position);
+			}
+		}
 
-            if (CursorResult button_result = UIElement::send_cursor(clicked, cursorpos))
-            {
-                return button_result;
-            }
+		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override
+		{
+			if (clicked)
+			{
+				if (dragged)
+				{
+					position = cursorpos - cursoroffset;
 
-            if (clicked)
-            {
-                if (indragrange(cursorpos))
-                {
-                    cursoroffset = cursorpos - position;
-                    dragged = true;
-                    return { Cursor::CLICKING, true };
-                }
-            }
+					return Cursor::State::CLICKING;
+				}
+				else if (indragrange(cursorpos))
+				{
+					cursoroffset = cursorpos - position;
+					dragged = true;
 
-            // Keep click/drag active only when a button or drag area captured
-            // the press. This blocks press-then-hover from triggering controls.
-            return { Cursor::IDLE, false };
-        }
+					return UIElement::send_cursor(clicked, cursorpos);
+				}
+			}
+			else
+			{
+				if (dragged)
+				{
+					dragged = false;
 
-    protected:
-        UIDragElement(Point<int16_t> d) : dragarea(d)
-        {
-            position = Setting<T>::get().load();
-        }
+					Setting<T>::get().save(position);
+				}
+			}
 
-        bool dragged = false;
-        Point<int16_t> dragarea;
-        Point<int16_t> cursoroffset;
+			return UIElement::send_cursor(clicked, cursorpos);
+		}
 
-    private:
-        bool indragrange(Point<int16_t> cursorpos) const
-        {
-            auto bounds = Rectangle<int16_t>(position, position + dragarea);
-            return bounds.contains(cursorpos);
-        }
-    };
+		void update_screen(int16_t new_width, int16_t new_height) override
+		{
+			// Clamp position so the window stays visible on screen
+			int16_t x = position.x();
+			int16_t y = position.y();
+
+			if (x + dimension.x() > new_width)
+				x = std::max<int16_t>(0, new_width - dimension.x());
+			if (y + dimension.y() > new_height)
+				y = std::max<int16_t>(0, new_height - dimension.y());
+			if (x < 0) x = 0;
+			if (y < 0) y = 0;
+
+			position = Point<int16_t>(x, y);
+			Setting<T>::get().save(position);
+		}
+
+	protected:
+		UIDragElement() : UIDragElement(Point<int16_t>(0, 0)) {}
+
+		UIDragElement(Point<int16_t> d) : dragarea(d)
+		{
+			position = Setting<T>::get().load();
+		}
+
+		bool dragged = false;
+		Point<int16_t> dragarea;
+		Point<int16_t> cursoroffset;
+
+	private:
+		virtual bool indragrange(Point<int16_t> cursorpos) const
+		{
+			Point<int16_t> area = dragarea;
+
+			// If no drag area was specified, use the element's full width
+			// with a 20px title bar height as a reasonable default
+			if (area.x() == 0 && area.y() == 0)
+				area = Point<int16_t>(dimension.x() > 0 ? dimension.x() : 300, 20);
+
+			auto bounds = Rectangle<int16_t>(position, position + area);
+
+			return bounds.contains(cursorpos);
+		}
+	};
 }

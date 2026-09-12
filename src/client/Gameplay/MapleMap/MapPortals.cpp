@@ -1,166 +1,145 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "MapPortals.h"
 
 #include "../../Constants.h"
+
 #include "../../Util/Misc.h"
 
-#include "nlnx/nx.hpp"
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
 
-namespace jrc
+namespace ms
 {
-    MapPortals::MapPortals(nl::node src, int32_t mapid)
-    {
-        for (const auto& sub : src)
-        {
-            auto portal_id = string_conversion::or_default<int8_t>(sub.name(), -1);
-            if (portal_id < 0)
-            {
-                continue;
-            }
+	MapPortals::MapPortals(nl::node src, int32_t mapid)
+	{
+		for (auto sub : src)
+		{
+			int8_t portal_id = string_conversion::or_default<int8_t>(sub.name(), -1);
 
-            Portal::Type type = Portal::typebyid(sub["pt"]);
-            std::string name = sub["pn"];
-            std::string target_name = sub["tn"];
-            int32_t target_id = sub["tm"];
-            Point<int16_t> position = { sub["x"], sub["y"] };
+			if (portal_id < 0)
+				continue;
 
-            const Animation* animation = nullptr;
-            auto animation_iter = animations.find(type);
-            if (animation_iter != animations.end())
-            {
-                animation = &animation_iter->second;
-            }
-            bool intramap = target_id == mapid;
+			Portal::Type type = Portal::typebyid(sub["pt"]);
+			std::string name = (std::string)sub["pn"];
+			std::string target_name = (std::string)sub["tn"];
+			int32_t target_id = sub["tm"];
+			Point<int16_t> position = { sub["x"], sub["y"] };
 
-            portals_by_id.emplace(
-                std::piecewise_construct,
-                std::forward_as_tuple(portal_id),
-                std::forward_as_tuple(animation, type, name, intramap, position, target_id, target_name)
-            );
-            portal_ids_by_name.emplace(name, portal_id);
-        }
+			const Animation* animation = &animations[type];
+			bool intramap = target_id == mapid;
 
-        cooldown = WARPCD;
-    }
+			portals_by_id.emplace(
+				std::piecewise_construct,
+				std::forward_as_tuple(portal_id),
+				std::forward_as_tuple(animation, type, name, intramap, position, target_id, target_name)
+			);
 
-    MapPortals::MapPortals()
-    {
-        cooldown = WARPCD;
-    }
+			portal_ids_by_name.emplace(name, portal_id);
+		}
 
-    void MapPortals::update(Point<int16_t> playerpos)
-    {
-        animations[Portal::REGULAR].update(Constants::TIMESTEP);
-        animations[Portal::HIDDEN].update(Constants::TIMESTEP);
-        animations[Portal::SCRIPTED].update(Constants::TIMESTEP);
-        animations[Portal::SCRIPTED_HIDDEN].update(Constants::TIMESTEP);
+		cooldown = WARPCD;
+	}
 
-        for (auto& iter : portals_by_id)
-        {
-            Portal& portal = iter.second;
-            switch (portal.get_type())
-            {
-            case Portal::HIDDEN:
-            case Portal::TOUCH:
-            case Portal::SCRIPTED_HIDDEN:
-            case Portal::SCRIPTED_TOUCH:
-                portal.update(playerpos);
-                break;
-            default:
-                break;
-            }
-        }
+	MapPortals::MapPortals()
+	{
+		cooldown = WARPCD;
+	}
 
-        if (cooldown > 0)
-        {
-            cooldown--;
-        }
-    }
+	void MapPortals::update(Point<int16_t> playerpos)
+	{
+		animations[Portal::REGULAR].update(Constants::TIMESTEP);
+		animations[Portal::HIDDEN].update(Constants::TIMESTEP);
 
-    void MapPortals::draw(Point<int16_t> viewpos, float inter) const
-    {
-        for (auto& ptit : portals_by_id)
-        {
-            ptit.second
-                .draw(viewpos, inter);
-        }
-    }
+		for (auto& iter : portals_by_id)
+		{
+			Portal& portal = iter.second;
+			switch (portal.get_type())
+			{
+			case Portal::HIDDEN:
+			case Portal::TOUCH:
+				portal.update(playerpos);
+				break;
+			}
+		}
 
-    Point<int16_t> MapPortals::get_portal_by_id(uint8_t portal_id) const
-    {
-        auto iter = portals_by_id.find(portal_id);
-        if (iter != portals_by_id.end())
-        {
-            constexpr Point<int16_t> ABOVE(0, 30);
-            return iter->second.get_position() - ABOVE;
-        }
-        else
-        {
-            return {};
-        }
-    }
+		if (cooldown > 0)
+			cooldown--;
+	}
 
-    Point<int16_t> MapPortals::get_portal_by_name(const std::string& portal_name) const
-    {
-        auto iter = portal_ids_by_name.find(portal_name);
-        if (iter != portal_ids_by_name.end())
-        {
-            return get_portal_by_id(iter->second);
-        }
-        else
-        {
-            return {};
-        }
-    }
+	void MapPortals::draw(Point<int16_t> viewpos, float inter) const
+	{
+		for (auto& ptit : portals_by_id)
+			ptit.second.draw(viewpos, inter);
+	}
 
-    Portal::WarpInfo MapPortals::find_warp_at(Point<int16_t> playerpos)
-    {
-        if (cooldown == 0)
-        {
-            cooldown = WARPCD;
+	Point<int16_t> MapPortals::get_portal_by_id(uint8_t portal_id) const
+	{
+		auto iter = portals_by_id.find(portal_id);
 
-            for (const auto& iter : portals_by_id)
-            {
-                const Portal& portal = iter.second;
-                if (portal.bounds().contains(playerpos))
-                {
-                    return portal.getwarpinfo();
-                }
-            }
-        }
+		if (iter != portals_by_id.end())
+		{
+			constexpr Point<int16_t> ABOVE(0, 30);
 
-        return {};
-    }
+			return iter->second.get_position() - ABOVE;
+		}
+		else
+		{
+			return {};
+		}
+	}
 
+	Point<int16_t> MapPortals::get_portal_by_name(const std::string& portal_name) const
+	{
+		auto iter = portal_ids_by_name.find(portal_name);
 
-    void MapPortals::init()
-    {
-        nl::node src = nl::nx::map["MapHelper.img"]["portal"]["game"];
-        nl::node regular = src["pv"];
+		if (iter != portal_ids_by_name.end())
+			return get_portal_by_id(iter->second);
+		else
+			return {};
+	}
 
-        animations[Portal::HIDDEN]  = src["ph"]["default"]["portalContinue"];
-        animations[Portal::REGULAR] = regular["default"] ? regular["default"] : regular;
-        // Scripted portals are used for portal scripts and should use the
-        // same visuals as their non-scripted counterparts.
-        animations[Portal::SCRIPTED] = animations[Portal::REGULAR];
-        animations[Portal::SCRIPTED_HIDDEN] = animations[Portal::HIDDEN];
-    }
+	Portal::WarpInfo MapPortals::find_warp_at(Point<int16_t> playerpos)
+	{
+		if (cooldown == 0)
+		{
+			cooldown = WARPCD;
 
-    std::unordered_map<Portal::Type, Animation> MapPortals::animations;
+			for (auto& iter : portals_by_id)
+			{
+				const Portal& portal = iter.second;
+
+				if (portal.bounds().contains(playerpos))
+					return portal.getwarpinfo();
+			}
+		}
+
+		return {};
+	}
+
+	void MapPortals::init()
+	{
+		nl::node src = nl::nx::map["MapHelper.img"]["portal"]["game"];
+
+		animations[Portal::HIDDEN] = src["ph"]["default"]["portalContinue"];
+		animations[Portal::REGULAR] = src["pv"];
+	}
+
+	std::unordered_map<Portal::Type, Animation> MapPortals::animations;
 }

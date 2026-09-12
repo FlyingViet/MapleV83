@@ -1,434 +1,460 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "Window.h"
 
-#ifdef MS_PLATFORM_WASM
-#include <emscripten.h>
-#endif
+#include <iostream>
 
 #include "UI.h"
+#include "Gamepad.h"
 
-#include "../Console.h"
-#include "../Constants.h"
 #include "../Configuration.h"
-#include "../Graphics/GraphicsGL.h"
+#include "../Constants.h"
+#include "../Timer.h"
 
-#include <cstdlib>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+#include <Windows.h>
+#include <ShlObj.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <glfw3native.h>
 
-namespace jrc
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
+#include <vector>
+
+namespace ms
 {
-    namespace
-    {
-        constexpr double DOUBLECLICK_MAX_INTERVAL_SECONDS = 0.35;
-        constexpr int16_t DOUBLECLICK_MAX_DISTANCE_PIXELS = 4;
+	Window::Window()
+	{
+		context = nullptr;
+		glwnd = nullptr;
+		opacity = 1.0f;
+		opcstep = 0.0f;
+		width = Constants::Constants::get().get_physicalwidth();
+		height = Constants::Constants::get().get_physicalheight();
+	}
 
-        struct DoubleclickState
-        {
-            double last_left_press_time = -1.0;
-            Point<int16_t> last_left_press_position = {};
-        };
+	Window::~Window()
+	{
+		glfwTerminate();
+	}
 
-        DoubleclickState doubleclick_state;
+	void error_callback(int, const char*)
+	{
+	}
 
-        // GLFW does not emit double-click events, so synthesize them from
-        // successive left-button presses that happen close together.
-        bool is_doubleclick(Point<int16_t> position)
-        {
-            double now = glfwGetTime();
-            double elapsed = now - doubleclick_state.last_left_press_time;
-            bool in_time_window =
-                doubleclick_state.last_left_press_time >= 0.0 &&
-                elapsed >= 0.0 &&
-                elapsed <= DOUBLECLICK_MAX_INTERVAL_SECONDS;
+	void key_callback(GLFWwindow*, int key, int, int action, int)
+	{
+		if (action == GLFW_REPEAT && (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_ENTER))
+			return;
 
-            Point<int16_t> previous = doubleclick_state.last_left_press_position;
-            bool in_distance_window =
-                std::abs(position.x() - previous.x()) <= DOUBLECLICK_MAX_DISTANCE_PIXELS &&
-                std::abs(position.y() - previous.y()) <= DOUBLECLICK_MAX_DISTANCE_PIXELS;
+		UI::get().send_key(key, action != GLFW_RELEASE);
+	}
 
-            doubleclick_state.last_left_press_time = now;
-            doubleclick_state.last_left_press_position = position;
-            return in_time_window && in_distance_window;
-        }
-    }
+	// Text as the OS produced it, after the active keyboard layout and any IME.
+	// key_callback only reports physical keys, so on a Hebrew layout it reports
+	// the Latin key at that position -- this is the only path that can deliver
+	// non-ASCII characters at all.
+	void char_callback(GLFWwindow*, unsigned int codepoint)
+	{
+		UI::get().send_char(codepoint);
+	}
 
-    Window::Window()
-    {
-        context = nullptr;
-        glwnd = nullptr;
-        opacity = 1.0f;
-        opcstep = 0.0f;
-        f11_down = false;
-    }
+	std::chrono::time_point<std::chrono::steady_clock> start = ContinuousTimer::get().start();
 
-    Window::~Window()
-    {
-        glfwTerminate();
-    }
+	void mousekey_callback(GLFWwindow*, int button, int action, int)
+	{
+		switch (button)
+		{
+		case GLFW_MOUSE_BUTTON_LEFT:
+			switch (action)
+			{
+			case GLFW_PRESS:
+				UI::get().send_cursor(true);
+				break;
+			case GLFW_RELEASE:
+			{
+				auto diff_ms = ContinuousTimer::get().stop(start) / 1000;
+				start = ContinuousTimer::get().start();
 
-    void error_callback(int no, const char* description)
-    {
-        Console::get()
-            .print("glfw error: " + std::string(description) + " (" + std::to_string(no) + ")");
-    }
+				if (diff_ms > 10 && diff_ms < 200)
+					UI::get().doubleclick();
 
-    void key_callback(GLFWwindow*, int key, int, int action, int)
-    {
-        UI::get().send_key(key, action != GLFW_RELEASE);
-    }
+				UI::get().send_cursor(false);
+			}
+			break;
+			}
 
-    void mousekey_callback(GLFWwindow* window, int button, int action, int)
-    {
-        switch (button)
-        {
-        case GLFW_MOUSE_BUTTON_LEFT:
-            switch (action)
-            {
-            case GLFW_PRESS:
-            {
-                double xpos = 0.0;
-                double ypos = 0.0;
-                glfwGetCursorPos(window, &xpos, &ypos);
-                Point<int16_t> position(
-                    static_cast<int16_t>(xpos),
-                    static_cast<int16_t>(ypos)
-                );
+			break;
+		case GLFW_MOUSE_BUTTON_RIGHT:
+			switch (action)
+			{
+			case GLFW_PRESS:
+				UI::get().rightclick();
+				break;
+			}
 
-                UI::get().send_cursor(true);
-                if (is_doubleclick(position))
-                {
-                    UI::get().cancel_drag();
-                    UI::get().doubleclick();
-                }
-                break;
-            }
-            case GLFW_RELEASE:
-                UI::get().send_cursor(false);
-                break;
-            default:
-                break;
-            }
-            break;
-        case GLFW_MOUSE_BUTTON_RIGHT:
-            switch (action)
-            {
-            case GLFW_PRESS:
-                UI::get().rightclick();
-                break;
-            default:
-                break;
-            }
-            break;
-        default:
-            break;
-        }
-    }
+			break;
+		}
+	}
 
-    void cursor_callback(GLFWwindow*, double xpos, double ypos)
-    {
-        auto x = static_cast<int16_t>(xpos);
-        auto y = static_cast<int16_t>(ypos);
-        Point<int16_t> pos = Point<int16_t>(x, y);
-        UI::get().send_cursor(pos);
-    }
+	// Viewport parameters for cursor mapping (set in initwindow)
+	// s_vp_y_top is the top offset in screen coords (GLFW uses top-left origin)
+	static int s_vp_x = 0, s_vp_y_top = 0, s_vp_w = 1920, s_vp_h = 1080;
 
-    void scroll_callback(GLFWwindow*, double, double yoffset)
-    {
-        UI::get().send_scroll(yoffset);
-    }
+	void cursor_callback(GLFWwindow*, double xpos, double ypos)
+	{
+		// Map screen coordinates to game logical coordinates
+		// Account for viewport offset (letterbox/pillarbox) and scaling
+		int vw = Constants::Constants::get().get_viewwidth();
+		int vh = Constants::Constants::get().get_viewheight();
 
-    void focus_callback(GLFWwindow*, int focused)
-    {
-        UI::get().send_focus(focused);
-    }
+		int16_t x = static_cast<int16_t>((xpos - s_vp_x) * vw / s_vp_w);
+		int16_t y = static_cast<int16_t>((ypos - s_vp_y_top) * vh / s_vp_h);
+		Point<int16_t> pos = Point<int16_t>(x, y);
+		UI::get().send_cursor(pos);
+	}
 
-    void close_callback(GLFWwindow* window)
-    {
-        UI::get().send_close();
-        glfwSetWindowShouldClose(window, GL_FALSE);
-    }
+	void clip_cursor_to_window(GLFWwindow* window)
+	{
+		HWND hwnd = glfwGetWin32Window(window);
+		if (hwnd)
+		{
+			RECT rect;
+			GetClientRect(hwnd, &rect);
+			POINT tl = { rect.left, rect.top };
+			POINT br = { rect.right, rect.bottom };
+			ClientToScreen(hwnd, &tl);
+			ClientToScreen(hwnd, &br);
+			RECT screen_rect = { tl.x, tl.y, br.x, br.y };
+			ClipCursor(&screen_rect);
+		}
+	}
 
-    void framebuffer_size_callback(GLFWwindow*, int width, int height)
-    {
-        if (width > 0 && height > 0)
-        {
-#ifdef MS_PLATFORM_WASM
-            // Browser resizes only change CSS scaling; the game keeps a fixed internal viewport.
-            Constants::set_viewsize(Constants::VIEWWIDTH, Constants::VIEWHEIGHT);
-            glViewport(0, 0, Constants::VIEWWIDTH, Constants::VIEWHEIGHT);
-#else
-            Constants::set_viewsize(width, height);
-            glViewport(0, 0, width, height);
-#endif
-            GraphicsGL::get().set_screensize(
-                Constants::viewwidth(),
-                Constants::viewheight()
-            );
-        }
-    }
+	void focus_callback(GLFWwindow* window, int focused)
+	{
+		if (focused)
+			clip_cursor_to_window(window);
+		else
+			ClipCursor(nullptr);
 
-    Error Window::init()
-    {
-        fullscreen = Setting<Fullscreen>::get().load();
+		UI::get().send_focus(focused);
+	}
 
-        if (!glfwInit())
-        {
-            return Error::GLFW;
-        }
+	void scroll_callback(GLFWwindow*, double xoffset, double yoffset)
+	{
+		UI::get().send_scroll(yoffset);
+	}
 
-#ifdef MS_PLATFORM_WASM
-        glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
-        glwnd = glfwCreateWindow(
-            Constants::VIEWWIDTH,
-            Constants::VIEWHEIGHT,
-            "Journey",
-            fullscreen ? glfwGetPrimaryMonitor() : nullptr,
-            nullptr
-        );
-        if (!glwnd) {
-            return Error::WINDOW;
-        }
-        glfwMakeContextCurrent(glwnd);
-        glfwSetErrorCallback(error_callback);
-#else
-        glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
-        context = glfwCreateWindow(1, 1, "", nullptr, nullptr);
-        glfwMakeContextCurrent(context);
-        glfwSetErrorCallback(error_callback);
-        glfwWindowHint(GLFW_VISIBLE, GL_TRUE);
-        glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
-#endif
+	void close_callback(GLFWwindow* window)
+	{
+		UI::get().send_close();
 
-        if (Error error = GraphicsGL::get().init())
-        {
-            return error;
-        }
+		glfwSetWindowShouldClose(window, GL_FALSE);
+	}
 
-        return initwindow();
-    }
+	Error Window::init()
+	{
+		fullscreen = Setting<Fullscreen>::get().load();
 
-    Error Window::initwindow()
-    {
-#ifndef MS_PLATFORM_WASM
-        if (glwnd)
-        {
-            glfwDestroyWindow(glwnd);
-        }
+		if (!glfwInit())
+			return Error::Code::GLFW;
 
-        glwnd = glfwCreateWindow(
-            Constants::VIEWWIDTH,
-            Constants::VIEWHEIGHT,
-            "Journey",
-            fullscreen ? glfwGetPrimaryMonitor() : nullptr,
-            context
-        );
+		glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
+		context = glfwCreateWindow(1, 1, "", nullptr, nullptr);
+		glfwMakeContextCurrent(context);
+		glfwSetErrorCallback(error_callback);
+		glfwWindowHint(GLFW_VISIBLE, GL_TRUE);
+		glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 
-        if (!glwnd)
-        {
-            return Error::WINDOW;
-        }
+		if (Error error = GraphicsGL::get().init())
+			return error;
 
-        glfwMakeContextCurrent(glwnd);
-#endif
-#ifndef MS_PLATFORM_WASM
-        bool vsync = Setting<VSync>::get().load();
-        glfwSwapInterval(vsync ? 1 : 0);
-#endif
+		return initwindow();
+	}
 
-        glViewport(0, 0, Constants::VIEWWIDTH, Constants::VIEWHEIGHT);
-#ifndef MS_PLATFORM_WASM
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
+	Error Window::initwindow()
+	{
+		if (glwnd)
+			glfwDestroyWindow(glwnd);
 
-        glfwSetInputMode(glwnd, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-        glfwSetInputMode(glwnd, GLFW_STICKY_KEYS, 1);
-#endif
-        glfwSetKeyCallback(glwnd, key_callback);
-        glfwSetMouseButtonCallback(glwnd, mousekey_callback);
-        glfwSetCursorPosCallback(glwnd, cursor_callback);
-        glfwSetWindowFocusCallback(glwnd, focus_callback);
-        glfwSetScrollCallback(glwnd, scroll_callback);
-        glfwSetWindowCloseCallback(glwnd, close_callback);
-        glfwSetFramebufferSizeCallback(glwnd, framebuffer_size_callback);
+		int wnd_width = width;
+		int wnd_height = height;
 
-        int32_t framebuffer_width = 0;
-        int32_t framebuffer_height = 0;
-        glfwGetFramebufferSize(glwnd, &framebuffer_width, &framebuffer_height);
-        if (framebuffer_width > 0 && framebuffer_height > 0)
-        {
-            framebuffer_size_callback(glwnd, framebuffer_width, framebuffer_height);
-        }
+		if (fullscreen)
+		{
+			GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+			const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+			if (mode)
+			{
+				wnd_width = mode->width;
+				wnd_height = mode->height;
+			}
+			glfwWindowHint(GLFW_DECORATED, GL_FALSE);
+		}
+		else
+		{
+			glfwWindowHint(GLFW_DECORATED, GL_TRUE);
+		}
 
-        GraphicsGL::get().reinit();
+		glwnd = glfwCreateWindow(
+			wnd_width,
+			wnd_height,
+			Configuration::get().get_title().c_str(),
+			nullptr,
+			context
+		);
 
-#ifdef MS_PLATFORM_WASM
-        // Keep browser default-prevention rules configurable from JS so the input list is easy to extend.
-        EM_ASM({
-            window.MapleWasmInputGuard = window.MapleWasmInputGuard || {};
-            var guard = window.MapleWasmInputGuard;
+		if (!glwnd)
+			return Error::Code::WINDOW;
 
-            if (!Array.isArray(guard.preventedKeys)) {
-                guard.preventedKeys =
-                    "Tab|Alt|Escape|ArrowLeft|ArrowUp|ArrowRight|ArrowDown|F11".split("|");
-            }
+		if (fullscreen)
+			glfwSetWindowPos(glwnd, 0, 0);
 
-            if (!Array.isArray(guard.preventedMouseButtons)) {
-                // Right mouse button.
-                guard.preventedMouseButtons = [];
-                guard.preventedMouseButtons.push(2);
-            }
+		glfwMakeContextCurrent(glwnd);
 
-            if (!guard.installed) {
-                var preventKeyDefaults = function(event) {
-                    if (guard.preventedKeys.indexOf(event.key) !== -1) {
-                        event.preventDefault();
-                    }
-                };
+		bool vsync = Setting<VSync>::get().load();
+		glfwSwapInterval(vsync ? 1 : 0);
 
-                var preventMouseDefaults = function(event) {
-                    if (guard.preventedMouseButtons.indexOf(event.button) !== -1) {
-                        event.preventDefault();
-                    }
-                };
+		int fb_width, fb_height;
+		glfwGetFramebufferSize(glwnd, &fb_width, &fb_height);
 
-                window.addEventListener("keydown", preventKeyDefaults, false);
-                window.addEventListener("keyup", preventKeyDefaults, false);
-                window.addEventListener("mousedown", preventMouseDefaults, false);
-                window.addEventListener("contextmenu", preventMouseDefaults, false);
-                guard.installed = true;
-            }
-        });
+		// Stretch to fill entire screen — no black bars
+		s_vp_x = 0;
+		s_vp_y_top = 0;
+		s_vp_w = fb_width;
+		s_vp_h = fb_height;
+		glViewport(0, 0, fb_width, fb_height);
+		glMatrixMode(GL_PROJECTION);
+		glLoadIdentity();
 
-        // Ask JS side to sync canvas size with the current viewport/fullscreen state.
-        EM_ASM({
-            if (window.MapleWasmUI && window.MapleWasmUI.applyScale) {
-                window.MapleWasmUI.applyScale();
-            }
-        });
-#endif
-        return Error::NONE;
-    }
+		glfwSetInputMode(glwnd, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
-    bool Window::not_closed() const
-    {
-        return glfwWindowShouldClose(glwnd) == 0;
-    }
+		double xpos, ypos;
 
-    void Window::update()
-    {
-        updateopc();
-    }
+		glfwGetCursorPos(glwnd, &xpos, &ypos);
+		cursor_callback(glwnd, xpos, ypos);
 
-    void Window::updateopc()
-    {
-        if (opcstep != 0.0f)
-        {
-            opacity += opcstep;
+		glfwSetInputMode(glwnd, GLFW_STICKY_KEYS, GL_TRUE);
+		glfwSetKeyCallback(glwnd, key_callback);
+		glfwSetCharCallback(glwnd, char_callback);
+		glfwSetMouseButtonCallback(glwnd, mousekey_callback);
+		glfwSetCursorPosCallback(glwnd, cursor_callback);
+		glfwSetWindowFocusCallback(glwnd, focus_callback);
+		glfwSetScrollCallback(glwnd, scroll_callback);
+		glfwSetWindowCloseCallback(glwnd, close_callback);
 
-            if (opacity >= 1.0f)
-            {
-                opacity = 1.0f;
-                opcstep = 0.0f;
-            }
-            else if (opacity <= 0.0f)
-            {
-                opacity = 0.0f;
-                opcstep = -opcstep;
+		// Confine cursor to window so it can't escape to desktop/taskbar
+		clip_cursor_to_window(glwnd);
 
-                fadeprocedure();
-            }
-        }
-    }
+		// Apply saved mouse speed (SystemParametersInfo SPI_SETMOUSESPEED).
+		apply_mouse_speed();
 
-    void Window::check_events()
-    {
-#ifdef MS_PLATFORM_WASM
-        int32_t f11state = glfwGetKey(glwnd, GLFW_KEY_F11);
-        if (f11state == GLFW_PRESS && !f11_down)
-        {
-            fullscreen = !fullscreen;
-            EM_ASM({
-                const canvas = Module && Module.canvas ? Module.canvas : null;
-                if (!canvas) {
-                    return;
-                }
+		char buf[256];
+		GetCurrentDirectoryA(256, buf);
+		strcat_s(buf, sizeof(buf), "\\Icon.png");
 
-                const isCanvasFullscreen = document.fullscreenElement === canvas;
-                const next = !isCanvasFullscreen;
+		GLFWimage images[1];
 
-                if (next) {
-                    canvas.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
-                } else if (document.fullscreenElement) {
-                    document.exitFullscreen().catch(() => {});
-                }
+		auto stbi = stbi_load(buf, &images[0].width, &images[0].height, 0, 4);
 
-                if (window.MapleWasmUI && window.MapleWasmUI.applyScale) {
-                    setTimeout(window.MapleWasmUI.applyScale, 0);
-                }
-            });
-        }
-        f11_down = (f11state == GLFW_PRESS);
-#else
-        int32_t f11state = glfwGetKey(glwnd, GLFW_KEY_F11);
-        if (f11state == GLFW_PRESS && !f11_down)
-        {
-            fullscreen = !fullscreen;
-            initwindow();
-        }
-        f11_down = (f11state == GLFW_PRESS);
-#endif
-        glfwPollEvents();
-    }
+		if (stbi != NULL){
+				// return Error(Error::Code::MISSING_ICON, stbi_failure_reason());
+			images[0].pixels = stbi;
 
-    void Window::begin() const
-    {
-        GraphicsGL::get().clearscene();
-    }
+			glfwSetWindowIcon(glwnd, 1, images);
+			stbi_image_free(images[0].pixels);
+		}
 
-    void Window::end() const
-    {
-        GraphicsGL::get().flush(opacity);
-        glfwSwapBuffers(glwnd);
-    }
+		GraphicsGL::get().reinit();
 
-    void Window::fadeout(float step, std::function<void()> fadeproc)
-    {
-        opcstep = -step;
-        fadeprocedure = std::move(fadeproc);
-    }
+		return Error::Code::NONE;
+	}
 
-    void Window::setclipboard(const std::string& text) const
-    {
-        glfwSetClipboardString(glwnd, text.c_str());
-    }
+	bool Window::not_closed() const
+	{
+		return glfwWindowShouldClose(glwnd) == 0;
+	}
 
-    std::string Window::getclipboard() const
-    {
-        const char* text = glfwGetClipboardString(glwnd);
-        return text ? text : "";
-    }
+	void Window::update()
+	{
+		updateopc();
+	}
+
+	void Window::updateopc()
+	{
+		if (opcstep != 0.0f)
+		{
+			opacity += opcstep;
+
+			if (opacity >= 1.0f)
+			{
+				opacity = 1.0f;
+				opcstep = 0.0f;
+			}
+			else if (opacity <= 0.0f)
+			{
+				opacity = 0.0f;
+				opcstep = -opcstep;
+
+				fadeprocedure();
+			}
+		}
+	}
+
+	void Window::check_events()
+	{
+		int16_t max_width = Configuration::get().get_max_width();
+		int16_t max_height = Configuration::get().get_max_height();
+		int16_t new_width = Constants::Constants::get().get_physicalwidth();
+		int16_t new_height = Constants::Constants::get().get_physicalheight();
+
+		if (width != new_width || height != new_height)
+		{
+			width = new_width;
+			height = new_height;
+
+			if (new_width >= max_width || new_height >= max_height)
+				fullscreen = true;
+
+			initwindow();
+		}
+
+		glfwPollEvents();
+
+		Gamepad::get().poll();
+	}
+
+	void Window::begin() const
+	{
+		GraphicsGL::get().clearscene();
+	}
+
+	void Window::end() const
+	{
+		GraphicsGL::get().flush(opacity);
+		glfwSwapBuffers(glwnd);
+	}
+
+	void Window::fadeout(float step, std::function<void()> fadeproc)
+	{
+		opcstep = -step;
+		fadeprocedure = fadeproc;
+	}
+
+	void Window::setclipboard(const std::string& text) const
+	{
+		glfwSetClipboardString(glwnd, text.c_str());
+	}
+
+	std::string Window::getclipboard() const
+	{
+		const char* text = glfwGetClipboardString(glwnd);
+
+		return text ? text : "";
+	}
+
+	void Window::apply_mouse_speed(int slider_value)
+	{
+		// Slider stored 0..100. Windows SPI_SETMOUSESPEED takes 1..20 (10 = default).
+		if (slider_value < 0)
+			slider_value = Setting<MouseSpeed>::get().load();
+
+		if (slider_value < 0) slider_value = 0;
+		if (slider_value > 100) slider_value = 100;
+
+		// Map 0..100 -> 1..20 linearly, rounding to nearest.
+		int sys_speed = 1 + static_cast<int>(((slider_value * 19) + 50) / 100);
+		if (sys_speed < 1) sys_speed = 1;
+		if (sys_speed > 20) sys_speed = 20;
+
+		SystemParametersInfoA(SPI_SETMOUSESPEED, 0,
+			reinterpret_cast<PVOID>(static_cast<INT_PTR>(sys_speed)), 0);
+	}
+
+	void Window::take_screenshot()
+	{
+		if (!glwnd)
+			return;
+
+		int fb_w = 0, fb_h = 0;
+		glfwGetFramebufferSize(glwnd, &fb_w, &fb_h);
+		if (fb_w <= 0 || fb_h <= 0)
+			return;
+
+		// Read RGBA pixels from the default framebuffer.
+		std::vector<uint8_t> pixels(static_cast<size_t>(fb_w) * fb_h * 4);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glReadBuffer(GL_FRONT);
+		glReadPixels(0, 0, fb_w, fb_h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+		// OpenGL origin is bottom-left; PNG expects top-left — flip vertically.
+		std::vector<uint8_t> flipped(pixels.size());
+		size_t row_bytes = static_cast<size_t>(fb_w) * 4;
+		for (int y = 0; y < fb_h; ++y)
+		{
+			std::memcpy(
+				flipped.data() + (fb_h - 1 - y) * row_bytes,
+				pixels.data() + y * row_bytes,
+				row_bytes);
+		}
+
+		// Resolve output folder (from Setting<ScreenshotFolder>; create if missing).
+		std::string folder = Setting<ScreenshotFolder>::get().load();
+		if (folder.empty())
+			folder = "screenshots";
+
+		std::error_code ec;
+		std::filesystem::create_directories(folder, ec);
+
+		// Timestamped filename: maple_YYYYMMDD_HHMMSS.png
+		auto now = std::chrono::system_clock::now();
+		std::time_t t = std::chrono::system_clock::to_time_t(now);
+		std::tm tm_local;
+		localtime_s(&tm_local, &t);
+
+		std::ostringstream name;
+		name << "maple_"
+			<< std::put_time(&tm_local, "%Y%m%d_%H%M%S")
+			<< ".png";
+
+		std::filesystem::path out = std::filesystem::path(folder) / name.str();
+		stbi_write_png(out.string().c_str(), fb_w, fb_h, 4, flipped.data(),
+			static_cast<int>(row_bytes));
+	}
+
+	void Window::toggle_fullscreen()
+	{
+		int16_t max_width = Configuration::get().get_max_width();
+		int16_t max_height = Configuration::get().get_max_height();
+
+		if (width < max_width && height < max_height)
+		{
+			fullscreen = !fullscreen;
+			Setting<Fullscreen>::get().save(fullscreen);
+
+			initwindow();
+			glfwPollEvents();
+		}
+	}
 }
-
-#ifdef MS_PLATFORM_WASM
-// Touch overlay hook (web/overlay.js): feed a GLFW key code straight into the UI,
-// bypassing DOM keyboard events so on-screen buttons behave exactly like keys.
-extern "C" EMSCRIPTEN_KEEPALIVE void mw_key(int key, int down)
-{
-    jrc::UI::get().send_key(key, down != 0);
-}
-#endif

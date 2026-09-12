@@ -1,191 +1,216 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "CharEquips.h"
 
-namespace jrc
+#include "../../Data/EquipData.h"
+
+#include <nlnx/nx.hpp>
+
+namespace ms
 {
-    CharEquips::CharEquips()
-    {
-        for (auto iter : clothes)
-        {
-            iter.second = nullptr;
-        }
-    }
+	CharEquips::CharEquips()
+	{
+		for (auto iter : clothes)
+			iter.second = nullptr;
+	}
 
-    void CharEquips::draw(Equipslot::Id slot, Stance::Id stance, Clothing::Layer layer, uint8_t frame, const DrawArgument& args) const
-    {
-        if (const Clothing* cloth = clothes[slot])
-        {
-            cloth->draw(stance, layer, frame, args);
-        }
-    }
+	void CharEquips::draw(EquipSlot::Id slot, Stance::Id stance, Clothing::Layer layer, uint8_t frame, const DrawArgument& args) const
+	{
+		// Procedural weapons/hats render themselves (anchored + posed).
+		if (slot == EquipSlot::Id::WEAPON && procweapon.is_valid())
+		{
+			procweapon.draw(stance, layer, frame, args);
+			return;
+		}
 
-    void CharEquips::add_equip(int32_t itemid, const BodyDrawinfo& drawinfo)
-    {
-        if (itemid <= 0)
-            return;
+		if (slot == EquipSlot::Id::HAT && prochat.is_valid())
+		{
+			prochat.draw(stance, layer, frame, args);
+			return;
+		}
 
-        auto iter = cloth_cache.find(itemid);
-        if (iter == cloth_cache.end())
-        {
-            iter = cloth_cache.emplace(
-                std::piecewise_construct,
-                std::forward_as_tuple(itemid),
-                std::forward_as_tuple(itemid, drawinfo)
-            ).first;
-        }
-        const Clothing& cloth = iter->second;
+		if (const Clothing* cloth = clothes[slot])
+			cloth->draw(stance, layer, frame, args);
+	}
 
-        Equipslot::Id slot = cloth.get_eqslot();
-        clothes[slot] = &cloth;
-    }
+	void CharEquips::update()
+	{
+		procweapon.update();
+		prochat.update();
+	}
 
-    void CharEquips::remove_equip(Equipslot::Id slot)
-    {
-        clothes[slot] = nullptr;
-    }
+	void CharEquips::add_equip(int32_t itemid, const BodyDrawInfo& drawinfo)
+	{
+		if (itemid <= 0)
+			return;
 
-    bool CharEquips::is_visible(Equipslot::Id slot) const
-    {
-        if (const Clothing* cloth = clothes[slot])
-        {
-            return cloth->is_transparent() == false;
-        }
-        else
-        {
-            return false;
-        }
-    }
+		auto iter = cloth_cache.find(itemid);
 
-    bool CharEquips::comparelayer(Equipslot::Id slot, Stance::Id stance, Clothing::Layer layer) const
-    {
-        if (const Clothing* cloth = clothes[slot])
-        {
-            return cloth->contains_layer(stance, layer);
-        }
-        else
-        {
-            return false;
-        }
-    }
+		if (iter == cloth_cache.end())
+		{
+			iter = cloth_cache.emplace(
+				std::piecewise_construct,
+				std::forward_as_tuple(itemid),
+				std::forward_as_tuple(itemid, drawinfo)
+				).first;
+		}
 
-    bool CharEquips::has_overall() const
-    {
-        return get_equip(Equipslot::TOP) / 10000 == 105;
-    }
+		const Clothing& cloth = iter->second;
 
-    bool CharEquips::has_weapon() const
-    {
-        return get_weapon() != 0;
-    }
+		EquipSlot::Id slot = cloth.get_eqslot();
+		clothes[slot] = &cloth;
 
-    bool CharEquips::is_twohanded() const
-    {
-        if (const Clothing* weapon = clothes[Equipslot::WEAPON])
-        {
-            return weapon->is_twohanded();
-        }
-        else
-        {
-            return false;
-        }
-    }
+		// Detect the new procedural weapon format: a weapon img with a
+		// default/weapon bitmap and no authored stance groups (no stand1).
+		if (slot == EquipSlot::Id::WEAPON)
+		{
+			nl::node src = nl::nx::character["Weapon"]["0" + std::to_string(itemid) + ".img"];
 
-    CharEquips::CapType CharEquips::getcaptype() const
-    {
-        if (const Clothing* cap = clothes[Equipslot::CAP])
-        {
-            const std::string& vslot = cap->get_vslot();
-            const auto has_marker = [&vslot](const char* marker) {
-                return vslot.find(marker) != std::string::npos;
-            };
+			if (src["stand1"].size() == 0 &&
+				src["default"]["weapon"].data_type() == nl::node::type::bitmap)
+				procweapon = ProceduralWeapon(src, itemid, drawinfo);
+			else
+				procweapon = ProceduralWeapon(); // authored — clear any prior procedural
+		}
+		else if (slot == EquipSlot::Id::HAT)
+		{
+			nl::node src = nl::nx::character["Cap"]["0" + std::to_string(itemid) + ".img"];
 
-            const bool covers_multiple_hair_sections =
-                has_marker("H1") || has_marker("H2") || has_marker("H3") ||
-                has_marker("H4") || has_marker("H6") || has_marker("Hd") ||
-                has_marker("Hf") || has_marker("Hs") || has_marker("Hb") ||
-                has_marker("Hc") || has_marker("Hx");
-            const bool has_h5 = has_marker("H5");
-            const bool fully_covers_face_and_hair = has_marker("Ay") || has_marker("As");
+			if (src["stand1"].size() == 0 &&
+				src["default"]["cap"].data_type() == nl::node::type::bitmap)
+				prochat = ProceduralHat(src, drawinfo);
+			else
+				prochat = ProceduralHat(); // authored — clear any prior procedural
+		}
+	}
 
-            if (covers_multiple_hair_sections)
-            {
-                if (fully_covers_face_and_hair)
-                    return FULLCOVER;
+	void CharEquips::remove_equip(EquipSlot::Id slot)
+	{
+		clothes[slot] = nullptr;
 
-                return HALFCOVER;
-            }
-            else if (has_h5)
-            {
-                // H5-only caps behave like ribbons/headbands in this renderer.
-                return HEADBAND;
-            }
-            else
-            {
-                // Preserve visibility for unclassified caps without forcing hair to render over them.
-                return HALFCOVER;
-            }
-        }
-        else
-        {
-            return NONE;
-        }
-    }
+		if (slot == EquipSlot::Id::WEAPON)
+			procweapon = ProceduralWeapon();
+		else if (slot == EquipSlot::Id::HAT)
+		{
+			prochat = ProceduralHat();
+		}
+	}
 
-    Stance::Id CharEquips::adjust_stance(Stance::Id stance) const
-    {
-        if (const Clothing* weapon = clothes[Equipslot::WEAPON])
-        {
-            switch (stance)
-            {
-            case Stance::STAND1:
-            case Stance::STAND2:
-                return weapon->get_stand();
-            case Stance::WALK1:
-            case Stance::WALK2:
-                return weapon->get_walk();
-            default:
-                return stance;
-            }
-        }
-        else
-        {
-            return stance;
-        }
-    }
+	bool CharEquips::is_visible(EquipSlot::Id slot) const
+	{
+		if (const Clothing* cloth = clothes[slot])
+			return cloth->is_transparent() == false;
+		else
+			return false;
+	}
 
-    int32_t CharEquips::get_equip(Equipslot::Id slot) const
-    {
-        if (const Clothing* cloth = clothes[slot])
-        {
-            return cloth->get_id();
-        }
-        else
-        {
-            return 0;
-        }
-    }
+	bool CharEquips::comparelayer(EquipSlot::Id slot, Stance::Id stance, Clothing::Layer layer) const
+	{
+		if (const Clothing* cloth = clothes[slot])
+			return cloth->contains_layer(stance, layer);
+		else
+			return false;
+	}
 
-    int32_t CharEquips::get_weapon() const
-    {
-        return get_equip(Equipslot::WEAPON);
-    }
+	bool CharEquips::has_overall() const
+	{
+		return get_equip(EquipSlot::Id::TOP) / 10000 == 105;
+	}
 
+	bool CharEquips::has_weapon() const
+	{
+		return get_weapon() != 0;
+	}
 
-    std::unordered_map<int32_t, Clothing> CharEquips::cloth_cache;
+	bool CharEquips::is_twohanded() const
+	{
+		if (const Clothing* weapon = clothes[EquipSlot::Id::WEAPON])
+			return weapon->is_twohanded();
+		else
+			return false;
+	}
+
+	CharEquips::CapType CharEquips::getcaptype() const
+	{
+		if (const Clothing* cap = clothes[EquipSlot::Id::HAT])
+		{
+			// Parse the vslot cover codes instead of matching exact strings —
+			// unknown combinations (e.g. "CpH1H2H3H5HfHsAfAyAsAeHbH4H6" on AI
+			// helms) previously fell to NONE, whose draw branch renders no hat
+			// at all. A/face codes = full cover (hair hidden), H1 = half cover,
+			// H5 alone = headband; any equipped hat must always draw.
+			const std::string& vslot = cap->get_vslot();
+
+			if (vslot.find("As") != std::string::npos || vslot.find("Ay") != std::string::npos)
+				return CharEquips::CapType::FULLCOVER;
+			if (vslot.find("H1") != std::string::npos)
+				return CharEquips::CapType::HALFCOVER;
+			if (vslot.find("H5") != std::string::npos)
+				return CharEquips::CapType::HEADBAND;
+
+			return CharEquips::CapType::HALFCOVER;
+		}
+		else
+		{
+			return CharEquips::CapType::NONE;
+		}
+	}
+
+	bool CharEquips::covers_whole_head() const
+	{
+		// Head hiding retired: no hat suppresses the head/hair/face anymore
+		return false;
+	}
+
+	Stance::Id CharEquips::adjust_stance(Stance::Id stance) const
+	{
+		if (const Clothing* weapon = clothes[EquipSlot::Id::WEAPON])
+		{
+			switch (stance)
+			{
+			case Stance::Id::STAND1:
+			case Stance::Id::STAND2:
+				return weapon->get_stand();
+			case Stance::Id::WALK1:
+			case Stance::Id::WALK2:
+				return weapon->get_walk();
+			default:
+				return stance;
+			}
+		}
+		else
+		{
+			return stance;
+		}
+	}
+
+	int32_t CharEquips::get_equip(EquipSlot::Id slot) const
+	{
+		if (const Clothing* cloth = clothes[slot])
+			return cloth->get_id();
+		else
+			return 0;
+	}
+
+	int32_t CharEquips::get_weapon() const
+	{
+		return get_equip(EquipSlot::Id::WEAPON);
+	}
+
+	std::unordered_map<int32_t, Clothing> CharEquips::cloth_cache;
 }

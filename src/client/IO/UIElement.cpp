@@ -1,188 +1,182 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "UIElement.h"
-#include "UI.h"
 
-#include "../Constants.h"
 #include "../Audio/Audio.h"
+#include "UIScale.h"
 
-namespace jrc
+namespace ms
 {
-    UIElement::UIElement(Point<int16_t> p, Point<int16_t> d, bool a)
-        : position(p), dimension(d), active(a), type(NONE), handled_button_press_id(0) {}
+	UIElement::UIElement(Point<int16_t> p, Point<int16_t> d, bool a) : position(p), dimension(d), active(a), scale_mode(ScaleMode::NONE) {}
+	UIElement::UIElement(Point<int16_t> p, Point<int16_t> d) : UIElement(p, d, true) {}
+	UIElement::UIElement(Point<int16_t> p, Point<int16_t> d, ScaleMode mode) : position(p), dimension(d), active(true), scale_mode(mode) {}
+	UIElement::UIElement() : UIElement(Point<int16_t>(), Point<int16_t>()) {}
 
-    UIElement::UIElement(Point<int16_t> p, Point<int16_t> d)
-        : UIElement(p, d, true) {}
+	Point<int16_t> UIElement::get_draw_position() const
+	{
+		if (scale_mode == ScaleMode::CENTER_OFFSET)
+			return position + UIScale::content_offset();
 
-    UIElement::UIElement()
-        : UIElement({}, {}) {}
+		return position;
+	}
 
-    void UIElement::draw(float alpha) const
-    {
-        draw_sprites(alpha);
-        draw_buttons(alpha);
-    }
+	Point<int16_t> UIElement::scaled(int16_t x, int16_t y) const
+	{
+		if (scale_mode == ScaleMode::CENTER_OFFSET)
+			return UIScale::at(x, y);
 
-    void UIElement::draw_sprites(float alpha) const
-    {
-        for (const Sprite& sprite : sprites)
-        {
-            sprite.draw(position, alpha);
-        }
-    }
+		return Point<int16_t>(x, y);
+	}
 
-    void UIElement::draw_buttons(float) const
-    {
-        for (auto& iter : buttons)
-        {
-            if (const Button* button = iter.second.get())
-            {
-                button->draw(position);
-            }
-        }
-    }
+	Point<int16_t> UIElement::scaled(Point<int16_t> p) const
+	{
+		if (scale_mode == ScaleMode::CENTER_OFFSET)
+			return UIScale::at(p);
 
-    void UIElement::update()
-    {
-        for (auto& sprite : sprites)
-        {
-            sprite.update();
-        }
-    }
+		return p;
+	}
 
-    void UIElement::update_screen(int16_t, int16_t)
-    {
-    }
+	void UIElement::draw(float alpha) const
+	{
+		draw_sprites(alpha);
+		draw_buttons(alpha);
+	}
 
-    void UIElement::makeactive()
-    {
-        active = true;
-    }
+	void UIElement::draw_sprites(float alpha) const
+	{
+		auto drawpos = get_draw_position();
 
-    void UIElement::deactivate()
-    {
-        active = false;
-    }
+		for (const Sprite& sprite : sprites)
+			sprite.draw(drawpos, alpha);
+	}
 
-    bool UIElement::is_active() const
-    {
-        return active;
-    }
+	void UIElement::draw_buttons(float) const
+	{
+		auto drawpos = get_draw_position();
 
-    void UIElement::toggle_active()
-    {
-        active = !active;
-    }
+		for (auto& iter : buttons)
+			if (const Button* button = iter.second.get())
+				button->draw(drawpos);
+	}
 
-    Button::State UIElement::button_pressed(uint16_t) { return Button::DISABLED; }
+	void UIElement::update()
+	{
+		for (auto& sprite : sprites)
+			sprite.update();
 
-    void UIElement::send_icon(const Icon&, Point<int16_t>) {}
+		for (auto& iter : buttons)
+			if (Button* button = iter.second.get())
+				button->update();
+	}
 
-    void UIElement::doubleclick(Point<int16_t>) {}
+	void UIElement::makeactive()
+	{
+		active = true;
+	}
 
-    void UIElement::rightclick(Point<int16_t>) {}
+	void UIElement::deactivate()
+	{
+		active = false;
+	}
 
-    bool UIElement::is_in_range(Point<int16_t> cursorpos) const
-    {
-        auto bounds = Rectangle<int16_t>(position, position + dimension);
-        return bounds.contains(cursorpos);
-    }
+	bool UIElement::is_active() const
+	{
+		return active;
+	}
 
-    bool UIElement::remove_cursor(bool, Point<int16_t>)
-    {
-        for (auto& btit : buttons)
-        {
-            Button* button = btit.second.get();
-            switch (button->get_state())
-            {
-            case Button::MOUSEOVER:
-                button->set_state(Button::NORMAL);
-                break;
-            default:
-                break;
-            }
-        }
-        return false;
-    }
+	void UIElement::toggle_active()
+	{
+		if (active)
+			deactivate();
+		else
+			makeactive();
+	}
 
-    UIElement::CursorResult UIElement::send_cursor(bool down, Point<int16_t> pos)
-    {
-        uint64_t current_press_id = UI::get().get_cursor_press_id();
+	bool UIElement::is_in_range(Point<int16_t> cursorpos) const
+	{
+		auto drawpos = get_draw_position();
+		auto bounds = Rectangle<int16_t>(drawpos, drawpos + dimension);
 
-        if (down && handled_button_press_id == current_press_id)
-        {
-            return { Cursor::CLICKING, true };
-        }
+		return bounds.contains(cursorpos);
+	}
 
-        for (auto& btit : buttons)
-        {
-            if (btit.second->is_active() && btit.second->bounds(position).contains(pos))
-            {
-                if (down)
-                {
-                    handled_button_press_id = current_press_id;
+	void UIElement::remove_cursor()
+	{
+		for (auto& btit : buttons)
+		{
+			auto button = btit.second.get();
 
-                    if (btit.second->get_state() == Button::NORMAL)
-                    {
-                        Sound(Sound::BUTTONOVER).play();
-                    }
+			if (button->get_state() == Button::State::MOUSEOVER)
+				button->set_state(Button::State::NORMAL);
+		}
+	}
 
-                    Sound(Sound::BUTTONCLICK).play();
+	Cursor::State UIElement::send_cursor(bool down, Point<int16_t> pos)
+	{
+		Cursor::State ret = down ? Cursor::State::CLICKING : Cursor::State::IDLE;
+		auto drawpos = get_draw_position();
 
-                    btit.second->set_state(button_pressed(btit.first));
-                    return { Cursor::CLICKING, true };
-                }
+		// Only the first button under the cursor reacts. Overlapping bounds used to
+		// fire every match, which double-played the sound and ran button_pressed twice.
+		Button* hit = nullptr;
+		uint16_t hitid = 0;
 
-                if (btit.second->get_state() == Button::NORMAL)
-                {
-                    Sound(Sound::BUTTONOVER).play();
-                    btit.second->set_state(Button::MOUSEOVER);
-                }
+		for (auto& btit : buttons)
+		{
+			if (btit.second->is_active() && btit.second->bounds(drawpos).contains(pos))
+			{
+				hit = btit.second.get();
+				hitid = btit.first;
+				break;
+			}
+		}
 
-                return { Cursor::CANCLICK, true };
-            }
-            else if (btit.second->get_state() == Button::MOUSEOVER)
-            {
-                btit.second->set_state(Button::NORMAL);
-            }
-        }
+		for (auto& btit : buttons)
+		{
+			if (btit.second.get() != hit && btit.second->get_state() == Button::State::MOUSEOVER)
+				btit.second->set_state(Button::State::NORMAL);
+		}
 
-        // Do not keep a synthetic "pressed" cursor when no control handled
-        // the current press. Otherwise, dragging onto a button while holding
-        // the mouse can incorrectly fire that button.
-        return { Cursor::IDLE, false };
-    }
+		if (hit)
+		{
+			if (down)
+			{
+				Sound(Sound::Name::BUTTONCLICK).play();
 
-    void UIElement::send_scroll(double)
-    {
-    }
+				Button::State after = button_pressed(hitid);
 
-    void UIElement::send_key(int32_t, bool, bool)
-    {
-    }
+				// The cursor is still over the button, so land on MOUSEOVER rather than
+				// NORMAL -- otherwise the matching release re-fires the hover sound.
+				hit->set_state(after == Button::State::NORMAL
+					? Button::State::MOUSEOVER : after);
 
-    UIElement::Type UIElement::get_type() const
-    {
-        return type;
-    }
+				ret = Cursor::State::IDLE;
+			}
+			else
+			{
+				if (hit->get_state() == Button::State::NORMAL)
+					Sound(Sound::Name::BUTTONOVER).play();
 
-    void UIElement::set_type(UIElement::Type value)
-    {
-        type = value;
-    }
+				hit->set_state(Button::State::MOUSEOVER);
+				ret = Cursor::State::CANCLICK;
+			}
+		}
+
+		return ret;
+	}
 }

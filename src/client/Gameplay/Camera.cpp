@@ -1,102 +1,117 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "Camera.h"
+#include <cmath>
 
 #include "../Constants.h"
 
-
-namespace jrc
+namespace ms
 {
-    Camera::Camera()
-    {
-        x.set(0.0);
-        y.set(0.0);
-    }
+	Camera::Camera()
+	{
+		x.set(0.0);
+		y.set(0.0);
 
-    void Camera::update(Point<int16_t> position)
-    {
-        int16_t view_width = Constants::viewwidth();
-        int16_t view_height = Constants::viewheight();
+		VWIDTH = Constants::Constants::get().get_viewwidth();
+		VHEIGHT = Constants::Constants::get().get_viewheight();
+	}
 
-        double next_x = x.get();
-        double hdelta = view_width / 2 - position.x() - next_x;
-        if (std::abs(hdelta) >= 5.0)
-        {
-            next_x += hdelta * (12.0 / view_width);
-        }
+	void Camera::update(Point<int16_t> position)
+	{
+		int32_t new_width = Constants::Constants::get().get_viewwidth();
+		int32_t new_height = Constants::Constants::get().get_viewheight();
 
-        double next_y = y.get();
-        double vdelta = view_height / 2 - position.y() - next_y;
-        if (std::abs(vdelta) >= 5.0)
-        {
-            next_y += vdelta * (12.0 / view_height);
-        }
+		if (VWIDTH != new_width || VHEIGHT != new_height)
+		{
+			VWIDTH = new_width;
+			VHEIGHT = new_height;
+		}
 
-        if (next_x > hbounds.first() || hbounds.length() < view_width)
-        {
-            next_x = hbounds.first();
-        }
-        else if (next_x < hbounds.second() + view_width)
-        {
-            next_x = hbounds.second() + view_width;
-        }
+		double next_x = x.get();
+		double hdelta = VWIDTH / 2 - position.x() - next_x;
 
-        if (next_y > vbounds.first() || vbounds.length() < view_height)
-        {
-            next_y = vbounds.first();
-        }
-        else if (next_y < vbounds.second() + view_height)
-        {
-            next_y = vbounds.second() + view_height;
-        }
+		if (std::abs(hdelta) >= 5.0)
+			next_x += hdelta * (12.0 / VWIDTH);
 
-        x = next_x;
-        y = next_y;
-    }
+		double next_y = y.get();
+		double vdelta = VHEIGHT / 2 - position.y() - next_y;
 
-    void Camera::set_position(Point<int16_t> position)
-    {
-        x.set(Constants::viewwidth() / 2 - position.x());
-        y.set(Constants::viewheight() / 2 - position.y());
-    }
+		if (std::abs(vdelta) >= 5.0)
+			next_y += vdelta * (12.0 / VHEIGHT);
 
-    void Camera::set_view(Range<int16_t> mapwalls, Range<int16_t> mapborders)
-    {
-        hbounds = -mapwalls;
-        vbounds = -mapborders;
-    }
+		if (next_x > hbounds.first() || hbounds.length() < VWIDTH)
+			next_x = hbounds.first();
+		else if (next_x < hbounds.second() + VWIDTH)
+			next_x = hbounds.second() + VWIDTH;
 
-    Point<int16_t> Camera::position() const
-    {
-        auto shortx = static_cast<int16_t>(std::round(x.get()));
-        auto shorty = static_cast<int16_t>(std::round(y.get()));
-        return { shortx, shorty };
-    }
+		if (vbounds.length() < VHEIGHT)
+			// Map is shorter than the view: anchor its bottom to the screen
+			// bottom (ground stays under the status bar, extra sky shows at the
+			// top) instead of anchoring the top, which left void below the map.
+			next_y = vbounds.second() + VHEIGHT;
+		else if (next_y > vbounds.first())
+			next_y = vbounds.first();
+		else if (next_y < vbounds.second() + VHEIGHT)
+			next_y = vbounds.second() + VHEIGHT;
 
-    Point<int16_t> Camera::position(float alpha) const
-    {
-        auto interx = static_cast<int16_t>(std::round(x.get(alpha)));
-        auto intery = static_cast<int16_t>(std::round(y.get(alpha)));
-        return { interx, intery };
-    }
+		x = next_x;
+		y = next_y;
+	}
 
-    Point<double> Camera::realposition(float alpha) const
-    {
-        return { x.get(alpha), y.get(alpha) };
-    }
+	void Camera::set_position(Point<int16_t> position)
+	{
+		int32_t new_width = Constants::Constants::get().get_viewwidth();
+		int32_t new_height = Constants::Constants::get().get_viewheight();
+
+		if (VWIDTH != new_width || VHEIGHT != new_height)
+		{
+			VWIDTH = new_width;
+			VHEIGHT = new_height;
+		}
+
+		x.set(VWIDTH / 2 - position.x());
+		y.set(VHEIGHT / 2 - position.y());
+	}
+
+	void Camera::set_view(Range<int16_t> mapwalls, Range<int16_t> mapborders)
+	{
+		hbounds = -mapwalls;
+		vbounds = -mapborders;
+	}
+
+	Point<int16_t> Camera::position() const
+	{
+		auto shortx = static_cast<int16_t>(std::round(x.get()));
+		auto shorty = static_cast<int16_t>(std::round(y.get()));
+
+		return { shortx, shorty };
+	}
+
+	Point<int16_t> Camera::position(float alpha) const
+	{
+		auto interx = static_cast<int16_t>(std::round(x.get(alpha)));
+		auto intery = static_cast<int16_t>(std::round(y.get(alpha)));
+
+		return { interx, intery };
+	}
+
+	Point<double> Camera::realposition(float alpha) const
+	{
+		return { x.get(alpha), y.get(alpha) };
+	}
 }

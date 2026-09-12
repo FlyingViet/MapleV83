@@ -1,158 +1,172 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
+
 #include "../UIElement.h"
 
 #include "../Components/Charset.h"
-#include "../Components/Nametag.h"
+#include "../Components/NameTag.h"
 
 #include "../../Character/Look/CharLook.h"
-#include "../../Graphics/Sprite.h"
-#include "../../Net/Login.h"
 
-namespace jrc
+namespace ms
 {
-    // The character selection screen.
-    class UICharSelect : public UIElement
-    {
-    public:
-        static constexpr Type TYPE = CHARSELECT;
-        static constexpr bool FOCUSED = false;
-        static constexpr bool TOGGLED = false;
+	// The character selection screen
+	class UICharSelect : public UIElement
+	{
+	public:
+		static constexpr Type TYPE = UIElement::Type::CHARSELECT;
+		static constexpr bool FOCUSED = false;
+		static constexpr bool TOGGLED = false;
 
-        UICharSelect(std::vector<CharEntry> characters,
-                     uint8_t count,
-                     uint8_t slots,
-                     uint8_t channel_id,
-                     int8_t pic);
+		UICharSelect(std::vector<CharEntry> characters, int8_t characters_count, int32_t slots, int8_t require_pic);
 
-        void draw(float alpha) const override;
-        void update() override;
-        Button::State button_pressed(uint16_t id) override;
+		void draw(float inter) const override;
+		void update() override;
 
-        void add_character(CharEntry&& character);
-        void remove_char(int32_t cid);
-        bool handle_pic_failure(int8_t message, int32_t cid = -1);
-        void clear_pending_pic_request();
+		void doubleclick(Point<int16_t> cursorpos) override;
+		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
+		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
-        const CharEntry& get_character(int32_t cid);
+		UIElement::Type get_type() const override;
 
-    private:
-        enum class PicAction
-        {
-            NONE,
-            REGISTER,
-            SELECT,
-            DELETE
-        };
+		void add_character(CharEntry&& character);
+		void post_add_character();
+		void remove_character(int32_t id);
 
-        void dispatch_pic_action(PicAction action, int32_t cid, const std::string& pic, bool auto_submit);
-        void prompt_pic_entry(PicAction action, int32_t cid);
-        void send_selection();
-        void send_deletion();
-        void update_selection();
-        void update_counts();
-        std::string get_label_string(size_t label) const;
-        Point<int16_t> get_label_pos(size_t label) const;
-        Point<int16_t> get_char_pos(size_t id) const;
+		const CharEntry& get_character(int32_t id);
 
-        enum Buttons
-        {
-            BT_CREATECHAR,
-            BT_DELETECHAR,
-            BT_SELECTCHAR,
-            BT_ARBEIT,
-            BT_CARDS,
-            BT_PAGELEFT,
-            BT_PAGERIGHT,
-            BT_CHAR0
-        };
+	protected:
+		Button::State button_pressed(uint16_t buttonid) override;
 
-        static constexpr uint8_t PAGESIZE = 8;
+	private:
+		void update_buttons();
+		void update_selected_character();
+		void select_last_slot();
+		std::string get_slot_text();
+		std::string pad_number_with_leading_zero(uint8_t value) const;
+		Point<int16_t> get_character_slot_pos(size_t index, uint16_t x_adj, uint16_t y_adj) const;
+		Point<int16_t> get_infolabel_pos(size_t index) const;
+		std::string get_infolabel(size_t index, StatsEntry character_stats) const;
+		void request_pic();
 
-        Sprite emptyslot;
-        Charset levelset;
-        nl::node nametag;
+		// The 800x600 design renders scaled uniformly, centered in the view
+		// (same treatment as the world select); lay() maps design coords to
+		// screen coords.
+		Point<int16_t> lay(int16_t x, int16_t y) const;
+		Point<int16_t> lay(Point<int16_t> p) const;
+		// Scale-only offset (no centering), for offsets from an already-laid point
+		Point<int16_t> scl(int16_t x, int16_t y) const;
+		Point<int16_t> scl(Point<int16_t> p) const;
 
-        Point<int16_t> selworldpos;
-        Point<int16_t> charinfopos;
+		float ui_scale;
+		Point<int16_t> box;
 
-        std::vector<CharEntry> characters;
-        std::vector<CharLook> charlooks;
-        std::vector<Nametag> nametags;
-        int8_t require_pic;
-        PicAction pending_pic_action;
-        int32_t pending_pic_cid;
+		// Cover-scaled background filling the whole view
+		Texture backdrop;
+		DrawArgument backdrop_args;
 
-        uint8_t charcount_absolute;
-        uint8_t charcount_relative;
-        uint8_t slots_absolute;
-        uint8_t slots_relative;
-        uint8_t selected_absolute;
-        uint8_t selected_relative;
-        uint8_t page;
+		// Drifting clouds: one behind the scene, one in front of the bridge.
+		// cloud_drift advances each frame; each cloud wraps across the view.
+		Texture cloud_back;
+		Texture cloud_front;
+		Point<int16_t> cloud_back_pos;
+		Point<int16_t> cloud_front_pos;
+		float cloud_drift;
+		void draw_cloud(const Texture& c, Point<int16_t> base, float speed) const;
 
-        struct OutlinedText
-        {
-            Text inner;
-            Text l;
-            Text r;
-            Text t;
-            Text b;
+		// v83 character info: a scroll that unrolls at the signpost showing
+		// the stat sheet. Index 0 = explorer (short), 1 = KoC/Aran (tall).
+		Animation info_unroll[2];
+		Texture info_open_tex[2];
+		Texture info_sheet[2];
+		int8_t info_state;
+		bool info_tall;
+		OutlinedText level_label;
+		OutlinedText fame_label;
+		OutlinedText rank_label;
 
-            OutlinedText(Text::Font font, Text::Alignment alignment)
-            {
-                inner = Text(font, alignment, Text::WHITE);
-                l     = Text(font, alignment, Text::DARKGREY);
-                r     = Text(font, alignment, Text::DARKGREY);
-                t     = Text(font, alignment, Text::DARKGREY);
-                b     = Text(font, alignment, Text::DARKGREY);
-            }
+		static constexpr uint8_t PAGESIZE = 3;
 
-            OutlinedText() = default;
+		enum Buttons : uint16_t
+		{
+			CHARACTER_SELECT,
+			CHARACTER_NEW,
+			CHARACTER_DELETE,
+			PAGELEFT,
+			PAGERIGHT,
+			CHANGEPIC,
+			RESETPIC,
+			EDITCHARLIST,
+			BACK,
+			CHARACTER_SLOT0
+		};
 
-            void draw(Point<int16_t> parentpos) const
-            {
-                l.draw(parentpos + Point<int16_t>(-1,  0));
-                r.draw(parentpos + Point<int16_t>( 1,  0));
-                t.draw(parentpos + Point<int16_t>( 0, -1));
-                b.draw(parentpos + Point<int16_t>( 0,  1));
-                inner.draw(parentpos);
-            }
+		std::vector<CharEntry> characters;
+		int8_t characters_count;
+		int32_t slots;
+		int8_t require_pic;
+		Text version;
+		Point<int16_t> pagepos;
+		Point<int16_t> worldpos;
+		Point<int16_t> charinfopos;
+		uint8_t selected_character;
+		uint8_t selected_page;
+		uint8_t page_count;
+		Texture tab;
+		uint8_t tab_index;
+		bool tab_active;
+		bool tab_move;
+		Point<int16_t> tab_pos[3];
+		int16_t tab_move_pos;
+		std::map<uint8_t, uint16_t> tab_map;
+		Point<int16_t> world_dimensions;
+		Animation burning_notice;
+		Text burning_count;
+		std::vector<Sprite> world_sprites;
+		Texture charslot;
+		Texture pagebase;
+		Charset pagenumber;
+		nl::node pagenumberpos;
+		Texture signpost[3];
+		nl::node nametag;
+		Charset levelset;
+		OutlinedText namelabel;
+		std::vector<CharLook> charlooks;
+		std::vector<NameTag> nametags;
+		Animation emptyslot_effect;
+		Animation selectedslot_effect[2];
+		OutlinedText charslotlabel;
+		int16_t timestamp;
+		uint16_t charslot_y;
+		bool show_timestamp;
+		bool burning_character;
 
-            void change_text(const std::string& text)
-            {
-                inner.change_text(text);
-                l.change_text(text);
-                r.change_text(text);
-                t.change_text(text);
-                b.change_text(text);
-            }
-        };
-        OutlinedText namelabel;
+		enum InfoLabel : uint8_t
+		{
+			JOB,
+			STR,
+			DEX,
+			INT,
+			LUK,
+			NUM_LABELS
+		};
 
-        static const size_t NUM_LABELS = 7;
-        enum InfoLabel
-        {
-            JOB, WORLDRANK, JOBRANK,
-            STR, DEX,       INT,
-            LUK
-        };
-        OutlinedText infolabels[NUM_LABELS];
-    };
+		OutlinedText infolabels[UICharSelect::InfoLabel::NUM_LABELS];
+	};
 }

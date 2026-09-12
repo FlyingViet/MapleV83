@@ -1,46 +1,64 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+﻿//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
+
+#include "../MapleStory.h"
+
+#ifdef USE_NX
 #include "../Error.h"
 
-#include <cstdint>
 #include <array>
+#include <stdint.h>
 
-namespace jrc
+namespace ms
 {
-    namespace NxFiles
-    {
-        /// Number of needed files.
-        constexpr uint8_t NUM_FILES = 14;
-        /// Names of the needed game files.
-        constexpr std::array<const char*, NUM_FILES> filenames =
-        {{
-            "Character.nx", "Effect.nx", "Etc.nx",   "Item.nx",
-            "Map.nx",       "Mob.nx",    "Npc.nx",   "Quest.nx",
-            "Reactor.nx",   "Skill.nx",  "Sound.nx", "String.nx",
-            "TamingMob.nx", "UI.nx"
-        }};
+	namespace NxFiles
+	{
+		// Number of needed files
+		const constexpr uint8_t NUM_FILES = 16;
 
-        /// Initialize nlnx.
-        /// When successful, also tests if the UI file contains valid images.
-        ///
-        /// This also tests that the UI.nx file has a post-chaos image in it
-        /// as a proxy for requiring a v154+ Ui.nx.
-        Error init();
-    };
+		// Names of the needed game files
+		const constexpr std::array<const char*, NUM_FILES> filenames =
+		{
+			"Base.nx",
+			"Character.nx",
+			"Effect.nx",
+			"Etc.nx",
+			"Item.nx",
+			"Map.nx",
+			// "Map001.nx",	// From latest
+			// "MapLatest.nx",	// From latest
+			// "MapPretty.nx",	// From v167
+			"Mob.nx",
+			"Morph.nx",
+			"Npc.nx",
+			"Quest.nx",
+			"Reactor.nx",
+			"Skill.nx",
+			"Sound.nx",		// From latest
+			"String.nx",
+			"TamingMob.nx",
+			"UI.nx"			// From latest
+		};
+
+		// Initialize NX
+		// When successful test if the UI file is the correct version
+		Error init();
+	};
 }
+#endif

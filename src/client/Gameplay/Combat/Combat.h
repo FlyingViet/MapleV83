@@ -1,106 +1,125 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "Attack.h"
+
 #include "RegularAttack.h"
-#include "Skill.h"
 
 #include "../MapleMap/MapChars.h"
 #include "../MapleMap/MapMobs.h"
+#include "../MapleMap/MapReactors.h"
 #include "../Physics/Physics.h"
 
 #include "../../Character/Player.h"
 #include "../../Template/TimedQueue.h"
 
-namespace jrc
+namespace ms
 {
-    class Combat
-    {
-    public:
-        Combat(Player& player, MapChars& chars, MapMobs& mobs,
-            Physics& physics);
+	class Combat
+	{
+	public:
+		Combat(Player& player, MapChars& chars, MapMobs& mobs, MapReactors& reactors, const Physics& physics);
 
-        // Draw bullets, damage numbers etc.
-        void draw(double viewx, double viewy, float alpha) const;
-        // Poll attacks, damage effects, etc.
-        void update();
+		// Draw bullets, damage numbers etc.
+		void draw(double viewx, double viewy, float alpha) const;
+		// Poll attacks, damage effects, etc.
+		void update();
 
-        // Make the player use a special move. Returns true if the move was used.
-        bool use_move(int32_t move_id);
-        // Reset transient state (e.g. on map change).
-        void clear();
+		// Make the player use a special move
+		void use_move(int32_t move_id);
 
-        // Add an attack to the attack queue.
-        void push_attack(const AttackResult& attack);
-        // Show a buff effect.
-        void show_buff(int32_t cid, int32_t skillid, int8_t level);
-        // Show a buff effect.
-        void show_player_buff(int32_t skillid);
+		// Add an attack to the attack queue
+		void push_attack(const AttackResult& attack);
+		// Show a standalone damage number over a mob (server DAMAGE_MONSTER
+		// packet: DoT, mist, Body Pressure and other attacker-less damage).
+		void show_mob_damage(int32_t oid, int32_t damage);
+		// Show a buff effect. `speed` and `direction` come from the packet: without
+		// them the cast plays at default speed and default facing, so a skill cast
+		// facing left renders facing right. Negative direction means "unspecified"
+		// and leaves the character's current facing alone.
+		void show_buff(int32_t cid, int32_t skillid, int8_t level,
+			uint8_t speed = 0, int8_t direction = -1);
+		// Teleport variants across the mage jobs and GM. These carry no authored
+		// use-effect, so anything rendering them has to substitute the standard
+		// BasicEff puff explicitly.
+		static bool is_teleport_skill(int32_t skillid);
+		// Show a buff effect
+		void show_player_buff(int32_t skillid);
 
-    private:
-        struct DamageEffect
-        {
-            AttackUser user;
-            DamageNumber number;
-            int32_t damage;
-            bool toleft;
-            int32_t target_oid;
-            int32_t move_id;
-        };
+	private:
+		struct DamageEffect
+		{
+			AttackUser user;
+			DamageNumber number;
+			int32_t damage;
+			bool toleft;
+			int32_t target_oid;
+			int32_t move_id;
+		};
 
-        struct BulletEffect
-        {
-            DamageEffect damageeffect;
-            Bullet bullet;
-            Point<int16_t> target;
-        };
+		struct BulletEffect
+		{
+			DamageEffect damageeffect;
+			Bullet bullet;
+			Point<int16_t> target;
+		};
 
-        void apply_attack(const AttackResult& attack);
-        void apply_move(const SpecialMove& move);
-        void apply_use_movement(const SpecialMove& move);
-        void apply_result_movement(const SpecialMove& move, const AttackResult& result);
-        void apply_rush(const AttackResult& result);
-        void apply_bullet_effect(const BulletEffect& effect);
-        void apply_damage_effect(const DamageEffect& effect);
-        void extract_effects(const Char& user, const SpecialMove& move, const AttackResult& result);
-        std::vector<DamageNumber> place_numbers(int32_t oid, const std::vector<std::pair<int32_t, bool>>& damagelines);
-        const SpecialMove& get_move(int32_t move_id);
+		void apply_attack(const AttackResult& attack);
+		void apply_move(const SpecialMove& move);
+		std::vector<int32_t> find_closest(MapObjects* objs, Rectangle<int16_t> range, Point<int16_t> origin, uint8_t objcount, bool use_mobs) const;
+		void apply_use_movement(const SpecialMove& move);
+		void apply_result_movement(const SpecialMove& move, const AttackResult& result);
+		void apply_rush(const AttackResult& result);
+		// Blink the player a fixed distance in the held-direction (Magician
+		// Teleport / Flash Jump), snapping onto the foothold at the destination.
+		void apply_teleport(const SpecialMove& move);
+		// Mid-air dash: horizontal impulse in the moving/facing direction with a
+		// small upward pop, only usable while airborne.
+		void apply_flash_jump();
+		void apply_bullet_effect(const BulletEffect& effect);
+		void apply_damage_effect(const DamageEffect& effect);
+		void extract_effects(const Char& user, const SpecialMove& move, const AttackResult& result);
+		std::vector<DamageNumber> place_numbers(int32_t oid, const std::vector<std::pair<int32_t, bool>>& damagelines);
+		const SpecialMove& get_move(int32_t move_id);
 
-        static bool is_teleport_skill(int32_t skillid);
-        bool apply_teleport(const SpecialMove& move);
-        Point<int16_t> find_teleport_target(int16_t range);
-        Point<int16_t> find_teleport_target_vertical(bool up, int16_t range);
-        Point<int16_t> find_teleport_target_horizontal(int16_t range);
+		Player& player;
+		MapChars& chars;
+		MapMobs& mobs;
+		MapReactors& reactors;
+		const Physics& physics;
 
-        Player& player;
-        MapChars& chars;
-        MapMobs& mobs;
-        Physics& physics;
+		std::unordered_map<int32_t, Skill> skills;
+		RegularAttack regularattack;
 
-        std::unordered_map<int32_t, Skill> skills;
-        RegularAttack regularattack;
-        int16_t teleport_cooldown = 0;
+		TimedQueue<AttackResult> attackresults;
+		TimedQueue<BulletEffect> bulleteffects;
+		TimedQueue<DamageEffect> damageeffects;
 
-        TimedQueue<AttackResult> attackresults;
-        TimedQueue<BulletEffect> bulleteffects;
-        TimedQueue<DamageEffect> damageeffects;
+		std::list<BulletEffect> bullets;
+		std::list<DamageNumber> damagenumbers;
 
-        std::list<BulletEffect> bullets;
-        std::list<DamageNumber> damagenumbers;
-    };
+		// Client-side rate limit on Teleport (ticks). The base skill has no data
+		// cooldown, so without this the player could blink every frame.
+		int16_t teleport_cooldown = 0;
+
+		// Skill we just cast (use effect already played locally) — the server
+		// echoes the cast back as SHOW_ITEM_GAIN_INCHAT/1 and show_player_buff
+		// must not replay it, or every sound plays twice
+		int32_t local_cast_id = 0;
+		int16_t local_cast_timeout = 0;
+	};
 }

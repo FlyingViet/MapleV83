@@ -40,10 +40,9 @@ namespace nl {
         //Returns a unique id, useful for keeping track of what audio you loaded
         size_t id() const;
     private:
-        audio(void const *, uint32_t, size_t);
+        audio(void const *, uint32_t);
         void const * m_data = nullptr;
         uint32_t m_length = 0;
-        size_t m_id = 0;
         friend node;
     };
 }

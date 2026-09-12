@@ -1,178 +1,151 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "PassiveBuffs.h"
 
-#include "../Character/SkillId.h"
+#include "SkillId.h"
+
 #include "../Util/Misc.h"
 
-#include "nlnx/node.hpp"
-#include "nlnx/nx.hpp"
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
 
-namespace jrc
+namespace ms
 {
-    bool ConditionlessBuff::is_applicable(CharStats&, nl::node) const
-    {
-        return true;
-    }
+	bool ConditionlessBuff::is_applicable(CharStats&, nl::node) const
+	{
+		return true;
+	}
 
+	void AngelBlessingBuff::apply_to(CharStats& stats, nl::node level) const
+	{
+		stats.add_value(EquipStat::Id::WATK, level["x"]);
+		stats.add_value(EquipStat::Id::MAGIC, level["y"]);
+		stats.add_value(EquipStat::Id::ACC, level["z"]);
+		stats.add_value(EquipStat::Id::AVOID, level["z"]);
+	}
 
-    void AngelBlessingBuff::apply_to(CharStats& stats, nl::node level) const
-    {
-        stats.add_value(Equipstat::WATK, level["x"]);
-        stats.add_value(Equipstat::MAGIC, level["y"]);
-        stats.add_value(Equipstat::ACC, level["z"]);
-        stats.add_value(Equipstat::AVOID, level["z"]);
-    }
+	template<Weapon::Type W1, Weapon::Type W2>
+	bool f_is_applicable(CharStats& stats, nl::node level)
+	{
+		return f_is_applicable<W1>(stats, level) || f_is_applicable<W2>(stats, level);
+	}
 
+	template<Weapon::Type W1>
+	bool f_is_applicable(CharStats& stats, nl::node)
+	{
+		return stats.get_weapontype() == W1;
+	}
 
-    template<Weapon::Type W1, Weapon::Type W2>
-    bool f_is_applicable(CharStats& stats, nl::node level)
-    {
-        return f_is_applicable<W1>(stats, level)
-            || f_is_applicable<W2>(stats, level);
-    }
+	template <Weapon::Type...W>
+	bool WeaponMasteryBuff<W...>::is_applicable(CharStats& stats, nl::node level) const
+	{
+		return f_is_applicable<W...>(stats, level);
+	}
 
-    template<Weapon::Type W1>
-    bool f_is_applicable(CharStats& stats, nl::node)
-    {
-        return stats.get_weapontype() == W1;
-    }
+	template <Weapon::Type...W>
+	void WeaponMasteryBuff<W...>::apply_to(CharStats& stats, nl::node level) const
+	{
+		float mastery = static_cast<float>(level["mastery"]) / 100;
+		stats.set_mastery(mastery);
+		stats.add_value(EquipStat::Id::ACC, level["x"]);
+	}
 
-    template <Weapon::Type...W>
-    bool WeaponMasteryBuff<W...>::is_applicable(CharStats& stats, nl::node level) const
-    {
-        return f_is_applicable<W...>(stats, level);
-    }
+	void AchillesBuff::apply_to(CharStats& stats, nl::node level) const
+	{
+		float reducedamage = static_cast<float>(level["x"]) / 1000;
+		stats.set_reducedamage(reducedamage);
+	}
 
-    template <Weapon::Type...W>
-    void WeaponMasteryBuff<W...>::apply_to(CharStats& stats, nl::node level) const
-    {
-        // WZ stores mastery in 5% steps above the 10% unmastered floor:
-        // e.g. 1 -> 15%, 10 -> 60%.
-        float mastery = 0.1f + static_cast<float>(level["mastery"]) * 0.05f;
-        stats.set_mastery(mastery);
-        stats.add_value(Equipstat::ACC, level["x"]);
-    }
+	bool BerserkBuff::is_applicable(CharStats& stats, nl::node level) const
+	{
+		float hp_percent = static_cast<float>(level["x"]) / 100;
+		int32_t hp_threshold = static_cast<int32_t>(stats.get_total(EquipStat::Id::HP) * hp_percent);
+		int32_t hp_current = stats.get_stat(MapleStat::Id::HP);
 
+		return hp_current <= hp_threshold;
+	}
 
-    void AchillesBuff::apply_to(CharStats& stats, nl::node level) const
-    {
-        float reducedamage = static_cast<float>(level["x"]) / 1000;
-        stats.set_reducedamage(reducedamage);
-    }
+	void BerserkBuff::apply_to(CharStats& stats, nl::node level) const
+	{
+		float damagepercent = static_cast<float>(level["damage"]) / 100;
+		stats.set_damagepercent(damagepercent);
+	}
 
+	PassiveBuffs::PassiveBuffs()
+	{
+		// Beginner
+		buffs[SkillId::Id::ANGEL_BLESSING] = std::make_unique<AngelBlessingBuff>();
 
-    bool BerserkBuff::is_applicable(CharStats& stats, nl::node level) const
-    {
-        float hp_percent = static_cast<float>(level["x"]) / 100;
-        int32_t hp_threshold = static_cast<int32_t>(stats.get_total(Equipstat::HP) * hp_percent);
-        int32_t hp_current = stats.get_stat(Maplestat::HP);
-        return hp_current <= hp_threshold;
-    }
+		// Fighter
+		buffs[SkillId::Id::SWORD_MASTERY_FIGHTER] = std::make_unique<WeaponMasteryBuff<Weapon::Type::SWORD_1H, Weapon::Type::SWORD_2H>>();
+		buffs[SkillId::Id::AXE_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::Type::AXE_1H, Weapon::Type::AXE_2H>>();
 
-    void BerserkBuff::apply_to(CharStats& stats, nl::node level) const
-    {
-        float damagepercent = static_cast<float>(level["damage"]) / 100;
-        stats.set_damagepercent(damagepercent);
-    }
+		// Crusader
 
+		// Hero
+		buffs[SkillId::Id::ACHILLES_HERO] = std::make_unique<AchillesBuff>();
 
-    PassiveBuffs::PassiveBuffs()
-    {
-        // Beginner
-        buffs[SkillId::ANGEL_BLESSING] = std::make_unique<AngelBlessingBuff>();
+		// Page
+		buffs[SkillId::Id::SWORD_MASTERY_FIGHTER] = std::make_unique<WeaponMasteryBuff<Weapon::Type::SWORD_1H, Weapon::Type::SWORD_2H>>();
+		buffs[SkillId::Id::BW_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::Type::MACE_1H, Weapon::Type::MACE_2H>>();
 
-        // Fighter
-        buffs[SkillId::SWORD_MASTERY_FIGHTER] = std::make_unique<WeaponMasteryBuff<Weapon::SWORD_1H, Weapon::SWORD_2H>>();
-        buffs[SkillId::AXE_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::AXE_1H, Weapon::AXE_2H>>();
+		// White Knight
 
-        // Crusader
+		// Paladin
+		buffs[SkillId::Id::ACHILLES_PALADIN] = std::make_unique<AchillesBuff>();
 
-        // Hero
-        buffs[SkillId::ACHILLES_HERO] = std::make_unique<AchillesBuff>();
+		// Spearman
+		buffs[SkillId::Id::SPEAR_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::Type::SPEAR>>();
+		buffs[SkillId::Id::PA_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::Type::POLEARM>>();
 
-        // Page
-        buffs[SkillId::SWORD_MASTERY_PAGE] = std::make_unique<WeaponMasteryBuff<Weapon::SWORD_1H, Weapon::SWORD_2H>>();
-        buffs[SkillId::BW_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::MACE_1H, Weapon::MACE_2H>>();
+		// Dragon Knight
 
-        // White Knight
+		// Dark Knight
+		buffs[SkillId::Id::ACHILLES_DK] = std::make_unique<AchillesBuff>();
+		buffs[SkillId::Id::BERSERK] = std::make_unique<BerserkBuff>();
+	}
 
-        // Paladin
-        buffs[SkillId::ACHILLES_PALADIN] = std::make_unique<AchillesBuff>();
+	void PassiveBuffs::apply_buff(CharStats& stats, int32_t skill_id, int32_t skill_level) const
+	{
+		auto iter = buffs.find(skill_id);
 
-        // Spearman
-        buffs[SkillId::SPEAR_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::SPEAR>>();
-        buffs[SkillId::PA_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::POLEARM>>();
+		if (iter == buffs.end())
+			return;
 
-        // Dragon Knight
+		bool wrong_job = !stats.get_job().can_use(skill_id);
 
-        // Dark Knight
-        buffs[SkillId::ACHILLES_DK] = std::make_unique<AchillesBuff>();
-        buffs[SkillId::BERSERK] = std::make_unique<BerserkBuff>();
+		if (wrong_job)
+			return;
 
-        // Hunter
-        buffs[SkillId::BOW_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::BOW>>();
+		std::string strid;
 
-        // Crossbowman
-        buffs[SkillId::CROSSBOW_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::CROSSBOW>>();
+		if (skill_id < 10000000)
+			strid = string_format::extend_id(skill_id, 7);
+		else
+			strid = std::to_string(skill_id);
 
-        // Assassin
-        buffs[SkillId::CLAW_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::CLAW>>();
+		std::string jobid = string_format::extend_id(skill_id / 10000, 3);
+		nl::node src = nl::nx::skill[jobid + ".img"]["skill"][strid]["level"][skill_level];
 
-        // Bandit
-        buffs[SkillId::DAGGER_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::DAGGER>>();
+		const PassiveBuff* buff = iter->second.get();
 
-        // Brawler
-        buffs[SkillId::KNUCKLER_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::KNUCKLE>>();
-
-        // Gunslinger
-        buffs[SkillId::GUN_MASTERY] = std::make_unique<WeaponMasteryBuff<Weapon::GUN>>();
-
-        // Aran
-        buffs[SkillId::POLEARM_MASTERY_ARAN] = std::make_unique<WeaponMasteryBuff<Weapon::POLEARM>>();
-        buffs[SkillId::HIGH_MASTERY_ARAN] = std::make_unique<WeaponMasteryBuff<Weapon::POLEARM>>();
-    }
-
-    void PassiveBuffs::apply_buff(CharStats& stats, int32_t skill_id, int32_t skill_level) const
-    {
-        auto iter = buffs.find(skill_id);
-        if (iter == buffs.end())
-            return;
-
-        bool wrong_job = !stats.get_job().can_use(skill_id);
-        if (wrong_job)
-            return;
-
-        std::string strid;
-        if (skill_id < 10000000)
-        {
-            strid = string_format::extend_id(skill_id, 7);
-        }
-        else
-        {
-            strid = std::to_string(skill_id);
-        }
-        nl::node src = nl::nx::skill[strid.substr(0, 3) + ".img"]["skill"][strid]["level"][skill_level];
-
-        const PassiveBuff* buff = iter->second.get();
-        if (buff && buff->is_applicable(stats, src))
-        {
-            buff->apply_to(stats, src);
-        }
-    }
+		if (buff && buff->is_applicable(stats, src))
+			buff->apply_to(stats, src);
+	}
 }

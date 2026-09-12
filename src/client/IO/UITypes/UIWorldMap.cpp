@@ -1,385 +1,356 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "UIWorldMap.h"
 
 #include "../UI.h"
-#include "../Components/MapleButton.h"
 
 #include "../../Gameplay/Stage.h"
-#include "../../Util/Misc.h"
 
-#include "nlnx/nx.hpp"
+#include "../../IO/Components/MapleButton.h"
 
-namespace jrc
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
+
+namespace ms
 {
-    UIWorldMap::UIWorldMap()
-        : UIDragElement<PosMAP>(Point<int16_t>()),
-          search(true),
-          show_path_img(false),
-          mapid(-1),
-          search_text_dim(82, 14)
-    {
-        nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
-        nl::node world_map = nl::nx::ui["UIWindow2.img"]["WorldMap"];
-        nl::node world_map_search = world_map["WorldMapSearch"];
-        nl::node border = world_map["Border"]["0"];
-        nl::node background = world_map_search["backgrnd"];
-        nl::node helper = nl::nx::map["MapHelper.img"]["worldMap"];
+	UIWorldMap::UIWorldMap() : UIDragElement<PosMAP>(Point<int16_t>(500, 20))
+	{
+		nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
+		nl::node WorldMap = nl::nx::ui["UIWindow2.img"]["WorldMap"];
+		nl::node WorldMapSearch = WorldMap["WorldMapSearch"];
+		nl::node Border = WorldMap["Border"]["0"];
+		nl::node backgrnd = WorldMapSearch["backgrnd"];
+		nl::node MapHelper = nl::nx::map["MapHelper.img"]["worldMap"];
 
-        sprites.emplace_back(border);
+		cur_pos = MapHelper["curPos"];
 
-        cur_pos = helper["curPos"];
-        for (size_t i = 0; i < MAPSPOT_TYPE_MAX; ++i)
-        {
-            npc_pos[i] = helper["npcPos" + std::to_string(i)];
-        }
+		for (size_t i = 0; i < MAPSPOT_TYPE_MAX; i++)
+			npc_pos[i] = MapHelper["npcPos" + std::to_string(i)];
 
-        search_background = background;
-        search_notice = world_map_search["notice"];
+		sprites.emplace_back(Border);
 
-        bg_dimensions = Texture(border).get_dimensions();
-        bg_search_dimensions = search_background.get_dimensions();
-        background_dimensions = Point<int16_t>(bg_dimensions.x(), 0);
-        base_position = Point<int16_t>(bg_dimensions.x() / 2, bg_dimensions.y() / 2 + 15);
+		search_background = backgrnd;
+		search_notice = WorldMapSearch["notice"];
 
-        Point<int16_t> close_pos(bg_dimensions.x() - 22, 4);
-        buttons[BT_CLOSE] = std::make_unique<MapleButton>(close, close_pos);
-        buttons[BT_SEARCH] = std::make_unique<MapleButton>(world_map["BtSearch"]);
-        buttons[BT_AUTOFLY] = std::make_unique<MapleButton>(world_map["BtAutoFly_1"]);
-        buttons[BT_NAVIREG] = std::make_unique<MapleButton>(world_map["BtNaviRegister"]);
-        buttons[BT_SEARCH_CLOSE] = std::make_unique<MapleButton>(close, close_pos + Point<int16_t>(bg_search_dimensions.x(), 0));
-        buttons[BT_ALLSEARCH] = std::make_unique<MapleButton>(world_map_search["BtAllsearch"], background_dimensions);
+		bg_dimensions = Texture(Border).get_dimensions();
+		bg_search_dimensions = search_background.get_dimensions();
 
-        Point<int16_t> search_pos = background_dimensions + Point<int16_t>(13, 25);
-        search_text = Textfield(
-            Text::A11M,
-            Text::LEFT,
-            Text::BLACK,
-            Rectangle<int16_t>(search_pos, search_pos + search_text_dim),
-            8
-        );
+		int16_t bg_dimension_x = bg_dimensions.x();
+		background_dimensions = Point<int16_t>(bg_dimension_x, 0);
 
-        set_search(true);
-        dragarea = Point<int16_t>(bg_dimensions.x(), 20);
-    }
+		int16_t base_x = bg_dimension_x / 2;
+		int16_t base_y = bg_dimensions.y() / 2;
+		base_position = Point<int16_t>(base_x, base_y + 15);
 
-    void UIWorldMap::draw(float alpha) const
-    {
-        UIElement::draw_sprites(alpha);
+		Point<int16_t> close_dimensions = Point<int16_t>(bg_dimension_x - 22, 4);
 
-        if (search)
-        {
-            search_background.draw(position + background_dimensions);
-            search_notice.draw(position + background_dimensions);
-            search_text.draw(position);
-        }
+		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(close, close_dimensions);
+		buttons[Buttons::BT_SEARCH] = std::make_unique<MapleButton>(WorldMap["BtSearch"]);
+		buttons[Buttons::BT_AUTOFLY] = std::make_unique<MapleButton>(WorldMap["BtAutoFly_1"]);
+		buttons[Buttons::BT_NAVIREG] = std::make_unique<MapleButton>(WorldMap["BtNaviRegister"]);
+		buttons[Buttons::BT_SEARCH_CLOSE] = std::make_unique<MapleButton>(close, close_dimensions + Point<int16_t>(bg_search_dimensions.x(), 0));
+		buttons[Buttons::BT_ALLSEARCH] = std::make_unique<MapleButton>(WorldMapSearch["BtAllsearch"], background_dimensions);
 
-        base_img.draw(position + base_position);
+		Point<int16_t> search_text_pos = Point<int16_t>(bg_dimension_x + 14, 25);
+		Point<int16_t> search_box_dim = Point<int16_t>(83, 15);
+		Rectangle<int16_t> search_text_dim = Rectangle<int16_t>(search_text_pos, search_text_pos + search_box_dim);
 
-        for (const auto& entry : buttons)
-        {
-            if (entry.first >= BT_LINK0 && entry.second && entry.second->get_state() == Button::MOUSEOVER)
-            {
-                auto image = link_images.find(entry.first);
-                if (image != link_images.end())
-                {
-                    image->second.draw(position + base_position);
-                    break;
-                }
-            }
-        }
+		search_text = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, search_text_dim, 8);
 
-        if (show_path_img)
-        {
-            path_img.draw(position + base_position);
-        }
+		set_search(true);
 
-        bool found = false;
-        for (const auto& spot : map_spots)
-        {
-            spot.second.marker.draw(position + base_position + spot.first);
+		dragarea = Point<int16_t>(bg_dimension_x, 20);
+	}
 
-            if (found)
-            {
-                continue;
-            }
+	void UIWorldMap::draw(float alpha) const
+	{
+		UIElement::draw_sprites(alpha);
 
-            for (int32_t spot_mapid : spot.second.map_ids)
-            {
-                if (spot_mapid == mapid)
-                {
-                    found = true;
-                    if (spot.second.type < MAPSPOT_TYPE_MAX)
-                    {
-                        npc_pos[spot.second.type].draw(position + base_position + spot.first, alpha);
-                    }
-                    cur_pos.draw(position + base_position + spot.first, alpha);
-                    break;
-                }
-            }
-        }
+		if (search)
+		{
+			search_background.draw(position + background_dimensions);
+			search_notice.draw(position + background_dimensions);
+			search_text.draw(position + Point<int16_t>(1, -5));
+		}
 
-        UIElement::draw_buttons(alpha);
-    }
+		base_img.draw(position + base_position);
 
-    void UIWorldMap::update()
-    {
-        int32_t current_mapid = Stage::get().get_mapid();
-        if (current_mapid != mapid)
-        {
-            mapid = current_mapid;
+		if (link_images.size() > 0)
+		{
+			for (auto& iter : buttons)
+			{
+				if (const auto button = iter.second.get())
+				{
+					if (iter.first >= Buttons::BT_LINK0 && button->get_state() == Button::State::MOUSEOVER)
+					{
+						if (link_images.find(iter.first) != link_images.end())
+						{
+							link_images.at(iter.first).draw(position + base_position);
+							break;
+						}
+					}
+				}
+			}
+		}
 
-            int32_t prefix = mapid / 10000000;
-            user_map = "WorldMap0" + std::to_string(prefix);
-            update_world(user_map);
-        }
+		if (show_path_img)
+			path_img.draw(position + base_position);
 
-        search_text.update(position);
+		for (auto spot : map_spots)
+			spot.second.marker.draw(spot.first + position + base_position);
 
-        for (size_t i = 0; i < MAPSPOT_TYPE_MAX; ++i)
-        {
-            npc_pos[i].update();
-        }
+		bool found = false;
 
-        cur_pos.update();
-        UIElement::update();
-    }
+		if (!found)
+		{
+			for (auto spot : map_spots)
+			{
+				for (auto map_id : spot.second.map_ids)
+				{
+					if (map_id == mapid)
+					{
+						found = true;
+						npc_pos[spot.second.type].draw(spot.first + position + base_position, alpha);
+						cur_pos.draw(spot.first + position + base_position, alpha);
+						break;
+					}
+				}
 
-    void UIWorldMap::toggle_active()
-    {
-        bool was_active = active;
-        UIElement::toggle_active();
+				if (found)
+					break;
+			}
+		}
 
-        if (was_active && !active && search_text.get_state() == Textfield::FOCUSED)
-        {
-            UI::get().focus_textfield(nullptr);
-        }
+		UIElement::draw_buttons(alpha);
+	}
 
-        if (!active)
-        {
-            set_search(true);
-            update_world(user_map);
-        }
-    }
+	void UIWorldMap::update()
+	{
+		int32_t mid = Stage::get().get_mapid();
 
-    bool UIWorldMap::remove_cursor(bool clicked, Point<int16_t> cursorpos)
-    {
-        bool removed = UIDragElement::remove_cursor(clicked, cursorpos);
+		if (mid != mapid)
+		{
+			mapid = mid;
+			auto prefix = mapid / 10000000;
+			auto parent_map = "WorldMap0" + std::to_string(prefix);
+			user_map = parent_map;
 
-        if (!is_in_range(cursorpos))
-        {
-            UI::get().clear_tooltip(Tooltip::WORLDMAP);
-            show_path_img = false;
-        }
+			update_world(parent_map);
+		}
 
-        return removed;
-    }
+		if (search)
+			search_text.update(position);
 
-    UIElement::CursorResult UIWorldMap::send_cursor(bool clicked, Point<int16_t> cursorpos)
-    {
-        if (dragged)
-        {
-            return UIDragElement::send_cursor(clicked, cursorpos);
-        }
+		for (size_t i = 0; i < MAPSPOT_TYPE_MAX; i++)
+			npc_pos[i].update(1);
 
-        Cursor::State text_state = search_text.send_cursor(cursorpos, clicked);
-        if (text_state != Cursor::IDLE)
-        {
-            return { text_state, true };
-        }
+		cur_pos.update();
 
-        show_path_img = false;
+		UIElement::update();
+	}
 
-        for (const auto& path : map_spots)
-        {
-            Point<int16_t> marker_lt = path.first + position + base_position - Point<int16_t>(10, 10);
-            Point<int16_t> marker_rb = marker_lt + path.second.marker.get_dimensions();
-            Rectangle<int16_t> bounds(marker_lt, marker_rb);
+	void UIWorldMap::toggle_active()
+	{
+		UIElement::toggle_active();
 
-            if (!clicked && bounds.contains(cursorpos))
-            {
-                path_img = path.second.path;
-                show_path_img = path_img.is_valid();
+		if (!active)
+		{
+			set_search(true);
+			update_world(user_map);
+		}
+	}
 
-                UI::get().show_map(
-                    Tooltip::WORLDMAP,
-                    path.second.title,
-                    path.second.description,
-                    path.second.map_ids.empty() ? 0 : path.second.map_ids.front(),
-                    path.second.bolded,
-                    false
-                );
-                break;
-            }
-        }
+	void UIWorldMap::send_key(int32_t keycode, bool pressed, bool escape)
+	{
+		if (pressed && escape)
+		{
+			if (search)
+			{
+				set_search(false);
+			}
+			else
+			{
+				if (parent_map == "")
+				{
+					toggle_active();
 
-        return UIDragElement::send_cursor(clicked, cursorpos);
-    }
+					update_world(user_map);
+				}
+				else
+				{
+					Sound(Sound::Name::SELECTMAP).play();
 
-    void UIWorldMap::send_key(int32_t, bool pressed, bool escape)
-    {
-        if (!pressed || !escape)
-        {
-            return;
-        }
+					update_world(parent_map);
+				}
+			}
+		}
+	}
 
-        if (search)
-        {
-            set_search(false);
-        }
-        else if (parent_map.empty())
-        {
-            toggle_active();
-        }
-        else
-        {
-            update_world(parent_map);
-        }
-    }
+	UIElement::Type UIWorldMap::get_type() const
+	{
+		return TYPE;
+	}
 
-    Button::State UIWorldMap::button_pressed(uint16_t buttonid)
-    {
-        if (buttonid >= BT_LINK0)
-        {
-            auto iter = link_maps.find(buttonid);
-            if (iter != link_maps.end())
-            {
-                update_world(iter->second);
-            }
-            return Button::IDENTITY;
-        }
+	Button::State UIWorldMap::button_pressed(uint16_t buttonid)
+	{
+		switch (buttonid)
+		{
+		case Buttons::BT_CLOSE:
+			deactivate();
+			break;
+		case Buttons::BT_SEARCH:
+			set_search(!search);
+			break;
+		case Buttons::BT_SEARCH_CLOSE:
+			set_search(false);
+			break;
+		default:
+			break;
+		}
 
-        switch (buttonid)
-        {
-        case BT_CLOSE:
-            toggle_active();
-            return Button::NORMAL;
-        case BT_SEARCH:
-            set_search(!search);
-            return Button::NORMAL;
-        case BT_SEARCH_CLOSE:
-            set_search(false);
-            return Button::NORMAL;
-        default:
-            return Button::DISABLED;
-        }
-    }
+		if (buttonid >= Buttons::BT_LINK0)
+		{
+			update_world(link_maps[buttonid]);
 
-    void UIWorldMap::set_search(bool enable)
-    {
-        if (!enable && search_text.get_state() == Textfield::FOCUSED)
-        {
-            UI::get().focus_textfield(nullptr);
-        }
+			return Button::State::IDENTITY;
+		}
 
-        search = enable;
-        buttons[BT_SEARCH_CLOSE]->set_active(enable);
-        buttons[BT_ALLSEARCH]->set_active(enable);
-        search_text.set_state(enable ? Textfield::NORMAL : Textfield::DISABLED);
-        dimension = enable ? bg_dimensions + Point<int16_t>(bg_search_dimensions.x(), 0) : bg_dimensions;
-    }
+		return Button::State::NORMAL;
+	}
 
-    void UIWorldMap::update_world(const std::string& map)
-    {
-        nl::node world_map = nl::nx::map["WorldMap"][map + ".img"];
-        if (!world_map)
-        {
-            world_map = nl::nx::map["WorldMap"]["WorldMap.img"];
-        }
+	void UIWorldMap::remove_cursor()
+	{
+		UIDragElement::remove_cursor();
 
-        base_img = world_map["BaseImg"][0];
-        parent_map = world_map["info"]["parentMap"].get_string();
+		UI::get().clear_tooltip(Tooltip::Parent::WORLDMAP);
 
-        link_images.clear();
-        link_maps.clear();
+		show_path_img = false;
+	}
 
-        for (auto& button : buttons)
-        {
-            if (button.first >= BT_LINK0 && button.second)
-            {
-                button.second->set_active(false);
-            }
-        }
+	Cursor::State UIWorldMap::send_cursor(bool clicked, Point<int16_t> cursorpos)
+	{
+		if (Cursor::State new_state = search_text.send_cursor(cursorpos, clicked))
+			return new_state;
 
-        uint16_t link_id = BT_LINK0;
-        for (nl::node link : world_map["MapLink"])
-        {
-            if (link_id > BT_LINK9)
-            {
-                break;
-            }
+		show_path_img = false;
 
-            nl::node link_info = link["link"];
-            Texture link_image = link_info["linkImg"];
+		for (auto path : map_spots)
+		{
+			Point<int16_t> p = path.first + position + base_position - 10;
+			Point<int16_t> d = p + path.second.marker.get_dimensions();
+			Rectangle<int16_t> abs_bounds = Rectangle<int16_t>(p, d);
 
-            link_images[link_id] = link_image;
-            link_maps[link_id] = link_info["linkMap"].get_string();
-            buttons[link_id] = std::make_unique<AreaButton>(
-                base_position - link_image.get_origin(),
-                link_image.get_dimensions()
-            );
-            buttons[link_id]->set_active(true);
-            ++link_id;
-        }
+			if (abs_bounds.contains(cursorpos))
+			{
+				path_img = path.second.path;
+				show_path_img = path_img.is_valid();
 
-        nl::node map_image = nl::nx::map["MapHelper.img"]["worldMap"]["mapImage"];
-        map_spots.clear();
+				UI::get().show_map(Tooltip::Parent::WORLDMAP, path.second.title, path.second.description, path.second.map_ids[0], path.second.bolded);
+				break;
+			}
+		}
 
-        for (nl::node list : world_map["MapList"])
-        {
-            std::string description = list["desc"];
-            std::string title = list["title"];
-            uint8_t type = static_cast<uint8_t>(static_cast<int32_t>(list["type"]));
-            Texture marker = map_image[std::to_string(type)];
+		return UIDragElement::send_cursor(clicked, cursorpos);
+	}
 
-            std::vector<int32_t> map_ids;
-            for (nl::node map_no : list["mapNo"])
-            {
-                map_ids.push_back(map_no);
-            }
+	void UIWorldMap::set_search(bool enable)
+	{
+		search = enable;
 
-            bool bolded = !description.empty();
+		buttons[Buttons::BT_SEARCH_CLOSE]->set_active(enable);
+		buttons[Buttons::BT_ALLSEARCH]->set_active(enable);
 
-            if (description.empty() && title.empty() && !map_ids.empty())
-            {
-                NxHelper::Map::MapInfo map_info = NxHelper::Map::get_map_info_by_id(map_ids.front());
-                description = map_info.description;
-                title = map_info.full_name;
-                bolded = !description.empty();
-            }
+		if (enable)
+		{
+			search_text.set_state(Textfield::State::NORMAL);
+			dimension = bg_dimensions + Point<int16_t>(bg_search_dimensions.x(), 0);
+		}
+		else
+		{
+			search_text.set_state(Textfield::State::DISABLED);
+			dimension = bg_dimensions;
+		}
+	}
 
-            map_spots.emplace_back(
-                Point<int16_t>(list["spot"]),
-                MapSpot{
-                    description,
-                    Texture(list["path"]),
-                    title,
-                    type,
-                    marker,
-                    bolded,
-                    map_ids
-                }
-            );
-        }
-    }
+	void UIWorldMap::update_world(std::string map)
+	{
+		nl::node WorldMap = nl::nx::map["WorldMap"][map + ".img"];
 
-    Point<int16_t> UIWorldMap::get_search_pos() const
-    {
-        return position + background_dimensions + Point<int16_t>(13, 25);
-    }
+		if (!WorldMap)
+			WorldMap = nl::nx::map["WorldMap"]["WorldMap.img"];
+
+		base_img = WorldMap["BaseImg"][0];
+		parent_map = (std::string)WorldMap["info"]["parentMap"];
+
+		link_images.clear();
+		link_maps.clear();
+
+		for (auto& iter : buttons)
+			if (const auto button = iter.second.get())
+				if (iter.first >= Buttons::BT_LINK0)
+					button->set_active(false);
+
+		size_t i = Buttons::BT_LINK0;
+
+		for (nl::node link : WorldMap["MapLink"])
+		{
+			nl::node l = link["link"];
+			Texture link_image = l["linkImg"];
+
+			link_images[i] = link_image;
+			link_maps[i] = (std::string)l["linkMap"];
+
+			buttons[i] = std::make_unique<AreaButton>(base_position - link_image.get_origin(), link_image.get_dimensions());
+			buttons[i]->set_active(true);
+
+			i++;
+		}
+
+		nl::node mapImage = nl::nx::map["MapHelper.img"]["worldMap"]["mapImage"];
+
+		map_spots.clear();
+
+		for (nl::node list : WorldMap["MapList"])
+		{
+			nl::node desc = list["desc"];
+			nl::node mapNo = list["mapNo"];
+			nl::node path = list["path"];
+			nl::node spot = list["spot"];
+			nl::node title = list["title"];
+			nl::node type = list["type"];
+			nl::node marker = mapImage[type];
+
+			std::vector<int32_t> map_ids;
+
+			for (nl::node map_no : mapNo)
+				map_ids.push_back(map_no);
+
+			if (!desc && !title)
+			{
+				NxHelper::Map::MapInfo map_info = NxHelper::Map::get_map_info_by_id(mapNo[0]);
+
+				map_spots.emplace_back(std::make_pair<Point<int16_t>, MapSpot>(spot, { map_info.description, path, map_info.full_name, type, marker, true, map_ids }));
+			}
+			else
+			{
+				map_spots.emplace_back(std::make_pair<Point<int16_t>, MapSpot>(spot, { desc, path, title, type, marker, false, map_ids }));
+			}
+		}
+	}
 }

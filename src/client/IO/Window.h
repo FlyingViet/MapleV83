@@ -1,60 +1,84 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
+
 #include "../Error.h"
+
 #include "../Template/Singleton.h"
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
+#ifdef PLATFORM_IOS
+	#include <OpenGLES/ES3/gl.h>
+#else
+	#define GLEW_STATIC
+	#include <glew.h>
+	#include <glfw3.h>
+#endif
 
-#include <string>
 #include <functional>
+#include <string>
 
-namespace jrc
+namespace ms
 {
-    class Window : public Singleton<Window>
-    {
-    public:
-        Window();
-        ~Window() override;
+	class Window : public Singleton<Window>
+	{
+	public:
+		Window();
+		~Window();
 
-        Error init();
-        Error initwindow();
+		Error init();
+		Error initwindow();
 
-        bool not_closed() const;
-        void update();
-        void begin() const;
-        void end() const;
-        void fadeout(float step, std::function<void()> fadeprocedure);
-        void check_events();
+		bool not_closed() const;
+		void update();
+		void begin() const;
+		void end() const;
+		void fadeout(float step, std::function<void()> fadeprocedure);
+		void check_events();
 
-        void setclipboard(const std::string& text) const;
-        std::string getclipboard() const;
+		void setclipboard(const std::string& text) const;
+		std::string getclipboard() const;
 
-    private:
-        void updateopc();
+		void toggle_fullscreen();
 
-        GLFWwindow* glwnd;
-        GLFWwindow* context;
-        bool fullscreen;
-        bool f11_down;
-        float opacity;
-        float opcstep;
-        std::function<void()> fadeprocedure;
-    };
+		// Applies the given slider value (0-100 range, as stored by
+		// UIOptionMenu) to the system pointer speed via Windows'
+		// SPI_SETMOUSESPEED. Windows accepts 1..20, where 10 is the default.
+		// Pass -1 to apply the currently saved MouseSpeed setting.
+		void apply_mouse_speed(int slider_value = -1);
+
+		// Captures the current framebuffer contents and saves a timestamped
+		// PNG under ./screenshots/. Called from the F12 key handler.
+		void take_screenshot();
+
+	private:
+		void updateopc();
+
+#ifndef PLATFORM_IOS
+		GLFWwindow* glwnd;
+		GLFWwindow* context;
+#else
+		bool closed;
+#endif
+		bool fullscreen;
+		float opacity;
+		float opcstep;
+		std::function<void()> fadeprocedure;
+		int16_t width;
+		int16_t height;
+	};
 }

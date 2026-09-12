@@ -1,368 +1,571 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "UI.h"
 
-#include "UIStateLogin.h"
+#include "UIStateCashShop.h"
 #include "UIStateGame.h"
-#include "UITypes/UIWorldMap.h"
+#include "UIStateLogin.h"
 #include "Window.h"
-#include "../Audio/Audio.h"
-#include "../Console.h"
-#include "../Configuration.h"
 
-#include <GLFW/glfw3.h>
-#include <list>
+#ifdef PLATFORM_IOS
+#include "KeyCodes.h"
+#else
+#include <glfw3.h>
+#endif
 
-namespace jrc
+#include "UITypes/UIAvatarBanner.h"
+#include "UITypes/UICashShop.h"
+#include "UITypes/UIChannel.h"
+#include "UITypes/UIChat.h"
+#include "UITypes/UIChatBar.h"
+#include "UITypes/UIJoypad.h"
+#include "UITypes/UINpcTalk.h"
+#include "UITypes/UIOptionMenu.h"
+#include "UITypes/UIQuit.h"
+#include "UITypes/UIShop.h"
+#include "UITypes/UIStatusBar.h"
+#include "UITypes/UIWorldMap.h"
+#include "UITypes/UIWhisper.h"
+#include "UITypes/UIReport.h"
+#include "UITypes/UILogin.h"
+#include "../Net/Packets/LoginPackets.h"
+
+namespace ms
 {
-    UI::UI()
-    {
-        state = std::make_unique<UIStateNull>();
-        cursor_press_id = 0;
-        enabled = true;
-        quitted = false;
-    }
+	UI::UI()
+	{
+		state = std::make_unique<UIStateNull>();
+		enabled = true;
+	}
 
-    void UI::init()
-    {
-        cursor.init();
-        change_state(LOGIN);
-    }
+	void UI::init()
+	{
+		cursor.init();
+		change_state(State::LOGIN);
+		if(Configuration::get().get_auto_login()){
+			UI::get().get_element<UILogin>().get()->login();
+		}
+	}
 
-    void UI::draw(float alpha) const
-    {
-        state->draw(alpha, cursor.get_position());
+	void UI::draw(float alpha) const
+	{
+		state->draw(alpha, cursor.get_position());
 
-        scrollingnotice.draw(alpha);
-        cursor.draw(alpha);
-    }
+		// The scrolling world notice stays out of the cash shop — it lands
+		// on the shop's own black header bar
+		bool in_cashshop = false;
 
-    void UI::update()
-    {
-        state->update();
+		if (auto cs = const_cast<UI*>(this)->get_element<UICashShop>())
+			in_cashshop = cs->is_active();
 
-        scrollingnotice.update();
-        cursor.update();
-    }
+		if (!in_cashshop)
+			scrollingnotice.draw(alpha);
 
-    void UI::enable()
-    {
-        enabled = true;
-    }
+		// The avatar-megaphone receiver banner must sit above every other
+		// UI layer (including the scrolling world-notice that super
+		// megaphones trigger alongside it), so we draw it explicitly as
+		// the final overlay. Its regular entry in the element order is
+		// skipped by UIStateGame::draw to avoid a double-composite.
+		if (auto banner = const_cast<UI*>(this)->get_element<UIAvatarBanner>())
+			if (banner->is_active())
+				banner->draw(alpha);
 
-    void UI::disable()
-    {
-        enabled = false;
-    }
+		cursor.draw(alpha);
+	}
 
-    void UI::change_state(State id)
-    {
-        switch (id)
-        {
-        case LOGIN:
-            state = std::make_unique<UIStateLogin>();
-            break;
-        case GAME:
-            state = std::make_unique<UIStateGame>();
-            break;
-        }
-    }
+	void UI::update()
+	{
+		state->update();
 
-    void UI::quit()
-    {
-        quitted = true;
-    }
+		scrollingnotice.update();
 
-    bool UI::not_quitted() const
-    {
-        return !quitted;
-    }
+		cursor.update();
+	}
 
-    uint64_t UI::get_cursor_press_id() const
-    {
-        return cursor_press_id;
-    }
+	void UI::enable()
+	{
+		enabled = true;
+	}
 
-    void UI::send_cursor(Point<int16_t> cursorpos, Cursor::State cursorstate)
-    {
-        Cursor::State nextstate = state->send_cursor(cursorstate, cursorpos);
-        cursor.set_state(nextstate);
-        cursor.set_position(cursorpos);
-    }
+	void UI::disable()
+	{
+		enabled = false;
+	}
 
-    void UI::send_cursor(bool pressed)
-    {
-        if (pressed && enabled)
-        {
-            cursor_press_id++;
-        }
+	void UI::change_state(State id)
+	{
+		switch (id)
+		{
+			case State::LOGIN:
+				state = std::make_unique<UIStateLogin>();
+				break;
+			case State::GAME:
+				state = std::make_unique<UIStateGame>();
+				break;
+			case State::CASHSHOP:
+				state = std::make_unique<UIStateCashShop>();
+				break;
+		}
+	}
 
-        Cursor::State cursorstate = (pressed && enabled) ?
-            Cursor::CLICKING :
-            Cursor::IDLE;
-        Point<int16_t> cursorpos = cursor.get_position();
-        send_cursor(cursorpos, cursorstate);
+	void UI::quit()
+	{
+		quitted = true;
+	}
 
-        if (focusedtextfield && pressed)
-        {
-            Cursor::State tstate = focusedtextfield->send_cursor(cursorpos, pressed);
-            switch (tstate)
-            {
-            case Cursor::IDLE:
-                focusedtextfield = {};
-                break;
-            default:
-                break;
-            }
-        }
-    }
+	bool UI::not_quitted() const
+	{
+		return !quitted;
+	}
 
-    void UI::send_cursor(Point<int16_t> pos)
-    {
-        send_cursor(pos, cursor.get_state());
-    }
+	void UI::send_cursor(Point<int16_t> cursorpos, Cursor::State cursorstate)
+	{
+		Cursor::State nextstate = state->send_cursor(cursorstate, cursorpos);
+		cursor.set_state(nextstate);
+		cursor.set_position(cursorpos);
+	}
 
-    void UI::doubleclick()
-    {
-        if (!enabled)
-        {
-            return;
-        }
+	void UI::send_focus(int focused)
+	{
+		if (focused)
+		{
+			// The window gained input focus
+			uint8_t sfxvolume = Setting<SFXVolume>::get().load();
+			Sound::set_sfxvolume(sfxvolume);
 
-        Point<int16_t> pos = cursor.get_position();
-        state->doubleclick(pos);
-    }
+			uint8_t bgmvolume = Setting<BGMVolume>::get().load();
+			Music::set_bgmvolume(bgmvolume);
+		}
+		else
+		{
+			// The window lost input focus
+			Sound::set_sfxvolume(0);
+			Music::set_bgmvolume(0);
+		}
+	}
 
-    void UI::send_scroll(double yoffset)
-    {
-        if (!enabled)
-        {
-            return;
-        }
+	void UI::send_scroll(double yoffset)
+	{
+		state->send_scroll(yoffset);
+	}
 
-        state->send_scroll(cursor.get_position(), yoffset);
-    }
+	Point<int16_t> UI::get_cursor_position() const
+	{
+		return cursor.get_position();
+	}
 
-    void UI::send_focus(int focused)
-    {
-        if (focused)
-        {
-            Sound::set_sfxvolume(Setting<SFXVolume>::get().load());
-            Music::set_bgmvolume(Setting<BGMVolume>::get().load());
-        }
-        else
-        {
-            Sound::set_sfxvolume(0);
-            Music::set_bgmvolume(0);
-        }
-    }
+	void UI::send_close()
+	{
+		state->send_close();
+	}
 
-    void UI::send_close()
-    {
-        state->send_close();
-    }
+	void UI::send_cursor(bool pressed)
+	{
+		mouse_held = pressed;
+		Cursor::State cursorstate = (pressed && enabled) ? Cursor::State::CLICKING : Cursor::State::IDLE;
+		Point<int16_t> cursorpos = cursor.get_position();
+		send_cursor(cursorpos, cursorstate);
 
-    void UI::cancel_drag()
-    {
-        state->cancel_drag();
-    }
+		if (focusedtextfield && pressed)
+		{
+			Cursor::State tstate = focusedtextfield->send_cursor(cursorpos, pressed);
 
-    void UI::rightclick()
-    {
-        if (!enabled)
-        {
-            return;
-        }
+			switch (tstate)
+			{
+				case Cursor::State::IDLE:
+					focusedtextfield = {};
+					break;
+			}
+		}
+	}
 
-        state->rightclick(cursor.get_position());
-    }
+	void UI::send_cursor(Point<int16_t> pos)
+	{
+		send_cursor(pos, Cursor::State::IDLE);
+	}
 
-    void UI::send_key(int32_t keycode, bool pressed)
-    {
-        bool escape = keycode == GLFW_KEY_ESCAPE;
+	bool UI::is_mouse_held() const
+	{
+		return mouse_held;
+	}
 
-        if (escape)
-        {
-            std::list<UIElement::Type> escape_types = {
-                UIElement::WORLDMAP,
-                UIElement::KEYCONFIG,
-                UIElement::NPCTALK,
-                UIElement::SHOP,
-                UIElement::ITEMINVENTORY,
-                UIElement::EQUIPINVENTORY,
-                UIElement::SKILLBOOK,
-                UIElement::PARTY,
-                UIElement::STATSINFO,
-                UIElement::NOTICE
-            };
+	void UI::rightclick()
+	{
+		Point<int16_t> pos = cursor.get_position();
+		state->rightclick(pos);
+	}
 
-            if (UIElement* front = state->get_front(escape_types))
-            {
-                front->send_key(0, pressed, true);
-            }
-            else
-            {
-                state->send_key(KeyType::NONE, 0, pressed, true);
-            }
+	void UI::doubleclick()
+	{
+		Point<int16_t> pos = cursor.get_position();
+		state->doubleclick(pos);
+	}
 
-            is_key_down[keycode] = pressed;
-            return;
-        }
+	void UI::send_char(uint32_t codepoint)
+	{
+		// Control characters (backspace, tab, escape, return) come through
+		// send_key as actions; GLFW does not emit them here, but guard anyway.
+		if (codepoint < 0x20 || codepoint == 0x7F)
+			return;
 
-        if (focusedtextfield)
-        {
-            bool ctrl =
-                is_key_down[keyboard.ctrlcode()] ||
-                is_key_down[GLFW_KEY_RIGHT_CONTROL];
-            if (ctrl)
-            {
-                if (!pressed)
-                {
-                    KeyAction::Id action = keyboard.get_ctrl_action(keycode);
-                    switch (action)
-                    {
-                    case KeyAction::COPY:
-                        Window::get().setclipboard(focusedtextfield->get_text());
-                        break;
-                    case KeyAction::PASTE:
-                        focusedtextfield->add_string(Window::get().getclipboard());
-                        break;
-                    default:
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                bool shift =
-                    is_key_down[keyboard.shiftcode()] ||
-                    is_key_down[GLFW_KEY_RIGHT_SHIFT];
-                Keyboard::Mapping mapping = keyboard.get_text_mapping(keycode, shift);
-                focusedtextfield->send_key(mapping.type, mapping.action, pressed);
-            }
-        }
-        else
-        {
-            Keyboard::Mapping mapping = keyboard.get_mapping(keycode);
+		if (focusedtextfield && focusedtextfield->get_state() == Textfield::State::FOCUSED)
+			focusedtextfield->add_codepoint(codepoint);
+	}
 
-            if (mapping.type)
-            {
-                state->send_key(mapping.type, mapping.action, pressed, escape);
-            }
-            else if (pressed && keycode == GLFW_KEY_P)
-            {
-                // Some server keymaps leave Party unbound; keep the expected
-                // default hotkey behavior for opening the Party UI.
-                state->send_key(KeyType::MENU, KeyAction::PARTY, true, false);
-            }
-        }
+	void UI::send_key(int32_t keycode, bool pressed)
+	{
+		if ((is_key_down[GLFW_KEY_LEFT_ALT] || is_key_down[GLFW_KEY_RIGHT_ALT]) && (is_key_down[GLFW_KEY_ENTER] || is_key_down[GLFW_KEY_KP_ENTER]))
+		{
+			Window::get().toggle_fullscreen();
 
-        is_key_down[keycode] = pressed;
-    }
+			is_key_down[GLFW_KEY_LEFT_ALT] = false;
+			is_key_down[GLFW_KEY_RIGHT_ALT] = false;
+			is_key_down[GLFW_KEY_ENTER] = false;
+			is_key_down[GLFW_KEY_KP_ENTER] = false;
 
-    void UI::send_menu(KeyAction::Id action)
-    {
-        state->send_key(KeyType::MENU, action, true, false);
-    }
+			return;
+		}
 
-    void UI::set_scrollnotice(const std::string& notice)
-    {
-        scrollingnotice.setnotice(notice);
-    }
+		if (is_key_down[keyboard.capslockcode()])
+			caps_lock_enabled = !caps_lock_enabled;
 
-    void UI::focus_textfield(Textfield* tofocus)
-    {
-        if (focusedtextfield)
-        {
-            focusedtextfield->set_state(Textfield::NORMAL);
-        }
+		// Clear stale focusedtextfield if it's no longer in FOCUSED state
+		if (focusedtextfield && focusedtextfield->get_state() != Textfield::State::FOCUSED)
+			focusedtextfield = {};
 
-        focusedtextfield = tofocus;
-    }
+		// A chat-log selection copies like a normal Windows copy, ahead of the
+		// (usually empty) chat input box.
+		{
+			bool copy_ctrl = is_key_down[keyboard.leftctrlcode()] || is_key_down[keyboard.rightctrlcode()];
+			if (copy_ctrl && pressed && keyboard.get_ctrl_action(keycode) == KeyAction::Id::COPY)
+			{
+				if (auto cb = UI::get().get_element<UIChatBar>())
+				{
+					std::string sel = cb->get_selected_text();
+					if (!sel.empty())
+					{
+						Window::get().setclipboard(sel);
+						return;
+					}
+				}
+			}
+		}
 
-    void UI::blur_textfield(Textfield* textfield)
-    {
-        if (focusedtextfield && focusedtextfield.get() == textfield)
-        {
-            focusedtextfield = {};
-        }
-    }
+		if (focusedtextfield)
+		{
+			bool ctrl = is_key_down[keyboard.leftctrlcode()] || is_key_down[keyboard.rightctrlcode()];
 
-    void UI::remove_textfield()
-    {
-        if (focusedtextfield)
-        {
-            focusedtextfield->set_state(Textfield::NORMAL);
-        }
+			if (ctrl && pressed)
+			{
+				KeyAction::Id action = keyboard.get_ctrl_action(keycode);
 
-        focusedtextfield = {};
-    }
+				if (action == KeyAction::Id::COPY || action == KeyAction::Id::PASTE)
+				{
+					if (focusedtextfield->can_copy_paste())
+					{
+						switch (action)
+						{
+							case KeyAction::Id::COPY:
+								Window::get().setclipboard(focusedtextfield->get_text());
+								break;
+							case KeyAction::Id::PASTE:
+								focusedtextfield->add_string(Window::get().getclipboard());
+								break;
+						}
+					}
+				}
+			}
+			else
+			{
+				bool shift = is_key_down[keyboard.leftshiftcode()] || is_key_down[keyboard.rightshiftcode()] || caps_lock_enabled;
+				Keyboard::Mapping mapping = keyboard.get_text_mapping(keycode, shift);
 
-    void UI::drag_icon(Icon* icon)
-    {
-        state->drag_icon(icon);
-    }
+				// Printable characters arrive separately through send_char, which
+				// is the only path that respects the OS keyboard layout. Passing
+				// them here as well would insert every character twice. Space is printable
+				// too but lives in textactions, so it arrives typed as ACTION and needs
+				// naming explicitly or it lands twice.
+				if (mapping.type == KeyType::Id::TEXT
+					|| (mapping.type == KeyType::Id::ACTION
+						&& mapping.action == KeyAction::Id::SPACE))
+					return;
 
-    Keyboard& UI::get_keyboard()
-    {
-        return keyboard;
-    }
+				focusedtextfield->send_key(mapping.type, mapping.action, pressed);
+			}
+		}
+		else
+		{
+			Keyboard::Mapping mapping = keyboard.get_mapping(keycode);
 
-    void UI::add_keymapping(uint8_t no, uint8_t type, int32_t action)
-    {
-        keyboard.assign(no, type, action);
-    }
+			bool sent = false;
+			std::list<UIElement::Type> types;
 
-    void UI::clear_tooltip(Tooltip::Parent parent)
-    {
-        state->clear_tooltip(parent);
-    }
+			bool escape = keycode == GLFW_KEY_ESCAPE;
+			bool tab = keycode == GLFW_KEY_TAB;
+			bool enter = keycode == GLFW_KEY_ENTER || keycode == GLFW_KEY_KP_ENTER;
+			bool up_down = keycode == GLFW_KEY_UP || keycode == GLFW_KEY_DOWN;
+			bool left_right = keycode == GLFW_KEY_LEFT || keycode == GLFW_KEY_RIGHT;
+			bool arrows = up_down || left_right;
 
-    void UI::show_equip(Tooltip::Parent parent, int16_t slot)
-    {
-        state->show_equip(parent, slot);
-    }
+			auto statusbar = UI::get().get_element<UIStatusBar>();
+			auto channel = UI::get().get_element<UIChannel>();
+			auto worldmap = UI::get().get_element<UIWorldMap>();
+			auto optionmenu = UI::get().get_element<UIOptionMenu>();
+			auto shop = UI::get().get_element<UIShop>();
+			auto joypad = UI::get().get_element<UIJoypad>();
+			auto rank = UI::get().get_element<UIRank>();
+			auto quit = UI::get().get_element<UIQuit>();
+			auto npctalk = UI::get().get_element<UINpcTalk>();
+			auto report = UI::get().get_element<UIReport>();
+			auto whisper = UI::get().get_element<UIWhisper>();
+			auto cashshop = UI::get().get_element<UICashShop>();
 
-    void UI::show_item(Tooltip::Parent parent, int32_t item_id)
-    {
-        state->show_item(parent, item_id);
-    }
+			if (cashshop && cashshop->is_active())
+			{
+				// The cash shop stage character takes the movement keys
+				cashshop->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (npctalk && npctalk->is_active())
+			{
+				npctalk->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (statusbar && statusbar->is_menu_active())
+			{
+				statusbar->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (channel && channel->is_active() && mapping.action != KeyAction::Id::CHANGECHANNEL)
+			{
+				channel->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (worldmap && worldmap->is_active() && mapping.action != KeyAction::Id::WORLDMAP)
+			{
+				worldmap->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (optionmenu && optionmenu->is_active())
+			{
+				optionmenu->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (shop && shop->is_active())
+			{
+				shop->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (joypad && joypad->is_active())
+			{
+				joypad->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (rank && rank->is_active())
+			{
+				rank->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (quit && quit->is_active())
+			{
+				quit->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (whisper && whisper->is_active())
+			{
+				whisper->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else if (report && report->is_active())
+			{
+				report->send_key(mapping.action, pressed, escape);
+				sent = true;
+			}
+			else
+			{
+				// All
+				if (escape || tab || enter || arrows)
+				{
+					// Login
+					types.emplace_back(UIElement::Type::WORLDSELECT);
+					types.emplace_back(UIElement::Type::CHARSELECT);
+					types.emplace_back(UIElement::Type::RACESELECT);			// No tab
+					types.emplace_back(UIElement::Type::CLASSCREATION);			// No tab (No arrows, but shouldn't send else where)
+					types.emplace_back(UIElement::Type::LOGINNOTICE);			// No tab (No arrows, but shouldn't send else where)
+					types.emplace_back(UIElement::Type::LOGINNOTICE_CONFIRM);	// No tab (No arrows, but shouldn't send else where)
+					types.emplace_back(UIElement::Type::LOGINWAIT);				// No tab (No arrows, but shouldn't send else where)
+				}
 
-    void UI::show_skill(Tooltip::Parent parent, int32_t skill_id,
-        int32_t level, int32_t masterlevel, int64_t expiration) {
+				if (escape)
+				{
+					// Login
+					types.emplace_back(UIElement::Type::SOFTKEYBOARD);
 
-        state->show_skill(parent, skill_id, level, masterlevel, expiration);
-    }
+					// Game
+					types.emplace_back(UIElement::Type::NOTICE);
+					types.emplace_back(UIElement::Type::KEYCONFIG);
+					types.emplace_back(UIElement::Type::CHAT);
+					types.emplace_back(UIElement::Type::EVENT);
+					types.emplace_back(UIElement::Type::STATSINFO);
+					types.emplace_back(UIElement::Type::ITEMINVENTORY);
+					types.emplace_back(UIElement::Type::EQUIPINVENTORY);
+					types.emplace_back(UIElement::Type::SKILLBOOK);
+					types.emplace_back(UIElement::Type::QUESTLOG);
+					types.emplace_back(UIElement::Type::USERLIST);
+					types.emplace_back(UIElement::Type::NPCTALK);
+					types.emplace_back(UIElement::Type::CHARINFO);
+					types.emplace_back(UIElement::Type::BUDDYLIST);
+				}
+				else if (enter)
+				{
+					// Login
+					types.emplace_back(UIElement::Type::SOFTKEYBOARD);
 
-    void UI::show_text(Tooltip::Parent parent, const std::string& text)
-    {
-        state->show_text(parent, text);
-    }
+					// Game
+					types.emplace_back(UIElement::Type::NOTICE);
+				}
+				else if (tab)
+				{
+					// Game
+					types.emplace_back(UIElement::Type::ITEMINVENTORY);
+					types.emplace_back(UIElement::Type::EQUIPINVENTORY);
+					types.emplace_back(UIElement::Type::SKILLBOOK);
+					types.emplace_back(UIElement::Type::QUESTLOG);
+					types.emplace_back(UIElement::Type::USERLIST);
+				}
 
-    void UI::show_map(Tooltip::Parent parent, const std::string& title,
-        const std::string& description, int32_t mapid, bool bolded, bool portal) {
+				if (types.size() > 0)
+				{
+					auto element = state->get_front(types);
 
-        state->show_map(parent, title, description, mapid, bolded, portal);
-    }
+					if (element && element != nullptr)
+					{
+						element->send_key(mapping.action, pressed, escape);
+						sent = true;
+					}
+				}
+			}
 
-    void UI::remove(UIElement::Type type)
-    {
-        remove_textfield();
-        state->remove(type);
-    }
+			if (!sent)
+			{
+				auto chatbar = UI::get().get_element<UIChatBar>();
+
+				if (escape)
+				{
+					if (chatbar && chatbar->is_chatopen())
+						chatbar->send_key(mapping.action, pressed, escape);
+					else
+						state->send_key(mapping.type, mapping.action, pressed, escape);
+				}
+				else if (enter)
+				{
+					if (chatbar)
+						chatbar->send_key(mapping.action, pressed, escape);
+					else
+						state->send_key(mapping.type, mapping.action, pressed, escape);
+				}
+				else
+				{
+					state->send_key(mapping.type, mapping.action, pressed, escape);
+				}
+			}
+		}
+
+		is_key_down[keycode] = pressed;
+	}
+
+	void UI::set_scrollnotice(const std::string& notice)
+	{
+		scrollingnotice.setnotice(notice);
+	}
+
+	void UI::focus_textfield(Textfield* tofocus)
+	{
+		// Guard against refocusing the same field: unfocusing it here would
+		// leave it NORMAL (no caret) while still receiving keyboard input
+		if (focusedtextfield && focusedtextfield.get() != tofocus)
+			focusedtextfield->set_state(Textfield::State::NORMAL);
+
+		focusedtextfield = tofocus;
+	}
+
+	void UI::remove_textfield()
+	{
+		if (focusedtextfield)
+			focusedtextfield->set_state(Textfield::State::NORMAL);
+
+		focusedtextfield = {};
+	}
+
+	void UI::drag_icon(Icon* icon)
+	{
+		state->drag_icon(icon);
+	}
+
+	void UI::purge_icon(const Icon* icon)
+	{
+		state->purge_icon(icon);
+	}
+
+	void UI::add_keymapping(uint8_t no, uint8_t type, int32_t action)
+	{
+		keyboard.assign(no, type, action);
+	}
+
+	void UI::clear_tooltip(Tooltip::Parent parent)
+	{
+		state->clear_tooltip(parent);
+	}
+
+	void UI::show_equip(Tooltip::Parent parent, int16_t slot)
+	{
+		state->show_equip(parent, slot);
+	}
+
+	void UI::show_item(Tooltip::Parent parent, int32_t item_id)
+	{
+		state->show_item(parent, item_id);
+	}
+
+	void UI::show_skill(Tooltip::Parent parent, int32_t skill_id, int32_t level, int32_t masterlevel, int64_t expiration)
+	{
+		state->show_skill(parent, skill_id, level, masterlevel, expiration);
+	}
+
+	void UI::show_text(Tooltip::Parent parent, std::string text)
+	{
+		state->show_text(parent, text);
+	}
+
+	void UI::show_map(Tooltip::Parent parent, std::string name, std::string description, int32_t mapid, bool bolded)
+	{
+		state->show_map(parent, name, description, mapid, bolded);
+	}
+
+	Keyboard& UI::get_keyboard()
+	{
+		return keyboard;
+	}
+
+	void UI::remove(UIElement::Type type)
+	{
+		focusedtextfield = {};
+
+		state->remove(type);
+	}
 }

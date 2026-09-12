@@ -1,226 +1,286 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "MapTooltip.h"
 
-#include "../../Constants.h"
 #include "../../Util/Misc.h"
 
-#include "nlnx/nx.hpp"
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
 
-#include <algorithm>
-
-namespace jrc
+namespace ms
 {
-    MapTooltip::MapTooltip()
-        : parent(Tooltip::NONE), fillwidth(0), fillheight(0)
-    {
-        nl::node frame_src = nl::nx::ui["UIToolTip.img"]["Item"]["Frame2"];
-        nl::node world_map_src = nl::nx::ui["UIWindow2.img"]["ToolTip"]["WorldMap"];
+	MapTooltip::MapTooltip() : name(""), description(""), fillwidth(MIN_WIDTH), fillheight(0)
+	{
+		nl::node Frame = nl::nx::ui["UIToolTip.img"]["Item"]["Frame2"];
+		nl::node WorldMap = nl::nx::ui["UIWindow2.img"]["ToolTip"]["WorldMap"];
 
-        frame = frame_src;
-        cover = frame_src["cover"];
-        mob_icon = world_map_src["Mob"];
-        npc_icon = world_map_src["Npc"];
-    }
+		frame = Frame;
+		cover = Frame["cover"];
+		Mob = WorldMap["Mob"];
+		Npc = WorldMap["Npc"];
+		Party = WorldMap["Party"];
+	}
 
-    void MapTooltip::draw(Point<int16_t> position) const
-    {
-        if (title_label.empty())
-        {
-            return;
-        }
+	void MapTooltip::draw(Point<int16_t> pos) const
+	{
+		if (name_label.empty())
+			return;
 
-        int16_t cur_width = position.x() + fillwidth + 34;
-        int16_t cur_height = position.y() + fillheight + 30;
-        int16_t adj_x = cur_width - Constants::viewwidth();
-        int16_t adj_y = cur_height - Constants::viewheight();
+		int16_t max_width = Constants::Constants::get().get_viewwidth();
+		int16_t max_height = Constants::Constants::get().get_viewheight();
 
-        if (adj_x > 0)
-        {
-            position.shift_x(-adj_x);
-        }
+		if (parent == Tooltip::Parent::MINIMAP && mob_labels->empty() && npc_labels->empty())
+		{
+			if (desc_label.empty())
+			{
+				int16_t new_width = name_simple.width();
+				int16_t new_height = name_simple.height();
 
-        if (adj_y > 0)
-        {
-            position.shift_y(-adj_y);
-        }
+				int16_t cur_width = pos.x() + new_width + 21;
+				int16_t cur_height = pos.y() + new_height + 40;
 
-        position.shift(Point<int16_t>(20, -3));
+				int16_t adj_x = cur_width - max_width;
+				int16_t adj_y = cur_height - max_height;
 
-        frame.draw(position + Point<int16_t>(fillwidth / 2 + 10, fillheight + 14), fillwidth, fillheight);
-        cover.draw(position + Point<int16_t>(-5, -2));
+				if (adj_x > 0)
+					pos.shift_x(adj_x * -1);
 
-        Point<int16_t> cursor = position + Point<int16_t>(10, 8);
-        title_label.draw(cursor + Point<int16_t>(fillwidth / 2, 0));
-        cursor.shift_y(title_label.height() + 4);
+				if (adj_y > 0)
+					pos.shift_y(adj_y * -1);
 
-        if (!desc_label.empty())
-        {
-            separator.draw(cursor);
-            cursor.shift_y(6);
-            desc_label.draw(cursor);
-            cursor.shift_y(desc_label.height() + 2);
-        }
+				frame.draw(pos + Point<int16_t>(new_width / 2 + 2, new_height - 7), new_width - 14, new_height - 18);
 
-        if (!mob_labels.empty())
-        {
-            separator.draw(cursor);
-            cursor.shift_y(6);
-            for (size_t i = 0; i < mob_labels.size(); ++i)
-            {
-                if (i == 0)
-                {
-                    mob_icon.draw(cursor + Point<int16_t>(0, 1));
-                }
+				if (new_height > 18)
+					name_simple.draw(pos);
+				else
+					name_simple.draw(pos + Point<int16_t>(1, -3));
+			}
+			else
+			{
+				int16_t name_width = name_label.width();
+				int16_t name_height = name_label.height();
 
-                mob_labels[i].draw(cursor + Point<int16_t>(16, 0));
-                cursor.shift_y(mob_labels[i].height() + 1);
-            }
-        }
+				int16_t desc_width = desc_simple.width();
 
-        if (!npc_labels.empty())
-        {
-            separator.draw(cursor);
-            cursor.shift_y(6);
-            for (size_t i = 0; i < npc_labels.size(); ++i)
-            {
-                if (i == 0)
-                {
-                    npc_icon.draw(cursor + Point<int16_t>(0, 1));
-                }
+				int16_t new_width = (name_width > desc_width) ? name_width : desc_width;
+				int16_t new_height = name_height + desc_simple.height() - 11;
 
-                npc_labels[i].draw(cursor + Point<int16_t>(16, 0));
-                cursor.shift_y(npc_labels[i].height() + 1);
-            }
-        }
-    }
+				int16_t cur_width = pos.x() + new_width + 21;
+				int16_t cur_height = pos.y() + new_height + 40;
 
-    void MapTooltip::set_title(Tooltip::Parent new_parent, const std::string& new_title, bool bolded)
-    {
-        parent = new_parent;
-        title = new_title;
+				int16_t adj_x = cur_width - max_width;
+				int16_t adj_y = cur_height - max_height;
 
-        if (title.empty())
-        {
-            title_label.change_text("");
-            rebuild_layout();
-            return;
-        }
+				if (adj_x > 0)
+					pos.shift_x(adj_x * -1);
 
-        title_label = Text(bolded ? Text::A12B : Text::A12M, Text::CENTER, Text::WHITE, title);
-        rebuild_layout();
-    }
+				if (adj_y > 0)
+					pos.shift_y(adj_y * -1);
 
-    void MapTooltip::set_desc(const std::string& new_description)
-    {
-        description = new_description;
+				int16_t half_width = new_width / 2;
 
-        if (description.empty())
-        {
-            desc_label.change_text("");
-        }
-        else
-        {
-            desc_label = Text(Text::A11M, Text::LEFT, Text::WHITE, description, 220);
-        }
+				frame.draw(pos + Point<int16_t>(half_width + 2, new_height - 7 + BOTTOM_PADDING), new_width - 14, new_height - 18 + BOTTOM_PADDING);
+				cover.draw(pos + Point<int16_t>(-5, -2));
+				name_label.draw(pos + Point<int16_t>(half_width, -2));
 
-        rebuild_layout();
-    }
+				pos.shift_y(name_height);
 
-    void MapTooltip::set_mapid(int32_t mapid, bool portal)
-    {
-        if (current_mapid == mapid)
-        {
-            return;
-        }
+				separator.draw(pos + SEPARATOR_ADJ);
+				desc_simple.draw(pos + Point<int16_t>(half_width, -3));
+			}
+		}
+		else
+		{
+			int16_t cur_width = pos.x() + fillwidth + 21;
+			int16_t cur_height = pos.y() + fillheight + 40;
 
-        current_mapid = mapid;
-        mob_labels.clear();
-        npc_labels.clear();
+			int16_t adj_x = cur_width - max_width;
+			int16_t adj_y = cur_height - max_height;
 
-        // Avoid deep LazyFS reads from mousemove-driven tooltip updates.
-        // World map and portal hovers are still useful with title/description only.
-        if (mapid > 0 && parent != Tooltip::WORLDMAP && !portal)
-        {
-            auto life = NxHelper::Map::get_life_on_map(mapid);
+			if (adj_x > 0)
+				pos.shift_x(adj_x * -1);
 
-            for (const auto& entry : life)
-            {
-                const std::string& type = entry.second.first;
-                const std::string& label = entry.second.second;
+			if (adj_y > 0)
+				pos.shift_y(adj_y * -1);
 
-                if (type == "m" && mob_labels.size() < MAX_LIFE)
-                {
-                    mob_labels.emplace_back(Text(Text::A11M, Text::LEFT, Text::WHITE, label, 220));
-                }
-                else if (type == "n" && npc_labels.size() < MAX_LIFE)
-                {
-                    npc_labels.emplace_back(Text(Text::A11M, Text::LEFT, Text::WHITE, label, 220));
-                }
-            }
-        }
+			int16_t half_width = fillwidth / 2;
 
-        rebuild_layout();
-    }
+			frame.draw(pos + Point<int16_t>(half_width + 2, fillheight - 7 + BOTTOM_PADDING), fillwidth - 14, fillheight - 18 + BOTTOM_PADDING);
+			cover.draw(pos + Point<int16_t>(-5, -2));
+			name_label.draw(pos + Point<int16_t>(half_width, 0));
 
-    void MapTooltip::reset()
-    {
-        parent = Tooltip::NONE;
-        title.clear();
-        description.clear();
-        title_label.change_text("");
-        desc_label.change_text("");
-        mob_labels.clear();
-        npc_labels.clear();
-        current_mapid = -1;
-        fillwidth = 0;
-        fillheight = 0;
-    }
+			int16_t name_height = name_label.height();
 
-    void MapTooltip::rebuild_layout()
-    {
-        fillwidth = std::max<int16_t>(title_label.width(), 140);
-        fillheight = title_label.empty() ? 0 : title_label.height() + 10;
+			if (!desc_label.empty())
+			{
+				pos.shift_y(name_height + 4);
 
-        if (!desc_label.empty())
-        {
-            fillwidth = std::max<int16_t>(fillwidth, desc_label.width());
-            fillheight += desc_label.height() + 8;
-        }
+				desc_label.draw(pos + Point<int16_t>(4, 0));
 
-        auto accumulate_entries = [&](const std::vector<Text>& entries)
-        {
-            if (entries.empty())
-            {
-                return;
-            }
+				pos.shift_y(desc_label.height() + BOTTOM_PADDING);
+			}
+			else
+			{
+				pos.shift_y(name_height + BOTTOM_PADDING);
+			}
 
-            fillheight += 6;
-            for (const Text& entry : entries)
-            {
-                fillwidth = std::max<int16_t>(fillwidth, static_cast<int16_t>(entry.width() + 18));
-                fillheight += entry.height() + 1;
-            }
-        };
+			if (mob_labels->length() > 0)
+			{
+				separator.draw(pos + SEPARATOR_ADJ);
 
-        accumulate_entries(mob_labels);
-        accumulate_entries(npc_labels);
+				for (size_t i = 0; i < MAX_LIFE; i++)
+				{
+					if (!mob_labels[i].empty())
+					{
+						mob_labels[i].draw(pos + LIFE_LABEL_ADJ);
 
-        separator = ColorLine(fillwidth, Geometry::WHITE, 0.4f);
-    }
+						if (i == 0)
+							Mob.draw(pos + LIFE_ICON_ADJ);
+
+						pos.shift_y(mob_labels[i].height());
+					}
+				}
+
+				pos.shift_y(8);
+			}
+
+			if (npc_labels->length() > 0)
+			{
+				separator.draw(pos + SEPARATOR_ADJ);
+
+				for (size_t i = 0; i < MAX_LIFE; i++)
+				{
+					if (!npc_labels[i].empty())
+					{
+						npc_labels[i].draw(pos + LIFE_LABEL_ADJ);
+
+						if (i == 0)
+							Npc.draw(pos + LIFE_ICON_ADJ);
+
+						pos.shift_y(npc_labels[i].height());
+					}
+				}
+			}
+		}
+	}
+
+	void MapTooltip::set_name(Tooltip::Parent p, std::string n, bool bolded)
+	{
+		if (name == n || parent == p)
+			return;
+
+		name = n;
+		parent = p;
+
+		if (name.empty() || (parent != Tooltip::Parent::WORLDMAP && parent != Tooltip::Parent::MINIMAP))
+			return;
+
+		name_label = Text(bolded ? Text::Font::A12B : Text::Font::A12M, Text::Alignment::CENTER, Color::Name::WHITE, name);
+		name_simple = Text(bolded ? Text::Font::A12B : Text::Font::A12M, Text::Alignment::LEFT, Color::Name::WHITE, name);
+
+		int16_t width = name_label.width();
+		int16_t height = name_label.height();
+
+		if (width > fillwidth)
+			fillwidth = width;
+
+		separator = ColorLine(fillwidth - 6, Color::Name::WHITE, 0.40f, false);
+
+		if (height > fillheight)
+			fillheight = height;
+	}
+
+	void MapTooltip::set_desc(std::string d)
+	{
+		if (description == d)
+			return;
+
+		description = d;
+
+		if (description.empty())
+			return;
+
+		desc_label = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::WHITE, description, fillwidth);
+		desc_simple = Text(Text::Font::A12M, Text::Alignment::CENTER, Color::Name::WHITE, description, fillwidth);
+
+		fillwidth += 17;
+
+		if (parent == Tooltip::Parent::MINIMAP)
+		{
+			int16_t name_width = name_label.width();
+			int16_t desc_width = desc_simple.width();
+			int16_t new_width = (name_width > desc_width) ? name_width : desc_width;
+
+			separator = ColorLine(new_width - 6, Color::Name::WHITE, 0.40f, false);
+		}
+		else
+		{
+			separator = ColorLine(fillwidth - 6, Color::Name::WHITE, 0.40f, false);
+		}
+
+		fillheight += desc_label.height() + 4;
+	}
+
+	void MapTooltip::set_mapid(int32_t mapid)
+	{
+		size_t m = 0;
+		size_t n = 0;
+		auto life = NxHelper::Map::get_life_on_map(mapid);
+
+		for (auto l : life)
+		{
+			auto life_object = l.second;
+
+			if (life_object.first == "m" && m < MAX_LIFE)
+			{
+				mob_labels[m] = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::CHARTREUSE, life_object.second);
+				fillheight += mob_labels->height() + 2;
+				m++;
+			}
+			else if (life_object.first == "n" && n < MAX_LIFE)
+			{
+				npc_labels[n] = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::MALIBU, life_object.second);
+				fillheight += npc_labels->height() + 2;
+				n++;
+			}
+		}
+
+		if (desc_label.empty())
+			if (mob_labels->length() > 0 || npc_labels->length() > 0)
+				fillheight += BOTTOM_PADDING;
+	}
+
+	void MapTooltip::reset()
+	{
+		set_name(Tooltip::Parent::NONE, "", false);
+		set_desc("");
+
+		desc_label.change_text("");
+		name_label.change_text("");
+
+		for (size_t i = 0; i < MAX_LIFE; i++)
+		{
+			mob_labels[i].change_text("");
+			npc_labels[i].change_text("");
+		}
+
+		fillwidth = MIN_WIDTH;
+		fillheight = 0;
+	}
 }

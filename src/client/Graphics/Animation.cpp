@@ -1,351 +1,397 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "Animation.h"
 
 #include "../Constants.h"
+
 #include "../Util/Misc.h"
 
 #include <set>
 
-namespace jrc
+namespace ms
 {
-    Frame::Frame(nl::node src)
-    {
-        texture = src;
-        bounds = src;
-        head = src["head"];
-        delay = src["delay"];
-        if (delay == 0)
-        {
-            delay = 100;
-        }
+	Frame::Frame(nl::node src)
+	{
+		// Some animation sets (e.g. Character/TamingMob rides) nest the
+		// bitmap one level down: frame/{0: bitmap, delay} instead of the
+		// frame node being the bitmap itself.
+		nl::node bit = src;
 
-        bool hasa0 = src["a0"].data_type() == nl::node::type::integer;
-        bool hasa1 = src["a1"].data_type() == nl::node::type::integer;
-        if (hasa0 && hasa1)
-        {
-            opacities = { src["a0"], src["a1"] };
-        }
-        else if (hasa0)
-        {
-            uint8_t a0 = src["a0"];
-            opacities = { a0, a0 };
-        }
-        else if (hasa1)
-        {
-            uint8_t a1 = src["a1"];
-            opacities = { a1, a1 };
-        }
-        else
-        {
-            opacities = { 255, 255 };
-        }
+		if (src.data_type() != nl::node::type::bitmap
+			&& src["0"].data_type() == nl::node::type::bitmap)
+			bit = src["0"];
 
-        bool hasz0 = src["z0"].data_type() == nl::node::type::integer;
-        bool hasz1 = src["z1"].data_type() == nl::node::type::integer;
-        if (hasz0 && hasz1)
-        {
-            scales = { src["z0"], src["z1"] };
-        }
-        else if (hasz0)
-        {
-            scales = { src["z0"], 0 };
-        }
-        else if (hasz1)
-        {
-            scales = { 100, src["z1"] };
-        }
-        else
-        {
-            scales = { 100, 100 };
-        }
-    }
+		texture = bit;
+		bounds = bit;
+		head = bit["head"];
+		delay = src["delay"];
 
-    Frame::Frame()
-    {
-        delay     = 0;
-        opacities = { 0, 0 };
-        scales    = { 0, 0 };
-    }
+		if (delay == 0)
+			delay = 100;
 
-    void Frame::draw(const DrawArgument& args) const
-    {
-        texture.draw(args);
-    }
+		bool hasa0 = src["a0"].data_type() == nl::node::type::integer;
+		bool hasa1 = src["a1"].data_type() == nl::node::type::integer;
 
-    uint8_t Frame::start_opacity() const
-    {
-        return opacities.first;
-    }
+		if (hasa0 && hasa1)
+		{
+			opacities = { src["a0"], src["a1"] };
+		}
+		else if (hasa0)
+		{
+			uint8_t a0 = src["a0"];
+			opacities = { a0, 255 - a0 };
+		}
+		else if (hasa1)
+		{
+			uint8_t a1 = src["a1"];
+			opacities = { 255 - a1, a1 };
+		}
+		else
+		{
+			opacities = { 255, 255 };
+		}
 
-    uint16_t Frame::start_scale() const
-    {
-        return scales.first;
-    }
+		bool hasz0 = src["z0"].data_type() == nl::node::type::integer;
+		bool hasz1 = src["z1"].data_type() == nl::node::type::integer;
 
-    uint16_t Frame::get_delay() const
-    {
-        return delay;
-    }
+		if (hasz0 && hasz1)
+			scales = { src["z0"], src["z1"] };
+		else if (hasz0)
+			scales = { src["z0"], 0 };
+		else if (hasz1)
+			scales = { 100, src["z1"] };
+		else
+			scales = { 100, 100 };
+	}
 
-    Point<int16_t> Frame::get_origin() const
-    {
-        return texture.get_origin();
-    }
+	Frame::Frame()
+	{
+		delay = 0;
+		opacities = { 0, 0 };
+		scales = { 0, 0 };
+	}
 
-    Point<int16_t> Frame::get_dimensions() const
-    {
-        return texture.get_dimensions();
-    }
+	void Frame::draw(const DrawArgument& args) const
+	{
+		texture.draw(args);
+	}
 
-    Point<int16_t> Frame::get_head() const
-    {
-        return head;
-    }
+	uint8_t Frame::start_opacity() const
+	{
+		return opacities.first;
+	}
 
-    Rectangle<int16_t> Frame::get_bounds() const
-    {
-        return bounds;
-    }
+	uint16_t Frame::start_scale() const
+	{
+		return scales.first;
+	}
 
-    float Frame::opcstep(uint16_t timestep) const
-    {
-        return timestep * static_cast<float>(opacities.second - opacities.first) / delay;
-    }
+	uint16_t Frame::get_delay() const
+	{
+		return delay;
+	}
 
-    float Frame::scalestep(uint16_t timestep) const
-    {
-        return timestep * static_cast<float>(scales.second - scales.first) / delay;
-    }
+	Point<int16_t> Frame::get_origin() const
+	{
+		return texture.get_origin();
+	}
 
+	Point<int16_t> Frame::get_dimensions() const
+	{
+		return texture.get_dimensions();
+	}
 
-    Animation::Animation(nl::node src)
-    {
-        bool istexture = src.data_type() == nl::node::type::bitmap;
-        if (istexture)
-        {
-            frames.emplace_back(src);
-        }
-        else
-        {
-            std::set<int16_t> frameids;
-            for (auto sub : src)
-            {
-                if (sub.data_type() == nl::node::type::bitmap)
-                {
-                    auto fid = string_conversion::or_default<int16_t>(
-                        sub.name(),
-                        -1
-                    );
-                    if (fid >= 0)
-                    {
-                        frameids.insert(fid);
-                    }
-                }
-            }
+	Point<int16_t> Frame::get_head() const
+	{
+		return head;
+	}
 
-            for (auto& fid : frameids)
-            {
-                frames.emplace_back(src[std::to_string(fid)]);
-            }
+	Rectangle<int16_t> Frame::get_bounds() const
+	{
+		return bounds;
+	}
 
-            if (frames.empty())
-            {
-                frames.emplace_back();
-            }
-        }
+	float Frame::opcstep(uint16_t timestep) const
+	{
+		return timestep * static_cast<float>(opacities.second - opacities.first) / delay;
+	}
 
-        animated = frames.size() > 1;
-        zigzag = src["zigzag"].get_bool();
+	float Frame::scalestep(uint16_t timestep) const
+	{
+		return timestep * static_cast<float>(scales.second - scales.first) / delay;
+	}
 
-        reset();
-    }
+	Animation::Animation(nl::node src)
+	{
+		bool istexture = src.data_type() == nl::node::type::bitmap;
 
-    Animation::Animation()
-    {
-        animated = false;
-        zigzag   = false;
+		if (istexture)
+		{
+			frames.push_back(src);
+		}
+		else
+		{
+			std::set<int16_t> frameids;
 
-        frames.emplace_back();
+			for (auto sub : src)
+			{
+				bool framelike = sub.data_type() == nl::node::type::bitmap
+					|| sub["0"].data_type() == nl::node::type::bitmap;
 
-        reset();
-    }
+				if (framelike)
+				{
+					int16_t fid = string_conversion::or_default<int16_t>(sub.name(), -1);
 
-    void Animation::reset()
-    {
-        frame.set(0);
-        opacity.set(frames[0].start_opacity());
-        xyscale.set(frames[0].start_scale());
-        delay = frames[0].get_delay();
-        framestep = 1;
-    }
+					if (fid >= 0)
+						frameids.insert(fid);
+				}
+			}
 
-    void Animation::draw(const DrawArgument& args, float alpha) const
-    {
-        int16_t interframe = frame.get(alpha);
-        float interopc     = opacity.get(alpha) / 255;
-        float interscale   = xyscale.get(alpha) / 100;
+			for (auto& fid : frameids)
+			{
+				auto sub = src[std::to_string(fid)];
+				frames.push_back(sub);
+			}
 
-        bool modifyopc   = interopc   != 1.0f;
-        bool modifyscale = interscale != 1.0f;
-        if (modifyopc || modifyscale)
-        {
-            frames[interframe].draw(args + DrawArgument(interscale, interscale, interopc));
-        }
-        else
-        {
-            frames[interframe].draw(args);
-        }
-    }
+			if (frames.empty())
+				frames.push_back(Frame());
+		}
 
-    bool Animation::update()
-    {
-        return update(Constants::TIMESTEP);
-    }
+		animated = frames.size() > 1;
+		zigzag = src["zigzag"].get_bool();
 
-    bool Animation::update(uint16_t timestep)
-    {
-        const Frame& framedata = get_frame();
+		reset();
+	}
 
-        opacity += framedata.opcstep(timestep);
-        if (opacity.last() < 0.0f)
-        {
-            opacity.set(0.0f);
-        }
-        else if (opacity.last() > 255.0f)
-        {
-            opacity.set(255.0f);
-        }
+	Animation::Animation(const std::vector<nl::node>& framenodes)
+	{
+		for (auto& node : framenodes)
+			frames.push_back(node);
 
-        xyscale += framedata.scalestep(timestep);
-        if (xyscale.last() < 0.0f)
-        {
-            opacity.set(0.0f);
-        }
+		if (frames.empty())
+			frames.push_back(Frame());
 
-        if (timestep >= delay)
-        {
-            auto lastframe = static_cast<int16_t>(frames.size() - 1);
-            int16_t nextframe;
-            bool ended;
-            if (zigzag && lastframe > 0)
-            {
-                if (framestep == 1 && frame == lastframe)
-                {
-                    framestep = -framestep;
-                    ended = false;
-                }
-                else if (framestep == -1 && frame == 0)
-                {
-                    framestep = -framestep;
-                    ended = true;
-                }
-                else
-                {
-                    ended = false;
-                }
+		animated = frames.size() > 1;
+		zigzag = false;
 
-                nextframe = frame + framestep;
-            }
-            else
-            {
-                if (frame == lastframe)
-                {
-                    nextframe = 0;
-                    ended = true;
-                }
-                else
-                {
-                    nextframe = frame + 1;
-                    ended = false;
-                }
-            }
+		reset();
+	}
 
-            uint16_t delta = timestep - delay;
-            float threshold = static_cast<float>(delta) / timestep;
-            frame.next(nextframe, threshold);
+	Animation::Animation()
+	{
+		animated = false;
+		zigzag = false;
 
-            delay = frames[nextframe].get_delay();
-            if (delay >= delta)
-            {
-                delay -= delta;
-            }
+		frames.push_back(Frame());
 
-            opacity.set(frames[nextframe].start_opacity());
-            xyscale.set(frames[nextframe].start_scale());
+		reset();
+	}
 
-            return ended;
-        }
-        else
-        {
-            frame.normalize();
-            delay -= timestep;
+	void Animation::reset()
+	{
+		frame.set(0);
+		opacity.set(frames[0].start_opacity());
+		xyscale.set(frames[0].start_scale());
+		delay = frames[0].get_delay();
+		framestep = 1;
+	}
 
-            return false;
-        }
-    }
+	void Animation::draw(const DrawArgument& args, float alpha) const
+	{
+		if (frames.empty())
+			return;
 
-    uint16_t Animation::get_delay(int16_t frame_id) const
-    {
-        return
-            frame_id < frames.size() ?
-                frames[frame_id].get_delay() :
-                static_cast<uint16_t>(0u);
-    }
+		int16_t interframe = frame.get(alpha);
 
-    uint16_t Animation::getdelayuntil(int16_t frame_id) const
-    {
-        uint16_t total = 0;
-        for (int16_t i = 0; i < frame_id; ++i)
-        {
-            if (i >= frames.size())
-            {
-                break;
-            }
+		if (interframe < 0)
+			interframe = 0;
+		else if (interframe >= static_cast<int16_t>(frames.size()))
+			interframe = static_cast<int16_t>(frames.size()) - 1;
 
-            total += frames[frame_id].get_delay();
-        }
+		float interopc = opacity.get(alpha) / 255;
+		float interscale = xyscale.get(alpha) / 100;
 
-        return total;
-    }
+		bool modifyopc = interopc != 1.0f;
+		bool modifyscale = interscale != 1.0f;
 
-    Point<int16_t> Animation::get_origin() const
-    {
-        return get_frame().get_origin();
-    }
+		if (modifyopc || modifyscale)
+			frames[interframe].draw(args + DrawArgument(interscale, interscale, interopc));
+		else
+			frames[interframe].draw(args);
+	}
 
-    Point<int16_t> Animation::get_dimensions() const
-    {
-        return get_frame().get_dimensions();
-    }
+	bool Animation::update()
+	{
+		return update(Constants::TIMESTEP);
+	}
 
-    Point<int16_t> Animation::get_head() const
-    {
-        return get_frame().get_head();
-    }
+	bool Animation::update(uint16_t timestep)
+	{
+		if (frames.empty())
+			return true;
 
-    Rectangle<int16_t> Animation::get_bounds() const
-    {
-        return get_frame().get_bounds();
-    }
+		const Frame& framedata = get_frame();
 
-    const Frame& Animation::get_frame() const
-    {
-        return frames[frame.get()];
-    }
+		opacity += framedata.opcstep(timestep);
+
+		if (opacity.last() < 0.0f)
+			opacity.set(0.0f);
+		else if (opacity.last() > 255.0f)
+			opacity.set(255.0f);
+
+		xyscale += framedata.scalestep(timestep);
+
+		if (xyscale.last() < 0.0f)
+			opacity.set(0.0f);
+
+		if (timestep >= delay)
+		{
+			int16_t lastframe = static_cast<int16_t>(frames.size() - 1);
+			int16_t nextframe;
+			bool ended;
+
+			// Play-once mode: freeze on the final frame instead of wrapping
+			if (hold_last && !zigzag && frame == lastframe)
+			{
+				frame.normalize();
+
+				return true;
+			}
+
+			if (zigzag && lastframe > 0)
+			{
+				if (framestep == 1 && frame == lastframe)
+				{
+					framestep = -framestep;
+					ended = false;
+				}
+				else if (framestep == -1 && frame == 0)
+				{
+					framestep = -framestep;
+					ended = true;
+				}
+				else
+				{
+					ended = false;
+				}
+
+				nextframe = frame + framestep;
+			}
+			else
+			{
+				if (frame == lastframe)
+				{
+					nextframe = 0;
+					ended = true;
+				}
+				else
+				{
+					nextframe = frame + 1;
+					ended = false;
+				}
+			}
+
+			uint16_t delta = timestep - delay;
+			float threshold = static_cast<float>(delta) / timestep;
+			frame.next(nextframe, threshold);
+
+			delay = frames[nextframe].get_delay();
+
+			if (delay >= delta)
+				delay -= delta;
+
+			opacity.set(frames[nextframe].start_opacity());
+			xyscale.set(frames[nextframe].start_scale());
+
+			return ended;
+		}
+		else
+		{
+			frame.normalize();
+
+			delay -= timestep;
+
+			return false;
+		}
+	}
+
+	uint16_t Animation::get_delay(int16_t frame_id) const
+	{
+		return frame_id < frames.size() ? frames[frame_id].get_delay() : 0;
+	}
+
+	uint16_t Animation::getdelayuntil(int16_t frame_id) const
+	{
+		uint16_t total = 0;
+
+		for (int16_t i = 0; i < frame_id; i++)
+		{
+			if (i >= frames.size())
+				break;
+
+			total += frames[frame_id].get_delay();
+		}
+
+		return total;
+	}
+
+	Point<int16_t> Animation::get_origin() const
+	{
+		return get_frame().get_origin();
+	}
+
+	Point<int16_t> Animation::get_dimensions() const
+	{
+		return get_frame().get_dimensions();
+	}
+
+	Point<int16_t> Animation::get_head() const
+	{
+		return get_frame().get_head();
+	}
+
+	Rectangle<int16_t> Animation::get_bounds() const
+	{
+		return get_frame().get_bounds();
+	}
+
+	int16_t Animation::get_frame_index() const
+	{
+		return frame.get();
+	}
+
+	const Frame& Animation::get_frame() const
+	{
+		// Clamp the frame index — a stale/oversized index (e.g. from a bullet
+		// animation reused across attacks) must never index past the vector.
+		// An empty vector (moved-from animation) would otherwise clamp to -1.
+		static const Frame null_frame;
+
+		if (frames.empty())
+			return null_frame;
+
+		int16_t index = frame.get();
+
+		if (index < 0)
+			index = 0;
+		else if (index >= static_cast<int16_t>(frames.size()))
+			index = static_cast<int16_t>(frames.size()) - 1;
+
+		return frames[index];
+	}
 }

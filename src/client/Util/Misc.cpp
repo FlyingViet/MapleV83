@@ -1,219 +1,183 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #include "Misc.h"
 
-#include "nlnx/nx.hpp"
+#ifdef USE_NX
+#include <nlnx/nx.hpp>
+#endif
 
-#include <algorithm>
+#include <locale>
+#include <sstream>
 
-namespace jrc
+namespace ms
 {
-    namespace string_format
-    {
-        void split_number(std::string& input)
-        {
-            for (size_t i = input.size(); i > 3; i -= 3)
-            {
-                input.insert(i - 3, 1, ',');
-            }
-        }
+	namespace string_format
+	{
+		void split_number(std::string& input)
+		{
+			for (size_t i = input.size(); i > 3; i -= 3)
+				input.insert(i - 3, 1, ',');
+		}
 
-        std::string extend_id(int32_t id, size_t length)
-        {
-            std::string strid = std::to_string(id);
-            if (strid.size() < length)
-            {
-                strid.insert(0, length - strid.size(), '0');
-            }
-            return strid;
-        }
-    }
+		std::string extend_id(int32_t id, size_t length)
+		{
+			std::string strid = std::to_string(id);
 
-    namespace bytecode
-    {
-        bool compare(int32_t mask, int32_t value)
-        {
-            return (mask & value) != 0;
-        }
-    }
+			if (strid.size() < length)
+				strid.insert(0, length - strid.size(), '0');
 
-    namespace NxHelper
-    {
-        namespace Map
-        {
-            namespace
-            {
-                std::string make_full_name(const std::string& street_name, const std::string& name)
-                {
-                    if (street_name.empty())
-                    {
-                        return name;
-                    }
+			return strid;
+		}
 
-                    if (name.empty())
-                    {
-                        return street_name;
-                    }
+		void format_with_ellipsis(Text& input, size_t length)
+		{
+			std::string text = input.get_text();
 
-                    return street_name + " : " + name;
-                }
-            }
+			while (input.width() > length)
+			{
+				text.pop_back();
+				input.change_text(text + "..");
+			}
+		}
 
-            MapInfo get_map_info_by_id(int32_t mapid)
-            {
-                std::string map_category = get_map_category(mapid);
-                std::string mapid_str = std::to_string(mapid);
-                nl::node map_info = nl::nx::string["Map.img"][map_category][mapid_str];
+		std::string tolower(std::string str)
+		{
+			std::locale loc;
+			std::stringstream ss;
 
-                std::string description = map_info["mapDesc"];
-                std::string name = map_info["mapName"];
-                std::string street_name = map_info["streetName"];
+			for (std::string::size_type i = 0; i < str.length(); ++i)
+				ss << std::tolower(str[i], loc);
 
-                return {
-                    description,
-                    name,
-                    street_name,
-                    make_full_name(street_name, name)
-                };
-            }
+			return ss.str();
+		}
+	}
 
-            std::string get_map_category(int32_t mapid)
-            {
-                if (mapid < 100000000)
-                {
-                    return "maple";
-                }
+	namespace bytecode
+	{
+		bool compare(int32_t mask, int32_t value)
+		{
+			return (mask & value) != 0;
+		}
+	}
 
-                if (mapid < 200000000)
-                {
-                    return "victoria";
-                }
+	namespace NxHelper
+	{
+		namespace Map
+		{
+			MapInfo get_map_info_by_id(int32_t mapid)
+			{
+				std::string map_category = get_map_category(mapid);
+				nl::node map_info = nl::nx::string["Map.img"][map_category][mapid];
 
-                if (mapid < 300000000)
-                {
-                    return "ossyria";
-                }
+				return {
+					map_info["mapDesc"],
+					map_info["mapName"],
+					map_info["streetName"],
+					map_info["streetName"] + " : " + map_info["mapName"]
+				};
+			}
 
-                if (mapid < 540000000)
-                {
-                    return "elin";
-                }
+			std::string get_map_category(int32_t mapid)
+			{
+				if (mapid < 100000000)
+					return "maple";
 
-                if (mapid < 600000000)
-                {
-                    return "singapore";
-                }
+				if (mapid < 200000000)
+					return "victoria";
 
-                if (mapid < 670000000)
-                {
-                    return "MasteriaGL";
-                }
+				if (mapid < 300000000)
+					return "ossyria";
 
-                if (mapid < 682000000)
-                {
-                    int32_t prefix3 = (mapid / 1000000) * 1000000;
-                    int32_t prefix4 = (mapid / 100000) * 100000;
+				if (mapid < 540000000)
+					return "elin";
 
-                    if (prefix3 == 674000000 || prefix4 == 680100000 || prefix4 == 889100000)
-                    {
-                        return "etc";
-                    }
+				if (mapid < 600000000)
+					return "singapore";
 
-                    if (prefix3 == 677000000)
-                    {
-                        return "Episode1GL";
-                    }
+				if (mapid < 670000000)
+					return "MasteriaGL";
 
-                    return "weddingGL";
-                }
+				if (mapid < 682000000)
+				{
+					int32_t prefix3 = (mapid / 1000000) * 1000000;
+					int32_t prefix4 = (mapid / 100000) * 100000;
 
-                if (mapid < 683000000)
-                {
-                    return "HalloweenGL";
-                }
+					if (prefix3 == 674000000 || prefix4 == 680100000 || prefix4 == 889100000)
+						return "etc";
 
-                if (mapid < 800000000)
-                {
-                    return "event";
-                }
+					if (prefix3 == 677000000)
+						return "Episode1GL";
 
-                if (mapid < 900000000)
-                {
-                    return "jp";
-                }
+					return "weddingGL";
+				}
 
-                return "etc";
-            }
+				if (mapid < 683000000)
+					return "HalloweenGL";
 
-            std::unordered_map<int64_t, std::pair<std::string, std::string>> get_life_on_map(int32_t mapid)
-            {
-                std::unordered_map<int64_t, std::pair<std::string, std::string>> map_life;
+				if (mapid < 800000000)
+					return "event";
 
-                nl::node map_node = get_map_node_name(mapid);
+				if (mapid < 900000000)
+					return "jp";
 
-                for (nl::node life : map_node["life"])
-                {
-                    int64_t life_id = life["id"];
-                    std::string life_id_str = std::to_string(life_id);
-                    std::string life_type = life["type"];
-                    bool hide_life = life["hide"].get_bool();
+				return "etc";
+			}
 
-                    if (hide_life)
-                    {
-                        continue;
-                    }
+			std::unordered_map<int64_t, std::pair<std::string, std::string>> get_life_on_map(int32_t mapid)
+			{
+				std::unordered_map<int64_t, std::pair<std::string, std::string>> map_life;
 
-                    if (life_type == "m")
-                    {
-                        nl::node life_name = nl::nx::string["Mob.img"][life_id_str]["name"];
-                        std::string mob_id = string_format::extend_id(static_cast<int32_t>(life_id), 7);
-                        nl::node life_level = nl::nx::mob[mob_id + ".img"]["info"]["level"];
+				nl::node portal = get_map_node_name(mapid);
 
-                        if (life_name)
-                        {
-                            std::string label = life_name;
-                            if (life_level)
-                            {
-                                label += " (Lv. " + std::to_string(static_cast<int32_t>(life_level)) + ")";
-                            }
-                            map_life[life_id] = { life_type, label };
-                        }
-                    }
-                    else if (life_type == "n")
-                    {
-                        nl::node life_name = nl::nx::string["Npc.img"][life_id_str]["name"];
-                        if (life_name)
-                        {
-                            map_life[life_id] = { life_type, static_cast<std::string>(life_name) };
-                        }
-                    }
-                }
+				for (nl::node life : portal["life"])
+				{
+					int64_t life_id = life["id"];
+					std::string life_type = (std::string)life["type"];
 
-                return map_life;
-            }
+					if (life_type == "m")
+					{
+						// Mob
+						nl::node life_name = nl::nx::string["Mob.img"][life_id]["name"];
 
-            nl::node get_map_node_name(int32_t mapid)
-            {
-                std::string prefix = std::to_string(mapid / 100000000);
-                std::string mapid_str = string_format::extend_id(mapid, 9);
+						std::string life_id_str = string_format::extend_id(life_id, 7);
+						nl::node life_level = nl::nx::mob[life_id_str + ".img"]["info"]["level"];
 
-                return nl::nx::map["Map"]["Map" + prefix][mapid_str + ".img"];
-            }
-        }
-    }
+						if (life_name && life_level)
+							map_life[life_id] = { life_type, life_name + "(Lv. " + life_level + ")" };
+					}
+					else if (life_type == "n")
+					{
+						// NPC
+						if (nl::node life_name = nl::nx::string["Npc.img"][life_id]["name"])
+							map_life[life_id] = { life_type, life_name };
+					}
+				}
+
+				return map_life;
+			}
+
+			nl::node get_map_node_name(int32_t mapid)
+			{
+				std::string prefix = std::to_string(mapid / 100000000);
+				std::string mapid_str = string_format::extend_id(mapid, 9);
+
+				return nl::nx::map["Map"]["Map" + prefix][mapid_str + ".img"];
+			}
+		}
+	}
 }

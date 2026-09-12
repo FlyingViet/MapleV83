@@ -1,144 +1,206 @@
-//////////////////////////////////////////////////////////////////////////////
-// This file is part of the Journey MMORPG client                           //
-// Copyright © 2015-2016 Daniel Allendorf                                   //
-//                                                                          //
-// This program is free software: you can redistribute it and/or modify     //
-// it under the terms of the GNU Affero General Public License as           //
-// published by the Free Software Foundation, either version 3 of the       //
-// License, or (at your option) any later version.                          //
-//                                                                          //
-// This program is distributed in the hope that it will be useful,          //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of           //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            //
-// GNU Affero General Public License for more details.                      //
-//                                                                          //
-// You should have received a copy of the GNU Affero General Public License //
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.    //
-//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//																				//
+//	This program is distributed in the hope that it will be useful,				//
+//	but WITHOUT ANY WARRANTY; without even the implied warranty of				//
+//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				//
+//	GNU Affero General Public License for more details.							//
+//																				//
+//	You should have received a copy of the GNU Affero General Public License	//
+//	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
+//////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "Camera.h"
-#include "Spawn.h"
 
 #include "Combat/Combat.h"
-#include "MapleMap/MapInfo.h"
-#include "MapleMap/MapEffect.h"
-#include "MapleMap/MapTilesObjs.h"
+#include "PetAI.h"
 #include "MapleMap/MapBackgrounds.h"
-#include "MapleMap/MapPortals.h"
-#include "MapleMap/MapChars.h"
-#include "MapleMap/MapMobs.h"
-#include "MapleMap/MapReactors.h"
-#include "MapleMap/MapNpcs.h"
+#include "MapleMap/MapEnvironments.h"
+#include "MapleMap/MapDoors.h"
 #include "MapleMap/MapDrops.h"
-#include "Physics/Physics.h"
+#include "MapleMap/MapMists.h"
+#include "MapleMap/MapEffect.h"
+#include "MapleMap/MapWeather.h"
+#include "MapleMap/MapNpcs.h"
+#include "MapleMap/MapPortals.h"
+#include "MapleMap/MapDragons.h"
+#include "MapleMap/MapSummons.h"
+#include "MapleMap/MapTilesObjs.h"
 
-#include "../Character/Player.h"
+#include "../Timer.h"
+
 #include "../IO/KeyType.h"
-#include "../Template/TimedQueue.h"
-#include "../Template/Singleton.h"
 
-
-namespace jrc
+namespace ms
 {
-    class Stage : public Singleton<Stage>
-    {
-    public:
-        Stage();
+	class Stage : public Singleton<Stage>
+	{
+	public:
+		Stage();
 
-        void init();
+		void init();
 
-        // Loads the map to display.
-        void load(int32_t mapid, int8_t portalid);
-        // Remove all map objects and graphics.
-        void clear();
+		// Loads the map to display
+		void load(int32_t mapid, int8_t portalid);
+		// Remove all map objects and graphics
+		void clear();
 
-        // Contruct the player from a character entry.
-        void loadplayer(const CharEntry& entry);
+		// Construct the player from a character entry
+		void loadplayer(const CharEntry& entry);
 
-        // Call 'draw()' of all objects on stage.
-        void draw(float alpha) const;
-        // Calls 'update()' of all objects on stage.
-        void update();
+		// Call 'draw()' of all objects on stage
+		void draw(float alpha) const;
+		// Calls 'update()' of all objects on stage
+		void update();
 
-        // Show a character effect.
-        void show_character_effect(int32_t cid, CharEffect::Id effect);
-        // Show a map-level field effect.
-        void add_effect(const std::string& path);
-        // Schedule a timed map-warp request used by intro scene scripts.
-        void schedule_intro_warp(int32_t mapid, int32_t delay_ms);
+		// Show a character effect
+		void show_character_effect(int32_t cid, CharEffect::Id effect);
 
-        // Send key input to the stage.
-        void send_key(KeyType::Id keytype, int32_t keycode, bool pressed);
-        // Send mouse input to the stage.
-        Cursor::State send_cursor(bool pressed, Point<int16_t> position);
+		// Send key input to the stage
+		void send_key(KeyType::Id keytype, int32_t keycode, bool pressed);
+		// Send mouse input to the stage
+		Cursor::State send_cursor(bool pressed, Point<int16_t> position);
 
-        // Check if the specified id is the player's id.
-        bool is_player(int32_t cid) const;
+		// Check if the specified id is the player's id
+		bool is_player(int32_t cid) const;
 
-        // Returns a reference to the npcs on the current map.
-        MapNpcs& get_npcs();
-        // Returns a reference to the other characters on the current map.
-        MapChars& get_chars();
-        // Returns a reference to the mobs on the current map.
-        MapMobs& get_mobs();
-        // Returns a reference to the reactors on the current map.
-        MapReactors& get_reactors();
-        // Returns a reference to the drops on the current map.
-        MapDrops& get_drops();
-        // Returns a reference to the Player.
-        Player& get_player();
-        // Returns the id of the current map.
-        int32_t get_mapid() const;
-        // Return a reference to the attack and buff component.
-        Combat& get_combat();
+		// Returns a reference to the NPCs on the current map
+		MapNpcs& get_npcs();
+		// Returns a reference to the other characters on the current map
+		MapChars& get_chars();
+		// Returns a reference to the mobs on the current map
+		MapMobs& get_mobs();
+		// Returns a reference to the reactors on the current map
+		MapReactors& get_reactors();
+		// Returns a reference to the drops on the current map
+		MapDrops& get_drops();
+		// Returns a reference to the doors on the current map
+		MapDoors& get_doors();
+		// Returns a reference to the mists on the current map
+		MapMists& get_mists();
+		// One-shot animations anchored to map coordinates (skill blasts, impacts).
+		MapPointEffects& get_point_effects();
+		// Returns a reference to the summons on the current map
+		MapSummons& get_summons();
+		// Returns a reference to the dragons on the current map
+		MapDragons& get_dragons();
+		// Returns a reference to the Player
+		Player& get_player();
+		// Return a reference to the attack and buff component
+		Combat& get_combat();
+		// Returns the current map ID
+		int32_t get_mapid();
 
-        // Return a pointer to a character, possibly the player.
-        Optional<Char> get_character(int32_t cid);
+		// Return a pointer to a character, possibly the player.
+		Optional<Char> get_character(int32_t cid);
 
-    private:
-        void load_map(int32_t mapid);
-        void respawn(int8_t portalid);
-        void check_portals();
-        void check_seats();
-        void check_ladders(bool up);
-        void handle_held_actions();
-        void handle_directional_context(KeyAction::Id action, bool down);
-        void update_directional_context();
-        void check_drops();
-        void update_intro_warp();
-        bool is_intro_input_locked() const;
-        void release_intro_locked_actions();
+		// Set a map effect
+		void add_effect(std::string path);
 
-        enum State
-        {
-            INACTIVE,
-            TRANSITION,
-            ACTIVE
-        };
+		// Weather
+		void set_weather(const std::string& path, const std::string& message);
+		void clear_weather();
 
-        Camera camera;
-        Physics physics;
-        Player player;
+		// Toggle a map environment object (gates, platforms in PQs)
+		void toggle_environment(const std::string& name, int32_t mode);
 
-        Optional<Playable> playable;
-        State state;
-        int32_t mapid;
+		// Clock state management
+		void set_clock(int8_t hour, int8_t min, int8_t sec);
+		void set_countdown(int32_t seconds);
+		void clear_clock();
+		bool is_clock_active() const;
+		bool is_countdown_active() const;
+		int8_t get_clock_hour() const;
+		int8_t get_clock_min() const;
+		int8_t get_clock_sec() const;
+		int32_t get_countdown_seconds() const;
 
-        uint64_t last_pickup_time;
+		// Combo counter (Aran)
+		void set_combo(int32_t count);
+		int32_t get_combo() const;
+		bool is_combo_active() const;
 
-        MapInfo mapinfo;
-        MapTilesObjs tilesobjs;
-        MapBackgrounds backgrounds;
-        MapPortals portals;
-        MapReactors reactors;
-        MapNpcs npcs;
-        MapChars chars;
-        MapMobs mobs;
-        MapDrops drops;
-        MapEffect effect;
+		// Energy Charge, 0..10000 (server-driven via SESSION_VALUE)
+		void set_energy(int32_t amount);
+		int32_t get_energy() const;
+		bool is_energy_active() const;
 
-        Combat combat;
-        int32_t pending_intro_warp_mapid;
-        int32_t pending_intro_warp_delay_ms;
-    };
+
+		// Get the total up time of the client
+		int64_t get_uptime();
+		// Get the level at the start of the client
+		uint16_t get_uplevel();
+		// Get the EXP at the start of the client
+		int64_t get_upexp();
+
+		// Notify the server that the player has moved maps
+		void transfer_player();
+
+	private:
+		void load_map(int32_t mapid);
+		void respawn(int8_t portalid);
+		void check_portals();
+		void check_seats();
+		void check_ladders(bool up);
+		void check_drops();
+
+		enum State
+		{
+			INACTIVE,
+			TRANSITION,
+			ACTIVE
+		};
+
+		Camera camera;
+		PetAI petai;
+		Physics physics;
+		Player player;
+
+		Optional<Playable> playable;
+		State state;
+		int32_t mapid;
+
+		MapInfo mapinfo;
+		MapTilesObjs tilesobjs;
+		MapBackgrounds backgrounds;
+		MapEnvironments environments;
+		MapPortals portals;
+		MapReactors reactors;
+		MapNpcs npcs;
+		MapChars chars;
+		MapMobs mobs;
+		MapSummons summons;
+		MapDragons dragons;
+		MapDrops drops;
+		MapDoors doors;
+		MapMists mists;
+		MapEffect effect;
+		MapPointEffects point_effects;
+		MapWeather weather;
+
+		Combat combat;
+
+		std::chrono::time_point<std::chrono::steady_clock> start;
+		uint16_t levelBefore;
+		int64_t expBefore;
+
+		// Clock state
+		int8_t clock_hour = 0;
+		int8_t clock_min = 0;
+		int8_t clock_sec = 0;
+		bool clock_active = false;
+		int32_t countdown_seconds = 0;
+		bool countdown_active = false;
+
+		// Combo counter
+		int32_t combo_count = 0;
+
+		int32_t energy_amount = 0;
+
+	};
 }
