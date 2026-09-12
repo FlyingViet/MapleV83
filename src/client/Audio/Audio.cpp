@@ -15,6 +15,9 @@
 //	You should have received a copy of the GNU Affero General Public License	//
 //	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
 //////////////////////////////////////////////////////////////////////////////////
+// The BASS backend is only used by native builds. Under MS_PLATFORM_WASM the
+// Web Audio implementation in AudioWeb.cpp provides the same Sound / Music API.
+#ifndef MS_PLATFORM_WASM
 #include "Audio.h"
 
 #include "../Configuration.h"
@@ -318,3 +321,5 @@ namespace ms
 		return BASS_SetConfig(BASS_CONFIG_GVOL_STREAM, vol * 100) == TRUE;
 	}
 }
+
+#endif // MS_PLATFORM_WASM
