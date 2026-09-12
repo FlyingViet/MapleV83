@@ -91,6 +91,33 @@ namespace ms
 		// skipped straight past the middle of the text.
 		static constexpr int16_t SCROLL_STEP = 16;
 
+		// v83 UIWindow.img/UtilDlgEx geometry. The window is t (529x28) over
+		// `height` px of the tiled c (529x20) over s (529x58). The white text
+		// panel spans x 152..515 from y 23 (inside t) to PANEL_BOTTOM_INSET px
+		// into s; the NPC portrait column is x 13..147; s carries the blue
+		// button band 28..52 px into it.
+		static constexpr int16_t TEXT_X = 166;               // body text left edge, 14px into the panel
+		static constexpr int16_t TEXT_Y = 48;                // body text top for the non-scrolling layout
+		static constexpr int16_t TEXT_WIDTH = 320;           // wrap width of the body text
+		static constexpr int16_t LINE_HEIGHT = 16;           // A12M row height
+		static constexpr int16_t SCROLL_TEXT_Y = 30;         // scrolling layout: text starts just under the header piece
+		static constexpr int16_t SCROLL_CLIP_TOP = 28;       // visible band starts where the c tiles start
+		static constexpr int16_t SCROLL_CLIP_BOTTOM_PAD = 8; // ...and ends this far below the last tile (5px above the panel border)
+		static constexpr int16_t PANEL_BOTTOM_INSET = 13;    // the panel continues this far into s
+		static constexpr int16_t SLIDER_X = 501;             // 15px VScr4 bar just inside the panel's right edge (516)
+		static constexpr int16_t SLIDER_BUTTON_H = 13;       // VScr4 prev / next height
+		static constexpr int16_t BUTTON_BAND_Y = 31;         // 18px buttons centred in the blue band of s (rows 28..52)
+		static constexpr int16_t BTN_CLOSE_X = 9;            // 85px End Chat on the band's left
+		static constexpr int16_t BTN_RIGHT_X = 471;          // right-aligned 46px button (OK / Next / No)
+		static constexpr int16_t BTN_LEFT_X = 419;           // the 46px button left of it (Prev / Yes), 6px gap
+		static constexpr int16_t BTN_QNO_X = 460;            // right-aligned 57px Decline
+		static constexpr int16_t BTN_QYES_X = 397;           // 57px Accept left of it, 6px gap
+		static constexpr int16_t SELECTION_PAD_X = 36;       // bullet column / hover band left of the text
+		static constexpr int16_t HIGHLIGHT_W = 360;          // hover band width
+		static constexpr int16_t INPUT_FIELD_H = 18;         // text / number entry field
+		static constexpr int16_t INPUT_FIELD_RIGHT = 460;
+		static constexpr int16_t INPUT_FIELD_BOTTOM_PAD = 5; // field bottom clears the panel border by this
+
 		enum Buttons
 		{
 			CLOSE,
@@ -101,10 +128,6 @@ namespace ms
 			QNO,
 			QYES,
 			YES,
-			QSTART,
-			QAFTER,
-			QCYES,
-			QCNO,
 			QGIVEUP
 		};
 

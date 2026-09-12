@@ -43,32 +43,24 @@ namespace ms
 {
 	UINpcTalk::UINpcTalk() : offset(0), unitrows(0), rowmax(0), show_slider(false), draw_text(false), formatted_text(""), formatted_text_pos(0), timestep(0), selection_top(0), hovered_selection(-1)
 	{
-		nl::node UtilDlgEx = nl::nx::ui["UIWindow2.img"]["UtilDlgEx"];
+		// v83 dialog frame (see the layout constants in the header)
+		nl::node UtilDlgEx = nl::nx::ui["UIWindow.img"]["UtilDlgEx"];
 
 		top = UtilDlgEx["t"];
 		fill = UtilDlgEx["c"];
 		bottom = UtilDlgEx["s"];
 		nametag = UtilDlgEx["bar"];
 
-		// dot0/dot1/list0/list1 don't exist at UIWindow2.img/UtilDlgEx in v83
-		// and the node lookup was picking up unrelated bitmaps ("QUESTS IN
-		// PROGRESS" stickers) that rendered over each selection row. Try
-		// the v83 path (UIWindow.img/UtilDlgEx) first and only accept nodes
-		// that actually resolve to something.
-		nl::node UtilDlgEx_v83 = nl::nx::ui["UIWindow.img"]["UtilDlgEx"];
-
-		auto pick = [](nl::node a, nl::node b) -> nl::node
-		{
-			return a ? a : b;
-		};
-
-		dot_normal = pick(UtilDlgEx_v83["dot0"], UtilDlgEx["dot0"]);
-		dot_hovered = pick(UtilDlgEx_v83["dot1"], UtilDlgEx["dot1"]);
-		list_normal = pick(UtilDlgEx_v83["list0"], UtilDlgEx["list0"]);
-		list_hovered = pick(UtilDlgEx_v83["list1"], UtilDlgEx["list1"]);
+		dot_normal = UtilDlgEx["dot0"];
+		dot_hovered = UtilDlgEx["dot1"];
+		list_normal = UtilDlgEx["list0"];
+		list_hovered = UtilDlgEx["list1"];
 
 		min_height = 8 * fill.height() + 14;
 
+		// v83 UtilDlgEx has End Chat / Next / Prev / OK / Yes / No (46x18) and
+		// the quest Accept / Decline / Give up (57x17) buttons; the newer
+		// BtQStart / BtQAfter / BtQCYes / BtQCNo do not exist and were dropped.
 		buttons[Buttons::CLOSE] = std::make_unique<MapleButton>(UtilDlgEx["BtClose"]);
 		buttons[Buttons::NEXT] = std::make_unique<MapleButton>(UtilDlgEx["BtNext"]);
 		buttons[Buttons::NO] = std::make_unique<MapleButton>(UtilDlgEx["BtNo"]);
@@ -77,10 +69,6 @@ namespace ms
 		buttons[Buttons::QNO] = std::make_unique<MapleButton>(UtilDlgEx["BtQNo"]);
 		buttons[Buttons::QYES] = std::make_unique<MapleButton>(UtilDlgEx["BtQYes"]);
 		buttons[Buttons::YES] = std::make_unique<MapleButton>(UtilDlgEx["BtYes"]);
-		buttons[Buttons::QSTART] = std::make_unique<MapleButton>(UtilDlgEx["BtQStart"]);
-		buttons[Buttons::QAFTER] = std::make_unique<MapleButton>(UtilDlgEx["BtQAfter"]);
-		buttons[Buttons::QCYES] = std::make_unique<MapleButton>(UtilDlgEx["BtQCYes"]);
-		buttons[Buttons::QCNO] = std::make_unique<MapleButton>(UtilDlgEx["BtQCNo"]);
 		buttons[Buttons::QGIVEUP] = std::make_unique<MapleButton>(UtilDlgEx["BtQGiveup"]);
 
 		name = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE);
@@ -244,9 +232,11 @@ namespace ms
 
 		if (show_slider)
 		{
-			int16_t text_min_height = position.y() + top.height() - 1;
-			int16_t clip_bot = text_min_height + height - 18;
-			Point<int16_t> text_origin = position + Point<int16_t>(162, 19 - offset * SCROLL_STEP);
+			// Visible band: from the top of the c tiles to just above the panel's
+			// bottom border (mirrored by send_cursor's hit-test)
+			int16_t text_min_height = position.y() + SCROLL_CLIP_TOP;
+			int16_t clip_bot = position.y() + top.height() + height + SCROLL_CLIP_BOTTOM_PAD;
+			Point<int16_t> text_origin = position + Point<int16_t>(TEXT_X, SCROLL_TEXT_Y - offset * SCROLL_STEP);
 
 			// Hover band for the option under the cursor (send_cursor sets
 			// hovered_selection with the same scrolled geometry). The non-slider
@@ -265,20 +255,20 @@ namespace ms
 					else pref_escaped += c;
 				}
 				Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
-					Color::Name::DARKGREY, Text::Background::NONE, pref_escaped, 320, true);
+					Color::Name::DARKGREY, Text::Background::NONE, pref_escaped, TEXT_WIDTH, true);
 
-				int16_t base_y = position.y() + 19 - offset * SCROLL_STEP;
-				int16_t row_y = base_y + prefix_text.height() - 16;
+				int16_t base_y = position.y() + SCROLL_TEXT_Y - offset * SCROLL_STEP;
+				int16_t row_y = base_y + prefix_text.height() - LINE_HEIGHT;
 
-				if (row_y + 16 > text_min_height && row_y < clip_bot)
+				if (row_y + LINE_HEIGHT > text_min_height && row_y < clip_bot)
 				{
-					ColorBox band(360, 16, Color::Name::LIGHTBLUE, 0.30f);
-					band.draw(DrawArgument(Point<int16_t>(position.x() + 162 - 36, row_y)));
+					ColorBox band(HIGHLIGHT_W, LINE_HEIGHT, Color::Name::LIGHTBLUE, 0.30f);
+					band.draw(DrawArgument(Point<int16_t>(position.x() + TEXT_X - SELECTION_PAD_X, row_y)));
 				}
 			}
 
-			text.draw(text_origin, Range<int16_t>(text_min_height, text_min_height + height - 18));
-			draw_inline_icons(text_origin, Range<int16_t>(text_min_height, text_min_height + height - 18));
+			text.draw(text_origin, Range<int16_t>(text_min_height, clip_bot));
+			draw_inline_icons(text_origin, Range<int16_t>(text_min_height, clip_bot));
 			slider.draw(position);
 		}
 		else
@@ -288,9 +278,9 @@ namespace ms
 			// window grew to fit longer text — pushing the text out the top of the
 			// frame. A constant top keeps it inside; the window is already sized
 			// to the text (needed = text_height + pad), so it fills downward.
-			int16_t text_x = position.x() + 166;
-			int16_t text_y = position.y() + 48;
-			int16_t line_h = 16;
+			int16_t text_x = position.x() + TEXT_X;
+			int16_t text_y = position.y() + TEXT_Y;
+			int16_t line_h = LINE_HEIGHT;
 
 			// Draw selection list backgrounds and dots for SENDSIMPLE
 			if (type == TalkType::SENDSIMPLE && !selections.empty())
@@ -311,13 +301,13 @@ namespace ms
 					}
 					Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
 						Color::Name::DARKGREY, Text::Background::NONE,
-						pref_escaped, 320, true);
+						pref_escaped, TEXT_WIDTH, true);
 					// height() returns the baseline y of the next row after
 					// the prefix; subtract linespace so row_y points at the
 					// TOP of the option's row (where list_bg/dot sprites
 					// would normally anchor).
 					int16_t row_y = text_y + prefix_text.height() - line_h;
-					Point<int16_t> row_pos(text_x - 36, row_y);
+					Point<int16_t> row_pos(text_x - SELECTION_PAD_X, row_y);
 					Point<int16_t> dot_pos(text_x - 14, row_y + 3);
 
 					bool is_hovered = (static_cast<int32_t>(i) == hovered_selection);
@@ -352,17 +342,15 @@ namespace ms
 					// which option the cursor is on.
 					if (is_hovered)
 					{
-						constexpr int16_t HIGHLIGHT_W = 360;
-						constexpr int16_t HIGHLIGHT_H = 16;
-						ColorBox band(HIGHLIGHT_W, HIGHLIGHT_H,
+						ColorBox band(HIGHLIGHT_W, LINE_HEIGHT,
 							Color::Name::LIGHTBLUE, 0.30f);
 						band.draw(DrawArgument(
-							Point<int16_t>(text_x - 36, row_y)));
+							Point<int16_t>(text_x - SELECTION_PAD_X, row_y)));
 					}
 				}
 			}
 
-			Point<int16_t> text_origin = position + Point<int16_t>(166, 48);
+			Point<int16_t> text_origin = position + Point<int16_t>(TEXT_X, TEXT_Y);
 
 			// Always draw the NPC text first, clipped to the panel body so it can
 			// never bleed above the header or below the bottom border even if the
@@ -587,24 +575,19 @@ namespace ms
 			}
 			case TalkType::SENDACCEPTDECLINE:
 			{
-				// msgtype 7 — quest accept/decline (text + [Accept] [Decline]).
-				// We render this with BtYes / BtNo, but keep the quest-
-				// themed Q* button ids in the routing too so any NX
-				// build that still uses the themed sprites keeps working.
+				// msgtype 12 — quest accept/decline, rendered with the v83
+				// BtQYes / BtQNo (Accept / Decline) sprites; Yes / No stay
+				// routed so a build that swaps the sprites keeps working.
 				switch (buttonid)
 				{
 					case Buttons::CLOSE:
 					case Buttons::NO:
 					case Buttons::QNO:
-					case Buttons::QAFTER:
-					case Buttons::QCNO:
 					case Buttons::QGIVEUP:
 						NpcTalkMorePacket(type, 0).dispatch();
 						break;
 					case Buttons::YES:
 					case Buttons::QYES:
-					case Buttons::QSTART:
-					case Buttons::QCYES:
 						NpcTalkMorePacket(type, 1).dispatch();
 						break;
 				}
@@ -724,18 +707,18 @@ namespace ms
 			// +(162, 19 - offset*400) and is clipped, so the hit-test MUST apply
 			// the same base + scroll offset, or clicks land on the wrong option
 			// (or nothing). The non-slider path renders at a fixed +(166, 48).
-			int16_t text_x = position.x() + (show_slider ? 162 : 166);
+			int16_t text_x = position.x() + TEXT_X;
 			int16_t text_y = show_slider
-				? (position.y() + 19 - offset * SCROLL_STEP)
-				: (position.y() + 48);
-			int16_t text_w = 320;
-			int16_t line_h = 16; // approximate line height for A12M font
+				? (position.y() + SCROLL_TEXT_Y - offset * SCROLL_STEP)
+				: (position.y() + TEXT_Y);
+			int16_t text_w = TEXT_WIDTH;
+			int16_t line_h = LINE_HEIGHT;
 			int16_t band_pad = 4; // extra px above/below each option row
 
 			// Visible clip band (slider mode) — options scrolled out of view
-			// must not be clickable/hoverable.
-			int16_t clip_top = position.y() + top.height() - 1;
-			int16_t clip_bot = clip_top + height - 18;
+			// must not be clickable/hoverable. Same band draw() clips to.
+			int16_t clip_top = position.y() + SCROLL_CLIP_TOP;
+			int16_t clip_bot = position.y() + top.height() + height + SCROLL_CLIP_BOTTOM_PAD;
 
 			int32_t prev_hovered = hovered_selection;
 			hovered_selection = -1;
@@ -752,7 +735,7 @@ namespace ms
 				}
 				Text prefix_text(Text::Font::A12M, Text::Alignment::LEFT,
 					Color::Name::DARKGREY, Text::Background::NONE,
-					pref_escaped, 320, true);
+					pref_escaped, TEXT_WIDTH, true);
 
 				// prefix_text.height() is the baseline-y of where THIS
 				// option's glyphs render. Glyphs extend roughly from
@@ -1287,7 +1270,7 @@ namespace ms
 		}
 
 		text = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::DARKGREY,
-			Text::Background::NONE, formatted_text, 320, true);
+			Text::Background::NONE, formatted_text, TEXT_WIDTH, true);
 
 		int16_t text_height = text.height();
 
@@ -1322,14 +1305,18 @@ namespace ms
 		// drifts as y_adj grows and the fill texture has internal padding
 		// that isn't part of `text_height`.
 		constexpr int16_t TEXT_BOTTOM_PAD = 16;
-		// The body text is drawn at a fixed y = 48 from the window top, while the
-		// panel body starts at top.height(). The window height must cover that gap
-		// too, or the last line clips against the bottom border (as seen when a
-		// quest's item list ran one line past the frame).
-		int16_t text_top_offset = 48 - top.height();
+		// The body text is drawn at a fixed y = TEXT_Y from the window top, while
+		// the panel body starts at top.height(). The window height must cover that
+		// gap too, or the last line clips against the bottom border (as seen when
+		// a quest's item list ran one line past the frame).
+		int16_t text_top_offset = TEXT_Y - top.height();
 		if (text_top_offset < 0)
 			text_top_offset = 0;
 		int16_t needed = text_top_offset + text_height + TEXT_BOTTOM_PAD;
+
+		// The entry field sits at the bottom of the panel; keep the text above it
+		if (type == TalkType::SENDGETTEXT || type == TalkType::SENDGETNUMBER)
+			needed += INPUT_FIELD_H + INPUT_FIELD_BOTTOM_PAD;
 
 		if (needed > height)
 		{
@@ -1344,7 +1331,8 @@ namespace ms
 				// rowmax = total content lines; the slider then has
 				// (rowmax - unitrows) scroll positions, each moving the text
 				// SCROLL_STEP px, so every line is reachable.
-				int16_t visible = height - 18;
+				int16_t clip_bottom = top.height() + height + SCROLL_CLIP_BOTTOM_PAD;
+				int16_t visible = clip_bottom - SCROLL_TEXT_Y;
 				unitrows = visible / SCROLL_STEP;
 				if (unitrows < 1) unitrows = 1;
 
@@ -1352,8 +1340,9 @@ namespace ms
 				if (rowmax <= unitrows)
 					rowmax = unitrows + 1;
 
-				int16_t slider_y = top.height() - 7;
-				slider = Slider(Slider::Type::DEFAULT_SILVER, Range<int16_t>(slider_y, slider_y + height - 20), top.width() - 26, unitrows, rowmax, onmoved);
+				// The bar runs down the panel's right edge over the visible band;
+				// its bottom arrow (SLIDER_BUTTON_H tall) ends with the band.
+				slider = Slider(Slider::Type::DEFAULT_SILVER, Range<int16_t>(SCROLL_CLIP_TOP, clip_bottom - SLIDER_BUTTON_H), SLIDER_X, unitrows, rowmax, onmoved);
 			}
 			else
 			{
@@ -1367,85 +1356,80 @@ namespace ms
 			button.second->set_state(Button::State::NORMAL);
 		}
 
-		int16_t y_cord = height + 48;
+		// Buttons sit in the blue band of the bottom piece
+		int16_t y_cord = top.height() + height + BUTTON_BAND_Y;
 
-		buttons[Buttons::CLOSE]->set_position(Point<int16_t>(9, y_cord));
+		buttons[Buttons::CLOSE]->set_position(Point<int16_t>(BTN_CLOSE_X, y_cord));
 		buttons[Buttons::CLOSE]->set_active(true);
+
+		// Entry field just above the panel's bottom border
+		int16_t field_y = top.height() + height + PANEL_BOTTOM_INSET - INPUT_FIELD_BOTTOM_PAD - INPUT_FIELD_H;
 
 		switch (type)
 		{
 			case TalkType::SENDOK:
 			{
-				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::OK]->set_active(true);
 				break;
 			}
 			case TalkType::SENDNEXT:
 			{
-				buttons[Buttons::NEXT]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::NEXT]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::NEXT]->set_active(true);
 				break;
 			}
 			case TalkType::SENDNEXTPREV:
 			{
-				buttons[Buttons::NEXT]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::NEXT]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::NEXT]->set_active(true);
-				buttons[Buttons::PREV]->set_position(Point<int16_t>(389, y_cord));
+				buttons[Buttons::PREV]->set_position(Point<int16_t>(BTN_LEFT_X, y_cord));
 				buttons[Buttons::PREV]->set_active(true);
 				break;
 			}
 			case TalkType::SENDYESNO:
 			{
-				Point<int16_t> yes_position = Point<int16_t>(389, y_cord);
-
-				buttons[Buttons::YES]->set_position(yes_position);
+				buttons[Buttons::YES]->set_position(Point<int16_t>(BTN_LEFT_X, y_cord));
 				buttons[Buttons::YES]->set_active(true);
 
-				buttons[Buttons::NO]->set_position(yes_position + Point<int16_t>(65, 0));
+				buttons[Buttons::NO]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::NO]->set_active(true);
 				break;
 			}
 			case TalkType::SENDACCEPTDECLINE:
 			{
-				// Use BtYes / BtNo — the universal Yes/No sprites
-				// shipped in every UtilDlgEx node. The quest-themed
-				// BtQYes / BtQNo / BtQStart / BtQAfter variants
-				// don't always have valid normal/mouseover/pressed
-				// state subnodes, so they rendered as invisible 0×0
-				// hit zones and the player saw no buttons.
-				buttons[Buttons::YES]->set_position(Point<int16_t>(389, y_cord));
-				buttons[Buttons::YES]->set_active(true);
+				// v83 ships full five-state BtQYes ("Accept") / BtQNo ("Decline")
+				buttons[Buttons::QYES]->set_position(Point<int16_t>(BTN_QYES_X, y_cord));
+				buttons[Buttons::QYES]->set_active(true);
 
-				buttons[Buttons::NO]->set_position(Point<int16_t>(389 + 65, y_cord));
-				buttons[Buttons::NO]->set_active(true);
+				buttons[Buttons::QNO]->set_position(Point<int16_t>(BTN_QNO_X, y_cord));
+				buttons[Buttons::QNO]->set_active(true);
 				break;
 			}
 			case TalkType::SENDGETTEXT:
 			{
-				int16_t field_y = y_cord - 25;
 				input_field = Textfield(
 					Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK,
-					Rectangle<int16_t>(Point<int16_t>(166, field_y), Point<int16_t>(460, field_y + 18)),
+					Rectangle<int16_t>(Point<int16_t>(TEXT_X, field_y), Point<int16_t>(INPUT_FIELD_RIGHT, field_y + INPUT_FIELD_H)),
 					50
 				);
 				input_field.set_state(Textfield::State::FOCUSED);
 
-				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::OK]->set_active(true);
 				break;
 			}
 			case TalkType::SENDGETNUMBER:
 			{
-				int16_t field_y = y_cord - 25;
 				input_field = Textfield(
 					Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK,
-					Rectangle<int16_t>(Point<int16_t>(166, field_y), Point<int16_t>(460, field_y + 18)),
+					Rectangle<int16_t>(Point<int16_t>(TEXT_X, field_y), Point<int16_t>(INPUT_FIELD_RIGHT, field_y + INPUT_FIELD_H)),
 					16
 				);
 				input_field.change_text(std::to_string(num_default));
 				input_field.set_state(Textfield::State::FOCUSED);
 
-				buttons[Buttons::OK]->set_position(Point<int16_t>(471, y_cord));
+				buttons[Buttons::OK]->set_position(Point<int16_t>(BTN_RIGHT_X, y_cord));
 				buttons[Buttons::OK]->set_active(true);
 				break;
 			}
@@ -1463,7 +1447,7 @@ namespace ms
 		int16_t vw = Constants::Constants::get().get_viewwidth();
 		int16_t vh = Constants::Constants::get().get_viewheight();
 		position = Point<int16_t>(vw / 2 - top.width() / 2, vh / 2 - height / 2);
-		dimension = Point<int16_t>(top.width(), height + 120);
+		dimension = Point<int16_t>(top.width(), top.height() + height + bottom.height());
 	}
 
 	void UINpcTalk::set_number_bounds(int32_t def, int32_t lo, int32_t hi)

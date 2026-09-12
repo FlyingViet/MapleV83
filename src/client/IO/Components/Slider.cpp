@@ -247,7 +247,8 @@ namespace ms
 				scrolling = false;
 			}
 		}
-		else if (relative.x() < 0 || relative.y() < 0 || relative.x() > 8 || relative.y() > vertical.second())
+		// The v83 bars are 12..15px wide; accept the whole bar, not just 8px
+		else if (relative.x() < 0 || relative.y() < 0 || relative.x() > thumb.width() || relative.y() > vertical.second())
 		{
 			thumb.set_state(Button::State::NORMAL);
 			next.set_state(Button::State::NORMAL);
