@@ -170,6 +170,7 @@
             root.appendChild(buildButton(b));
         }
         positionAll();
+        if (defaults) applyVisibility();
     }
 
     function positionAll() {
