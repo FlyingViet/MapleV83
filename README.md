@@ -28,6 +28,16 @@ This repository is a fork of [nmnsnv/maplestory-wasm](https://github.com/nmnsnv/
 
 No game assets are included. You need your own v83 `.wz` files converted to `.nx` (see below).
 
+### Client: OpenStory (v83 UI)
+
+`src/client` is [rdiol12/OpenStory](https://github.com/rdiol12/OpenStory) (AGPL-3.0, commit in
+`src/client/OPENSTORY_COMMIT`), a HeavenClient-family client written for **v83 assets and Cosmic
+servers**, so the in-game UI matches a real v83 client. The browser build adds on top of it:
+`src/client/LazyFS` (on-demand asset streaming, from nmnsnv/maplestory-wasm), `Net/SocketWeb`
+(WebSocket transport), `Audio/AudioWeb.cpp` (Web Audio), Emscripten branches in `IO/Window.cpp`,
+`Graphics/GraphicsGL.cpp` (GLES3/WebGL2 path shared with OpenStory's iOS build) and `MapleStory.cpp`
+(browser main loop + config from `web/config.json`). Use plain v83 `UI.wz`; no newer UI file is needed.
+
 ---
 
 ## 🏗️ Architecture
