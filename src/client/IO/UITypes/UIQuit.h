@@ -19,13 +19,15 @@
 
 #include "../UIElement.h"
 
-#include "../Components/Charset.h"
-
 #include "../../Character/CharStats.h"
 #include "../../Graphics/Geometry.h"
+#include "../../Graphics/Text.h"
 
 namespace ms
 {
+	// "Quit to the login screen?" prompt. v83 has no askReward summary window,
+	// so this is a plain Basic.img/Notice3 yes/no notice over a dimmed screen
+	// that shows this session's play time and keeps the reconnect logic.
 	class UIQuit : public UIElement
 	{
 	public:
@@ -36,9 +38,7 @@ namespace ms
 		UIQuit(const CharStats& stats);
 
 		void draw(float inter) const override;
-		void update() override;
 
-		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
 		UIElement::Type get_type() const override;
@@ -47,10 +47,6 @@ namespace ms
 		Button::State button_pressed(uint16_t buttonid) override;
 
 	private:
-		const CharStats& stats;
-
-		std::string pad_time(int64_t time);
-		float getexppercent(uint16_t level, int64_t exp) const;
 		void close();
 
 		enum Buttons : uint16_t
@@ -59,51 +55,28 @@ namespace ms
 			YES
 		};
 
-		Point<int16_t> screen_adj;
+		// Basic.img/Notice3: 266px wide, 21px top (blue from 10px down),
+		// 20px centre tiles, 55px bottom whose grey strip (12..52) holds the buttons
+		static constexpr int16_t NOTICE_W = 266;
+		static constexpr int16_t NOTICE_TOP_H = 21;
+		static constexpr int16_t NOTICE_ROW_H = 20;
+		static constexpr int16_t NOTICE_BOTTOM_H = 55;
+		static constexpr int16_t NOTICE_STRIP_Y = 12;
+		static constexpr int16_t NOTICE_STRIP_H = 40;
+		static constexpr int16_t NOTICE_TOP_BLUE_Y = 10;
+		static constexpr int16_t NOTICE_BOTTOM_BLUE_H = 11;
+		static constexpr int16_t NOTICE_TEXT_W = 230;
+		static constexpr int16_t NOTICE_ROWS = 3;      // two text lines plus padding
+		// Basic.img/BtYes2 and BtNo2 are 46x18
+		static constexpr int16_t BUTTON_W = 46;
+		static constexpr int16_t BUTTON_H = 18;
+		static constexpr int16_t BUTTON_GAP = 8;
+		static constexpr int16_t LINE_GAP = 2;      // between the two message lines
+
+		const CharStats& stats;
+
 		ColorBox background;
-
-		/// Time
-		int64_t minutes;
-		int64_t hours;
-
-		Charset time_minutes;
-		Point<int16_t> time_minutes_pos;
-		std::string time_minutes_text;
-
-		Charset time_hours;
-		Point<int16_t> time_hours_pos;
-		std::string time_hours_text;
-
-		int64_t time_number_width;
-
-		Point<int16_t> time_lt;
-		Point<int16_t> time_rb;
-
-		/// Level
-		Sprite levelupEffect;
-
-		uint16_t uplevel;
-
-		Charset levelBefore;
-		Point<int16_t> levelBeforePos;
-		std::string levelBeforeText;
-
-		uint16_t cur_level;
-
-		Charset levelAfter;
-		Point<int16_t> levelAfterPos;
-		std::string levelAfterText;
-
-		int64_t levelNumberWidth;
-		Point<int16_t> level_adj;
-
-		/// Experience
-		Text expBefore;
-		Point<int16_t> expBeforePos;
-
-		Text expAfter;
-		Point<int16_t> expAfterPos;
-
-		Point<int16_t> exp_adj;
+		Text message;
+		Text playtime;
 	};
 }

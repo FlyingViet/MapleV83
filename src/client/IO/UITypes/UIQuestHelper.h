@@ -19,10 +19,8 @@
 
 #include "../UIDragElement.h"
 
-#include "../Components/MapleFrame.h"
-
-#include "../../Graphics/Animation.h"
 #include "../../Graphics/Text.h"
+#include "../../Graphics/Texture.h"
 #include "../../Character/QuestLog.h"
 
 namespace ms
@@ -52,6 +50,11 @@ namespace ms
 		}
 	};
 
+	// Pinned-quest tracker drawn with the v83 UIWindow.img/QuestAlarm bars:
+	// backgrndmin (223x20) is the collapsed title bar, backgrndmax (223x25)
+	// the expanded header, backgrndcenter (223x18) the body tile and
+	// backgrndbottom (223x5) the rounded foot. BtQ / BtAuto come from the
+	// same node; minimise / maximise / per-quest close use Basic.img glyphs.
 	class UIQuestHelper : public UIDragElement<PosQUESTHELPER>
 	{
 	public:
@@ -70,7 +73,6 @@ namespace ms
 		void toggle_active() override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 		Cursor::State send_cursor(bool clicking, Point<int16_t> cursorpos) override;
-		bool is_in_range(Point<int16_t> cursorpos) const override;
 
 		UIElement::Type get_type() const override;
 
@@ -102,67 +104,58 @@ namespace ms
 
 		void refresh_quest_info(TrackedQuest& tq);
 		void recalc_dimension();
-		int16_t draw_quest_entry(const TrackedQuest& tq, Point<int16_t> pos, float alpha) const;
+		void layout_buttons();
+		bool is_compact() const;
+		void save_tracked();
+		int16_t draw_quest_entry(const TrackedQuest& tq, Point<int16_t> pos) const;
 		int16_t get_quest_entry_height(const TrackedQuest& tq) const;
+		int16_t get_content_height() const;
 
 		enum Buttons : uint16_t
 		{
 			BT_Q,
 			BT_AUTO,
-			BT_DELETE,
-			BT_MAX,
 			BT_MIN,
-			BT_BULB_OPEN,
-			BT_BULB_CLOSE
+			BT_MAX
 		};
+
+		static constexpr int16_t WIDTH = 223;          // every QuestAlarm bar is 223 wide
+		static constexpr int16_t MIN_H = 20;           // backgrndmin
+		static constexpr int16_t HEADER_H = 25;        // backgrndmax
+		static constexpr int16_t TILE_H = 18;          // backgrndcenter
+		static constexpr int16_t BOTTOM_H = 5;         // backgrndbottom
+		static constexpr int16_t TITLE_X = 8;
+		static constexpr int16_t TITLE_Y_MIN = 3;      // title text inside the 20px bar
+		static constexpr int16_t TITLE_Y_MAX = 6;      // title text inside the 25px header
+		// Header buttons, right to left: min/max (Basic 12x12), AUTO (21x12), Q (12x12)
+		static constexpr int16_t BTN_H = 12;
+		static constexpr int16_t BT_MINMAX_X = WIDTH - 18;
+		static constexpr int16_t BT_AUTO_X = WIDTH - 43;
+		static constexpr int16_t BT_Q_X = WIDTH - 59;
+		// Quest entries
+		static constexpr int16_t ENTRY_X = 8;
+		static constexpr int16_t ENTRY_TEXT_W = 180;   // wrap width leaving room for the close glyph
+		static constexpr int16_t REQ_INDENT = 6;
+		static constexpr int16_t LINE_GAP = 1;
+		static constexpr int16_t ENTRY_GAP = 6;
+		static constexpr int16_t CONTENT_PAD = 4;
+		static constexpr int16_t CLOSE_GLYPH = 12;     // Basic.img/BtClose 12x12
+		static constexpr int16_t CLOSE_GAP = 4;
+		static constexpr int16_t DRAG_THRESHOLD = 5;
 
 		const QuestLog& questlog;
 
-		// QuestAlarm backgrounds
-		MapleFrame tip_frame;
 		Texture bg_min;
+		Texture bg_max;
 		Texture bg_center;
 		Texture bg_bottom;
-		Texture bg_max;
 
-		// QuestBulb animations
-		Animation bulb_open_anim;
-		Animation bulb_close_anim;
-
-		// QuestMessenger
-		Texture messenger_alice_bg;
-		Texture messenger_alice_notice;
-		Texture messenger_thomas_bg;
-		Texture messenger_thomas_notice;
-
-		// Per-quest close button textures (from BtDelete)
+		// Per-quest close glyph (Basic.img/BtClose normal / mouseOver)
 		Texture close_btn_normal;
 		Texture close_btn_mouseover;
-		Texture close_btn_pressed;
 
-		// QuestGuide marks
-		Animation quest_mark;
-		Animation repeat_quest_mark;
-		Animation high_lv_mark;
-		Animation low_lv_mark;
-		Animation low_lv_repeat_mark;
-
-		// StatusBar3/Quest
-		Texture sb_checkarlim_box;
-		Texture sb_checkarlim_check;
-		Texture sb_quest_info_bg;
-		Texture sb_quest_info_bg2;
-		Texture sb_quest_info_bg3;
-		Texture sb_quest_info_tip;
-
-		// Extended QuestIcon
-		std::vector<Animation> extended_quest_icons;
-
-		// Multi-quest tracking
 		std::vector<TrackedQuest> tracked_quests;
 		bool minimized;
-		bool show_messenger;
-		Point<int16_t> expanded_dimension;
 
 		// Hit test positions for per-quest X buttons and collapse toggles (set during draw)
 		struct QuestHitArea
@@ -178,11 +171,8 @@ namespace ms
 		int16_t reorder_drag_index;
 		Point<int16_t> reorder_start_pos;
 		Point<int16_t> reorder_cursor_pos;
-		static constexpr int16_t DRAG_THRESHOLD = 5;
 
-		// Pre-allocated draw objects
 		mutable Text title_text;
 		mutable Text drag_text;
-		Text no_quest_text;
 	};
 }

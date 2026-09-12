@@ -35,116 +35,85 @@
 
 namespace ms
 {
-	UIOptionMenu::UIOptionMenu() : UIDragElement<PosOPTIONMENU>(Point<int16_t>(283, 20)), active_slider(SL_NONE)
+	UIOptionMenu::UIOptionMenu() : UIDragElement<PosOPTIONMENU>(Point<int16_t>(GAME_X + GAME_W, DRAG_H)), active_slider(SL_NONE)
 	{
-		// Always position the menu at the center of the screen
+		dimension = Point<int16_t>(GAME_X + GAME_W, SYS_H);
+		dragarea = Point<int16_t>(dimension.x(), DRAG_H);
+
+		// Always open centred on the screen
 		int16_t screen_w = Constants::Constants::get().get_viewwidth();
 		int16_t screen_h = Constants::Constants::get().get_viewheight();
-		position = Point<int16_t>(
-			(screen_w - 283) / 2,
-			(screen_h - 558) / 2
-		);
+		position = Point<int16_t>((screen_w - dimension.x()) / 2, (screen_h - dimension.y()) / 2);
 
-		nl::node OptionMenu = nl::nx::ui["UIWindow2.img"]["OptionMenu"];
+		nl::node basic = nl::nx::ui["Basic.img"];
+		nl::node sysopt = nl::nx::ui["UIWindow.img"]["SysOpt"];
+		nl::node gameopt = nl::nx::ui["UIWindow.img"]["GameOpt"];
 
-		if (OptionMenu)
-		{
-			sprites.emplace_back(OptionMenu["backgrnd"]);
-			sprites.emplace_back(OptionMenu["backgrnd2"]);
-			sprites.emplace_back(OptionMenu["backgrnd3"]);
+		sprites.emplace_back(sysopt["backgrnd"], DrawArgument(Point<int16_t>(0, 0)));
+		sprites.emplace_back(gameopt["backgrnd"], DrawArgument(Point<int16_t>(GAME_X, 0)));
 
-			buttons[BT_OK] = std::make_unique<MapleButton>(OptionMenu["BtOK"]);
-			buttons[BT_CANCEL] = std::make_unique<MapleButton>(OptionMenu["BtCancle"]);
+		int16_t pair_x = (SYS_W - (BT_W + BT_GAP + BT_W)) / 2;
+		buttons[BT_OK] = std::make_unique<MapleButton>(basic["BtOK2"], Point<int16_t>(pair_x, BT_Y));
+		buttons[BT_CANCEL] = std::make_unique<MapleButton>(basic["BtCancel2"], Point<int16_t>(pair_x + BT_W + BT_GAP, BT_Y));
 
-			nl::node scroll = OptionMenu["scroll"];
-			scroll_normal = scroll["0"];
-			scroll_mouseover = scroll["1"];
-			scroll_pressed = scroll["2"];
-			scroll_disabled = scroll["3"];
+		nl::node slider = basic["Slider"];
+		track_left = slider["left"];
+		track_mid = slider["mid"];
+		track_right = slider["right"];
+		thumb_normal = slider["thumbNormal"];
+		thumb_pressed = slider["thumbPressed"];
 
-			check_sprite = OptionMenu["check"];
+		nl::node checkbox = basic["CheckBox"];
+		check_off = checkbox["0"];
+		check_on = checkbox["1"];
 
-			dimension = Point<int16_t>(283, 558);
-			dragarea = Point<int16_t>(283, 20);
-		}
-		else
-		{
-			dimension = Point<int16_t>(283, 558);
-			dragarea = Point<int16_t>(283, 20);
-		}
-
-		// Slider layout — per-slider track position and width
-		// Common sliders
+		// Slider tracks sit between the min / max words baked into each
+		// SysOpt row (rows are 30px apart from y 33; the centre line of each
+		// label box is the track's centre line).
 		for (int i = 0; i < NUM_SLIDERS; i++)
-		{
-			slider_x[i] = 95;
-			slider_w[i] = 110;
-		}
+			slider_layout[i] = { 0, 1, 0, false };
 
-		// Sound sliders have a shorter track
-		slider_x[SL_BGM] = 95;
-		slider_w[SL_BGM] = 65;
-		slider_x[SL_SFX] = 95;
-		slider_w[SL_SFX] = 65;
+		slider_layout[SL_GRAPHICS]    = { 110, 135, 47, true };   // NORMAL (FAST) .. BEST (SLOW)
+		slider_layout[SL_BGM]         = { 100, 105, 76, true };   // SOFT .. LOUD
+		slider_layout[SL_SFX]         = { 100, 105, 106, true };  // SOFT .. LOUD
+		slider_layout[SL_MOUSE_SPEED] = { 100, 145, 166, true };  // SLOW .. FAST
+		slider_layout[SL_HP_WARNING]  = { 105, 140, 196, true };  // DO NOT ALERT .. 100%
+		slider_layout[SL_MP_WARNING]  = { 105, 140, 226, true };  // DO NOT ALERT .. 100%
 
-		// Slider Y positions (matching background sections)
-		slider_y[SL_GRAPHICS]    = 30;
-		slider_y[SL_EFFECTS]     = 60;
-		slider_y[SL_BGM]         = 150;
-		slider_y[SL_SFX]         = 180;
-		slider_y[SL_MOUSE_SPEED] = 240;
-		slider_y[SL_HP_WARNING]  = 270;
-		slider_y[SL_MP_WARNING]  = 300;
+		// Checkboxes: left of the MUTE words, the SHAKE UP sentence and the
+		// two VIEWING MODE lines; then the GameOpt ALLOW column.
+		check_positions[CHK_MUTE_BGM]     = Point<int16_t>(246, 70);
+		check_positions[CHK_MUTE_SFX]     = Point<int16_t>(246, 100);
+		check_positions[CHK_SCREEN_SHAKE] = Point<int16_t>(64, 250);
+		check_positions[CHK_WINDOWED]     = Point<int16_t>(64, 306);
+		check_positions[CHK_FULLSCREEN]   = Point<int16_t>(64, 319);
+		check_positions[CHK_MINIMAP_SIMPLE] = MINIMAP_CHECK;
 
-		// Checkbox positions — using confirmed slider Y positions as anchors:
-		// Sliders: GRAPHICS=30, EFFECTS=60, BGM=150, SFX=180, MOUSE=240, HP=270, MP=300
-		// RESOLUTION is between EFFECTS(60) and BGM(150)
-		check_positions[CHK_RES_800]  = Point<int16_t>(69, 94);
-		check_positions[CHK_RES_1024] = Point<int16_t>(170, 94);
-		check_positions[CHK_WINDOWED] = Point<int16_t>(70, 123);
-		check_positions[CHK_MUTE_BGM] = Point<int16_t>(228, 154);
-		check_positions[CHK_MUTE_SFX] = Point<int16_t>(228, 184);
-		check_positions[CHK_SCREEN_SHAKE] = Point<int16_t>(70, 335);
-		check_positions[CHK_MINIMAP_NORMAL] = Point<int16_t>(69, 393);
-		check_positions[CHK_MINIMAP_SIMPLE] = Point<int16_t>(171, 392);
+		// GameOpt strip order: WHISPER, FRIENDS, CHAT INVITE, TRADE REQUEST,
+		// PARTY INVITE, PARTY SEARCH, GAME INVITE, GUILD CHAT, GUILD INVITE,
+		// ALLIANCE TOURNAMENT, ALLIANCE INVITE, FAMILY INVITE. Rows without a
+		// matching setting (5, 6, 9) stay empty.
+		auto game_row = [](int16_t row) {
+			return Point<int16_t>(GAME_X + GAME_CHECK_X, GAME_ROW_Y + row * GAME_ROW_H);
+		};
 
-		// Social — left column
-		check_positions[CHK_WHISPER]           = Point<int16_t>(128, 423);
-		check_positions[CHK_CHAT_INVITE]       = Point<int16_t>(127, 442);
-		check_positions[CHK_PARTY_INVITE]      = Point<int16_t>(129, 459);
-		check_positions[CHK_GUILD_CHAT]        = Point<int16_t>(127, 477);
-		check_positions[CHK_ALLIANCE_CHAT]     = Point<int16_t>(128, 495);
-		check_positions[CHK_FAMILY_INVITE]     = Point<int16_t>(128, 512);
+		check_positions[CHK_WHISPER]         = game_row(0);
+		check_positions[CHK_FRIEND_CHAT]     = game_row(1);
+		check_positions[CHK_CHAT_INVITE]     = game_row(2);
+		check_positions[CHK_TRADE_REQUEST]   = game_row(3);
+		check_positions[CHK_PARTY_INVITE]    = game_row(4);
+		check_positions[CHK_GUILD_CHAT]      = game_row(7);
+		check_positions[CHK_GUILD_INVITE]    = game_row(8);
+		check_positions[CHK_ALLIANCE_INVITE] = game_row(10);
+		check_positions[CHK_FAMILY_INVITE]   = game_row(11);
 
-		// Social — right column
-		check_positions[CHK_FRIEND_CHAT]       = Point<int16_t>(261, 423);
-		check_positions[CHK_TRADE_REQUEST]     = Point<int16_t>(260, 442);
-		check_positions[CHK_EXPEDITION_INVITE] = Point<int16_t>(260, 459);
-		check_positions[CHK_GUILD_INVITE]      = Point<int16_t>(262, 479);
-		check_positions[CHK_ALLIANCE_INVITE]   = Point<int16_t>(261, 496);
-		check_positions[CHK_FOLLOW]            = Point<int16_t>(260, 513);
-
-		// Initialize all checkbox values
 		for (int i = 0; i < NUM_CHECKS; i++)
 		{
 			check_val[i] = false;
 			check_orig[i] = false;
 		}
 
-		// Default social checkboxes to checked (ALLOW)
-		for (int i = CHK_WHISPER; i <= CHK_FOLLOW; i++)
-		{
-			check_val[i] = true;
-			check_orig[i] = true;
-		}
-
-		// Default minimap to normal
-		check_val[CHK_MINIMAP_NORMAL] = true;
-		check_orig[CHK_MINIMAP_NORMAL] = true;
-
-		// Initialize slider percentage labels
-		for (int i = 0; i < NUM_SLIDERS; i++)
-			slider_labels[i] = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK);
+		minimap_label = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, "Simple minimap");
 
 		load_settings();
 	}
@@ -153,33 +122,38 @@ namespace ms
 	{
 		UIElement::draw_sprites(inter);
 
-		// Draw all slider thumbs and percentage labels
 		for (int i = 0; i < NUM_SLIDERS; i++)
 		{
-			int16_t thumb_x = slider_x[i] + static_cast<int16_t>(slider_val[i] * slider_w[i] / 100);
-			Point<int16_t> thumb_pos = position + Point<int16_t>(thumb_x, slider_y[i]);
+			const SliderLayout& sl = slider_layout[i];
 
-			if (active_slider == i && scroll_pressed.is_valid())
-				scroll_pressed.draw(DrawArgument(thumb_pos));
-			else if (scroll_normal.is_valid())
-				scroll_normal.draw(DrawArgument(thumb_pos));
+			if (!sl.shown)
+				continue;
 
-			// Draw percentage text to the right of the slider track
-			slider_labels[i].change_text(std::to_string(slider_val[i]) + "%");
-			int16_t label_x = slider_x[i] + slider_w[i] + 14;
-			Point<int16_t> label_pos = position + Point<int16_t>(label_x, slider_y[i] - 6);
-			slider_labels[i].draw(DrawArgument(label_pos));
+			// Track pieces carry an origin of (0,-2), so add it back to land
+			// the 8px strip centred on the row line
+			int16_t track_y = sl.cy - TRACK_H / 2;
+			Point<int16_t> left_pos = position + Point<int16_t>(sl.x - TRACK_CAP_W, track_y);
+			Point<int16_t> mid_pos = position + Point<int16_t>(sl.x, track_y);
+			Point<int16_t> right_pos = position + Point<int16_t>(sl.x + sl.w, track_y);
+
+			track_left.draw(DrawArgument(left_pos + track_left.get_origin()));
+			track_mid.draw(DrawArgument(mid_pos + track_mid.get_origin(), Point<int16_t>(sl.w, TRACK_H)));
+			track_right.draw(DrawArgument(right_pos + track_right.get_origin()));
+
+			int16_t thumb_x = sl.x + static_cast<int16_t>(slider_val[i] * sl.w / 100) - THUMB_W / 2;
+			Point<int16_t> thumb_pos = position + Point<int16_t>(thumb_x, sl.cy - THUMB_H / 2);
+
+			const Texture& thumb = (active_slider == i) ? thumb_pressed : thumb_normal;
+			thumb.draw(DrawArgument(thumb_pos + thumb.get_origin()));
 		}
 
-		// Draw checkboxes
-		if (check_sprite.is_valid())
+		for (int i = 0; i < NUM_CHECKS; i++)
 		{
-			for (int i = 0; i < NUM_CHECKS; i++)
-			{
-				if (check_val[i])
-					check_sprite.draw(DrawArgument(position + check_positions[i], 1.0f));
-			}
+			const Texture& box = check_val[i] ? check_on : check_off;
+			box.draw(DrawArgument(position + check_positions[i]));
 		}
+
+		minimap_label.draw(position + MINIMAP_LABEL);
 
 		UIElement::draw_buttons(inter);
 	}
@@ -201,24 +175,30 @@ namespace ms
 		}
 	}
 
+	void UIOptionMenu::apply_audio_preview(int16_t slider) const
+	{
+		if (slider == SL_BGM && !check_val[CHK_MUTE_BGM])
+			Music::set_bgmvolume(slider_val[SL_BGM]);
+		else if (slider == SL_SFX && !check_val[CHK_MUTE_SFX])
+			Sound::set_sfxvolume(slider_val[SL_SFX]);
+	}
+
 	Cursor::State UIOptionMenu::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
-		// Continue slider drag
+		// Continue an active slider drag
 		if (clicked && active_slider != SL_NONE)
 		{
-			int16_t tx = slider_x[active_slider];
-			int16_t tw = slider_w[active_slider];
-			int16_t relative_x = cursorpos.x() - position.x() - tx;
-			if (relative_x < 0) relative_x = 0;
-			if (relative_x > tw) relative_x = tw;
+			const SliderLayout& sl = slider_layout[active_slider];
+			int16_t relative_x = cursorpos.x() - position.x() - sl.x;
 
-			slider_val[active_slider] = static_cast<uint8_t>(relative_x * 100 / tw);
+			if (relative_x < 0)
+				relative_x = 0;
 
-			// Apply live audio preview for BGM/SFX
-			if (active_slider == SL_BGM && !check_val[CHK_MUTE_BGM])
-				Music::set_bgmvolume(slider_val[SL_BGM]);
-			else if (active_slider == SL_SFX && !check_val[CHK_MUTE_SFX])
-				Sound::set_sfxvolume(slider_val[SL_SFX]);
+			if (relative_x > sl.w)
+				relative_x = sl.w;
+
+			slider_val[active_slider] = static_cast<uint8_t>(relative_x * 100 / sl.w);
+			apply_audio_preview(active_slider);
 
 			return Cursor::State::CLICKING;
 		}
@@ -231,51 +211,46 @@ namespace ms
 		{
 			int16_t rel_x = cursorpos.x() - position.x();
 			int16_t rel_y = cursorpos.y() - position.y();
-			int16_t thumb_half = 10;
 
-
-
-			// Check all slider areas
 			for (int i = 0; i < NUM_SLIDERS; i++)
 			{
-				int16_t tx = slider_x[i];
-				int16_t tw = slider_w[i];
+				const SliderLayout& sl = slider_layout[i];
 
-				if (rel_x >= tx - thumb_half && rel_x <= tx + tw + thumb_half &&
-					rel_y >= slider_y[i] - thumb_half && rel_y <= slider_y[i] + thumb_half)
+				if (!sl.shown)
+					continue;
+
+				if (rel_x >= sl.x - THUMB_W / 2 && rel_x <= sl.x + sl.w + THUMB_W / 2 &&
+					rel_y >= sl.cy - THUMB_H / 2 && rel_y <= sl.cy + THUMB_H / 2)
 				{
 					active_slider = static_cast<SliderType>(i);
-					int16_t track_x = rel_x - tx;
-					if (track_x < 0) track_x = 0;
-					if (track_x > tw) track_x = tw;
-					slider_val[i] = static_cast<uint8_t>(track_x * 100 / tw);
 
-					if (i == SL_BGM && !check_val[CHK_MUTE_BGM])
-						Music::set_bgmvolume(slider_val[SL_BGM]);
-					else if (i == SL_SFX && !check_val[CHK_MUTE_SFX])
-						Sound::set_sfxvolume(slider_val[SL_SFX]);
+					int16_t track_x = rel_x - sl.x;
+
+					if (track_x < 0)
+						track_x = 0;
+
+					if (track_x > sl.w)
+						track_x = sl.w;
+
+					slider_val[i] = static_cast<uint8_t>(track_x * 100 / sl.w);
+					apply_audio_preview(i);
 
 					return Cursor::State::CLICKING;
 				}
 			}
 
-			// Check all checkbox areas
 			for (int i = 0; i < NUM_CHECKS; i++)
 			{
 				Point<int16_t> chk = check_positions[i];
-				if (rel_x >= chk.x() - 2 && rel_x <= chk.x() + CHECK_HIT_SIZE &&
-					rel_y >= chk.y() - 2 && rel_y <= chk.y() + CHECK_HIT_SIZE)
+
+				if (rel_x >= chk.x() - HIT_PAD && rel_x <= chk.x() + CHECK_SIZE + HIT_PAD &&
+					rel_y >= chk.y() - HIT_PAD && rel_y <= chk.y() + CHECK_SIZE + HIT_PAD)
 				{
-					// Handle radio button groups (only one can be active)
-					if (i == CHK_RES_800 || i == CHK_RES_1024)
+					if (i == CHK_WINDOWED || i == CHK_FULLSCREEN)
 					{
-						check_val[CHK_RES_800] = (i == CHK_RES_800);
-						check_val[CHK_RES_1024] = (i == CHK_RES_1024);
-					}
-					else if (i == CHK_MINIMAP_NORMAL || i == CHK_MINIMAP_SIMPLE)
-					{
-						check_val[CHK_MINIMAP_NORMAL] = (i == CHK_MINIMAP_NORMAL);
-						check_val[CHK_MINIMAP_SIMPLE] = (i == CHK_MINIMAP_SIMPLE);
+						// Radio pair
+						check_val[CHK_WINDOWED] = (i == CHK_WINDOWED);
+						check_val[CHK_FULLSCREEN] = (i == CHK_FULLSCREEN);
 					}
 					else
 					{
@@ -306,7 +281,9 @@ namespace ms
 				deactivate();
 			}
 			else if (keycode == KeyAction::Id::RETURN)
+			{
 				button_pressed(BT_OK);
+			}
 		}
 	}
 
@@ -325,36 +302,25 @@ namespace ms
 		slider_val[SL_HP_WARNING] = Setting<HPWarning>::get().load();
 		slider_val[SL_MP_WARNING] = Setting<MPWarning>::get().load();
 
-		// Resolution radio buttons (cosmetic only — does not change resolution)
-		check_val[CHK_RES_800] = false;
-		check_val[CHK_RES_1024] = true;
+		// Viewing mode radio pair
+		bool fullscreen = Setting<Fullscreen>::get().load();
+		check_val[CHK_WINDOWED] = !fullscreen;
+		check_val[CHK_FULLSCREEN] = fullscreen;
 
-		// Windowed checkbox (inverted from Fullscreen setting)
-		check_val[CHK_WINDOWED] = !Setting<Fullscreen>::get().load();
-
-		// Screen shake
 		check_val[CHK_SCREEN_SHAKE] = Setting<ScreenShake>::get().load();
-
-		// Minimap mode
-		bool simple_mode = Setting<MiniMapSimpleMode>::get().load();
-		check_val[CHK_MINIMAP_NORMAL] = !simple_mode;
-		check_val[CHK_MINIMAP_SIMPLE] = simple_mode;
+		check_val[CHK_MINIMAP_SIMPLE] = Setting<MiniMapSimpleMode>::get().load();
 
 		// Social filters
-		check_val[CHK_WHISPER]           = Setting<AllowWhisper>::get().load();
-		check_val[CHK_CHAT_INVITE]       = Setting<AllowChatInvite>::get().load();
-		check_val[CHK_PARTY_INVITE]      = Setting<AllowPartyInvite>::get().load();
-		check_val[CHK_GUILD_CHAT]        = Setting<AllowGuildChat>::get().load();
-		check_val[CHK_ALLIANCE_CHAT]     = Setting<AllowAllianceChat>::get().load();
-		check_val[CHK_FAMILY_INVITE]     = Setting<AllowFamilyInvite>::get().load();
-		check_val[CHK_FRIEND_CHAT]       = Setting<AllowFriendChat>::get().load();
-		check_val[CHK_TRADE_REQUEST]     = Setting<AllowTradeRequest>::get().load();
-		check_val[CHK_EXPEDITION_INVITE] = Setting<AllowExpeditionInvite>::get().load();
-		check_val[CHK_GUILD_INVITE]      = Setting<AllowGuildInvite>::get().load();
-		check_val[CHK_ALLIANCE_INVITE]   = Setting<AllowAllianceInvite>::get().load();
-		check_val[CHK_FOLLOW]            = Setting<AllowFollow>::get().load();
+		check_val[CHK_WHISPER]         = Setting<AllowWhisper>::get().load();
+		check_val[CHK_FRIEND_CHAT]     = Setting<AllowFriendChat>::get().load();
+		check_val[CHK_CHAT_INVITE]     = Setting<AllowChatInvite>::get().load();
+		check_val[CHK_TRADE_REQUEST]   = Setting<AllowTradeRequest>::get().load();
+		check_val[CHK_PARTY_INVITE]    = Setting<AllowPartyInvite>::get().load();
+		check_val[CHK_GUILD_CHAT]      = Setting<AllowGuildChat>::get().load();
+		check_val[CHK_GUILD_INVITE]    = Setting<AllowGuildInvite>::get().load();
+		check_val[CHK_ALLIANCE_INVITE] = Setting<AllowAllianceInvite>::get().load();
+		check_val[CHK_FAMILY_INVITE]   = Setting<AllowFamilyInvite>::get().load();
 
-		// Save originals for cancel/revert
 		for (int i = 0; i < NUM_SLIDERS; i++)
 			slider_orig[i] = slider_val[i];
 
@@ -364,11 +330,9 @@ namespace ms
 
 	void UIOptionMenu::save_settings()
 	{
-		// Audio sliders
 		Setting<BGMVolume>::get().save(slider_val[SL_BGM]);
 		Setting<SFXVolume>::get().save(slider_val[SL_SFX]);
 
-		// Other sliders
 		Setting<GraphicsQuality>::get().save(slider_val[SL_GRAPHICS]);
 		Setting<EffectsQuality>::get().save(slider_val[SL_EFFECTS]);
 		Setting<MouseSpeed>::get().save(slider_val[SL_MOUSE_SPEED]);
@@ -376,8 +340,7 @@ namespace ms
 		Setting<HPWarning>::get().save(slider_val[SL_HP_WARNING]);
 		Setting<MPWarning>::get().save(slider_val[SL_MP_WARNING]);
 
-		// Windowed checkbox (inverted — windowed means NOT fullscreen)
-		bool want_fullscreen = !check_val[CHK_WINDOWED];
+		bool want_fullscreen = check_val[CHK_FULLSCREEN];
 		bool was_fullscreen = Setting<Fullscreen>::get().load();
 
 		if (want_fullscreen != was_fullscreen)
@@ -386,10 +349,9 @@ namespace ms
 			Window::get().toggle_fullscreen();
 		}
 
-		// Screen shake
 		Setting<ScreenShake>::get().save(check_val[CHK_SCREEN_SHAKE]);
 
-		// Minimap mode — recreate minimap if mode changed
+		// Minimap mode: recreate the minimap if it changed
 		bool old_simple = Setting<MiniMapSimpleMode>::get().load();
 		Setting<MiniMapSimpleMode>::get().save(check_val[CHK_MINIMAP_SIMPLE]);
 
@@ -401,17 +363,14 @@ namespace ms
 
 		// Social filters
 		Setting<AllowWhisper>::get().save(check_val[CHK_WHISPER]);
+		Setting<AllowFriendChat>::get().save(check_val[CHK_FRIEND_CHAT]);
 		Setting<AllowChatInvite>::get().save(check_val[CHK_CHAT_INVITE]);
+		Setting<AllowTradeRequest>::get().save(check_val[CHK_TRADE_REQUEST]);
 		Setting<AllowPartyInvite>::get().save(check_val[CHK_PARTY_INVITE]);
 		Setting<AllowGuildChat>::get().save(check_val[CHK_GUILD_CHAT]);
-		Setting<AllowAllianceChat>::get().save(check_val[CHK_ALLIANCE_CHAT]);
-		Setting<AllowFamilyInvite>::get().save(check_val[CHK_FAMILY_INVITE]);
-		Setting<AllowFriendChat>::get().save(check_val[CHK_FRIEND_CHAT]);
-		Setting<AllowTradeRequest>::get().save(check_val[CHK_TRADE_REQUEST]);
-		Setting<AllowExpeditionInvite>::get().save(check_val[CHK_EXPEDITION_INVITE]);
 		Setting<AllowGuildInvite>::get().save(check_val[CHK_GUILD_INVITE]);
 		Setting<AllowAllianceInvite>::get().save(check_val[CHK_ALLIANCE_INVITE]);
-		Setting<AllowFollow>::get().save(check_val[CHK_FOLLOW]);
+		Setting<AllowFamilyInvite>::get().save(check_val[CHK_FAMILY_INVITE]);
 
 		// Apply final audio
 		Music::set_bgmvolume(check_val[CHK_MUTE_BGM] ? 0 : slider_val[SL_BGM]);
@@ -419,7 +378,6 @@ namespace ms
 
 		Configuration::get().save();
 
-		// Update originals
 		for (int i = 0; i < NUM_SLIDERS; i++)
 			slider_orig[i] = slider_val[i];
 
@@ -438,5 +396,4 @@ namespace ms
 		Music::set_bgmvolume(check_val[CHK_MUTE_BGM] ? 0 : slider_val[SL_BGM]);
 		Sound::set_sfxvolume(check_val[CHK_MUTE_SFX] ? 0 : slider_val[SL_SFX]);
 	}
-
 }

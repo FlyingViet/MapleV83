@@ -20,10 +20,14 @@
 #include "../UIDragElement.h"
 
 #include "../Components/AreaButton.h"
-#include "../Components/Textfield.h"
+
+#include "../../Graphics/Animation.h"
 
 namespace ms
 {
+	// v83 UIWindow.img/WorldMap is only a 9-piece border (Border/0..7) plus a
+	// "WORLD MAP" title glyph; the frame is sized around whichever
+	// Map.nx/WorldMap/*.img BaseImg is showing. No search panel exists in v83.
 	class UIWorldMap : public UIDragElement<PosMAP>
 	{
 	public:
@@ -50,17 +54,28 @@ namespace ms
 	private:
 		static constexpr uint8_t MAPSPOT_TYPE_MAX = 4u;
 
-		void set_search(bool enable);
+		// Border/0 (7x33) top-left, Border/1 (1x33) top tile, Border/2 (7x32)
+		// top-right, Border/3 / Border/4 (7x1) left / right tiles, Border/5
+		// (7x18) bottom-left, Border/6 (1x18) bottom tile, Border/7 (7x18)
+		// bottom-right. The 33px top holds the title bar (y 3..20).
+		static constexpr int16_t FRAME_L = 7;
+		static constexpr int16_t FRAME_R = 7;
+		static constexpr int16_t FRAME_T = 33;
+		static constexpr int16_t FRAME_B = 18;
+		static constexpr int16_t DRAG_H = 22;
+		static constexpr Point<int16_t> TITLE_POS = Point<int16_t>(12, 9);   // 53x5 "WORLD MAP" glyph in the title bar
+		static constexpr int16_t CLOSE_W = 12;                               // Basic.img/BtClose
+		static constexpr int16_t CLOSE_Y = 6;
+		static constexpr int16_t CLOSE_MARGIN = 4;
+		// Fallback content size when a world map has no BaseImg at all
+		static constexpr Point<int16_t> DEFAULT_CONTENT = Point<int16_t>(640, 470);
+
+		void build_frame();
 		void update_world(std::string parent_map);
 
 		enum Buttons
 		{
 			BT_CLOSE,
-			BT_SEARCH,
-			BT_AUTOFLY,
-			BT_NAVIREG,
-			BT_ALLSEARCH,
-			BT_SEARCH_CLOSE,
 			BT_LINK0,
 			BT_LINK1,
 			BT_LINK2,
@@ -84,7 +99,6 @@ namespace ms
 			std::vector<int32_t> map_ids;
 		};
 
-		bool search;
 		bool show_path_img;
 
 		int32_t mapid;
@@ -92,24 +106,21 @@ namespace ms
 		std::string parent_map;
 		std::string user_map;
 
-		Texture search_background;
-		Texture search_notice;
+		Texture border[8];
+		Texture title;
 		Texture base_img;
 		Texture path_img;
 
 		Animation cur_pos;
 		Animation npc_pos[MAPSPOT_TYPE_MAX];
 
-		Textfield search_text;
-
 		std::map<uint16_t, Texture> link_images;
 		std::map<uint16_t, std::string> link_maps;
 
 		std::vector<std::pair<Point<int16_t>, MapSpot>> map_spots;
 
-		Point<int16_t> bg_dimensions;
-		Point<int16_t> bg_search_dimensions;
-		Point<int16_t> background_dimensions;
+		// Where the BaseImg's origin lands, relative to the window: spots,
+		// links and markers are all relative to this point.
 		Point<int16_t> base_position;
 	};
 }

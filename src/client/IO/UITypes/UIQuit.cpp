@@ -17,12 +17,13 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UIQuit.h"
 
+#include "../KeyAction.h"
 #include "../UI.h"
 #include "../Window.h"
 
 #include "../Components/MapleButton.h"
 
-#include "../../Character/ExpTable.h"
+#include "../../Audio/Audio.h"
 #include "../../Gameplay/Stage.h"
 #include "../../Net/Session.h"
 
@@ -32,127 +33,61 @@
 
 namespace ms
 {
-	UIQuit::UIQuit(const CharStats& st) : screen_adj(212, 114), stats(st)
+	UIQuit::UIQuit(const CharStats& st) : stats(st)
 	{
-		nl::node askReward = nl::nx::ui["UIWindow6.img"]["askReward"];
-		nl::node userLog = askReward["userLog"];
-		nl::node exp = userLog["exp"];
-		nl::node level = userLog["level"];
-		nl::node time = userLog["time"];
-		nl::node backgrnd = userLog["backgrnd"];
+		nl::node basic = nl::nx::ui["Basic.img"];
+		nl::node notice = basic["Notice3"];
 
-		sprites.emplace_back(backgrnd, -screen_adj);
+		// Frame: t, NOTICE_ROWS centre tiles, s
+		sprites.emplace_back(notice["t"], DrawArgument(Point<int16_t>(0, 0)));
 
-		buttons[Buttons::NO] = std::make_unique<MapleButton>(askReward["btNo"], Point<int16_t>(0, 37));
-		buttons[Buttons::YES] = std::make_unique<MapleButton>(askReward["btYes"], Point<int16_t>(0, 37));
+		for (int16_t r = 0; r < NOTICE_ROWS; r++)
+			sprites.emplace_back(notice["c"], DrawArgument(Point<int16_t>(0, NOTICE_TOP_H + r * NOTICE_ROW_H)));
 
-		Stage& stage = Stage::get();
+		int16_t bottom_y = NOTICE_TOP_H + NOTICE_ROWS * NOTICE_ROW_H;
+		sprites.emplace_back(notice["s"], DrawArgument(Point<int16_t>(0, bottom_y)));
 
-		/// Time
-		int64_t uptime = stage.get_uptime() / 1000 / 1000;
-		minutes = uptime / 60;
-		hours = minutes / 60;
+		// Yes / No pair centred in the grey strip of the bottom piece
+		int16_t button_y = bottom_y + NOTICE_STRIP_Y + (NOTICE_STRIP_H - BUTTON_H) / 2;
+		int16_t pair_x = NOTICE_W / 2 - BUTTON_W - BUTTON_GAP / 2;
 
+		buttons[Buttons::YES] = std::make_unique<MapleButton>(basic["BtYes2"], Point<int16_t>(pair_x, button_y));
+		buttons[Buttons::NO] = std::make_unique<MapleButton>(basic["BtNo2"], Point<int16_t>(pair_x + BUTTON_W + BUTTON_GAP, button_y));
+
+		// Session play time, the one thing kept from the newer askReward summary
+		int64_t uptime = Stage::get().get_uptime() / 1000 / 1000;
+		int64_t minutes = uptime / 60;
+		int64_t hours = minutes / 60;
 		minutes -= hours * 60;
 
-		time_minutes = Charset(time["number"], Charset::Alignment::LEFT);
-		time_minutes_pos = time["posM"];
-		time_minutes_text = pad_time(minutes);
-
-		time_hours = Charset(time["number"], Charset::Alignment::LEFT);
-		time_hours_pos = time["posH"];
-		time_hours_text = pad_time(hours);
-
-		time_number_width = time["numberWidth"];
-
-		time_lt = time["tooltip"]["lt"];
-		time_rb = time["tooltip"]["rb"];
-
-		/// Level
-		levelupEffect = level["levelupEffect"];
-
-		uplevel = stage.get_uplevel();
-
-		levelBefore = Charset(level["number"], Charset::Alignment::LEFT);
-		levelBeforePos = level["posBefore"];
-		levelBeforeText = std::to_string(uplevel);
-
-		cur_level = stats.get_stat(MapleStat::Id::LEVEL);
-
-		levelAfter = Charset(level["number"], Charset::Alignment::LEFT);
-		levelAfterPos = level["posAfter"];
-		levelAfterText = std::to_string(cur_level);
-
-		levelNumberWidth = level["numberWidth"];
-
-		level_adj = Point<int16_t>(40, 0);
-
-		/// Experience
-		int64_t upexp = stage.get_upexp();
-		float expPercentBefore = getexppercent(uplevel, upexp);
-		std::string expBeforeString = std::to_string(100 * expPercentBefore);
-		std::string expBeforeText = expBeforeString.substr(0, expBeforeString.find('.') + 3) + '%';
-
-		expBefore = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::WHITE, expBeforeText);
-		expBeforePos = exp["posBefore"];
-
-		int64_t cur_exp = stats.get_exp();
-		float expPercentAfter = getexppercent(cur_level, cur_exp);
-		std::string expAfterString = std::to_string(100 * expPercentAfter);
-		std::string expAfterText = expAfterString.substr(0, expAfterString.find('.') + 3) + '%';
-
-		expAfter = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::ELECTRICLIME, expAfterText);
-		expAfterPos = exp["posAfter"];
-
-		exp_adj = Point<int16_t>(0, 6);
+		std::string played = std::to_string(hours) + "h " + std::to_string(minutes) + "m";
+		message = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, "Return to the login screen?", NOTICE_TEXT_W);
+		playtime = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, "You have played for " + played + " this session.", NOTICE_TEXT_W);
 
 		int16_t width = Constants::Constants::get().get_viewwidth();
 		int16_t height = Constants::Constants::get().get_viewheight();
 
 		background = ColorBox(width, height, Color::Name::BLACK, 0.5f);
-		position = Point<int16_t>(width / 2, height / 2);
-		dimension = Texture(backgrnd).get_dimensions();
+
+		dimension = Point<int16_t>(NOTICE_W, bottom_y + NOTICE_BOTTOM_H);
+		position = Point<int16_t>((width - dimension.x()) / 2, (height - dimension.y()) / 2);
+
+		Sound(Sound::Name::DLGNOTICE).play();
 	}
 
 	void UIQuit::draw(float inter) const
 	{
-		background.draw(Point<int16_t>(0, 0));
+		background.draw(DrawArgument(Point<int16_t>(0, 0)));
 
 		UIElement::draw(inter);
 
-		time_minutes.draw(time_minutes_text, time_number_width, position + time_minutes_pos - screen_adj);
-		time_hours.draw(time_hours_text, time_number_width, position + time_hours_pos - screen_adj);
+		// Centre both lines in the blue area: from 10px into t down to 11px into s
+		int16_t blue_h = (NOTICE_TOP_H - NOTICE_TOP_BLUE_Y) + NOTICE_ROWS * NOTICE_ROW_H + NOTICE_BOTTOM_BLUE_H;
+		int16_t lines_h = message.height() + LINE_GAP + playtime.height();
+		int16_t text_y = NOTICE_TOP_BLUE_Y + (blue_h - lines_h) / 2;
 
-		levelBefore.draw(levelBeforeText, levelNumberWidth, position + levelBeforePos + level_adj - screen_adj);
-		levelAfter.draw(levelAfterText, levelNumberWidth, position + levelAfterPos + level_adj - screen_adj);
-
-		if (cur_level > uplevel)
-			levelupEffect.draw(position - screen_adj, inter);
-
-		expBefore.draw(position + expBeforePos - exp_adj - screen_adj);
-		expAfter.draw(position + expAfterPos - exp_adj - screen_adj);
-	}
-
-	void UIQuit::update()
-	{
-		UIElement::update();
-
-		levelupEffect.update();
-	}
-
-	Cursor::State UIQuit::send_cursor(bool clicked, Point<int16_t> cursorpos)
-	{
-		auto lt = position + time_lt - screen_adj;
-		auto rb = position + time_rb - screen_adj;
-
-		auto bounds = Rectangle<int16_t>(lt, rb);
-
-		if (bounds.contains(cursorpos))
-			UI::get().show_text(Tooltip::Parent::TEXT, std::to_string(hours) + "Hour " + std::to_string(minutes) + "Minute");
-		else
-			UI::get().clear_tooltip(Tooltip::Parent::TEXT);
-
-		return UIElement::send_cursor(clicked, cursorpos);
+		message.draw(position + Point<int16_t>(NOTICE_W / 2, text_y));
+		playtime.draw(position + Point<int16_t>(NOTICE_W / 2, text_y + message.height() + LINE_GAP));
 	}
 
 	void UIQuit::send_key(int32_t keycode, bool pressed, bool escape)
@@ -213,31 +148,8 @@ namespace ms
 		return Button::State::NORMAL;
 	}
 
-	std::string UIQuit::pad_time(int64_t time)
-	{
-		std::string ctime = std::to_string(time);
-		size_t length = ctime.length();
-
-		if (length > 2)
-			return "99";
-
-		return std::string(2 - length, '0') + ctime;
-	}
-
-	float UIQuit::getexppercent(uint16_t level, int64_t exp) const
-	{
-		if (level >= ExpTable::LEVELCAP)
-			return 0.0f;
-
-		return static_cast<float>(
-			static_cast<double>(exp) / ExpTable::values[level]
-			);
-	}
-
 	void UIQuit::close()
 	{
 		deactivate();
-
-		UI::get().clear_tooltip(Tooltip::Parent::TEXT);
 	}
 }

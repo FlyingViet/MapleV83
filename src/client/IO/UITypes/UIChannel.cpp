@@ -45,69 +45,78 @@ namespace ms
 			static_cast<int8_t>(selected_world));
 		channel_count = real_count > 0 ? real_count : 20;
 
-		nl::node source = nl::nx::ui["UIWindow2.img"]["Channel"];
+		if (current_channel >= channel_count)
+			current_channel = 0;
 
-		sprites.emplace_back(source["backgrnd"]);
-		sprites.emplace_back(source["backgrnd2"]);
-		sprites.emplace_back(source["backgrnd3"]);
-		sprites.emplace_back(source["world"][selected_world], DrawArgument(Point<int16_t>(16, 30)));
+		selected_channel = current_channel;
+		rows = static_cast<uint8_t>((channel_count + COLS - 1) / COLS);
 
-		buttons[BT_CANCEL] = std::make_unique<MapleButton>(source["BtCancel"]);
-		buttons[BT_CHANGE] = std::make_unique<MapleButton>(source["BtChange"]);
+		nl::node source = nl::nx::ui["UIWindow.img"]["Channel"];
 
-		channel_cover[true] = source["channel1"];
-		channel_cover[false] = source["channel0"];
+		// Frame: t on top, two 10px c tiles per 20px channel row, s below
+		int16_t body_h = rows * STRIDE_VERT;
+		int16_t tiles = (body_h + TILE_H - 1) / TILE_H;
+
+		sprites.emplace_back(source["t"], DrawArgument(Point<int16_t>(0, 0)));
+
+		for (int16_t i = 0; i < tiles; i++)
+			sprites.emplace_back(source["c"], DrawArgument(Point<int16_t>(0, TOP_H + i * TILE_H)));
+
+		int16_t strip_y = TOP_H + tiles * TILE_H;
+		sprites.emplace_back(source["s"], DrawArgument(Point<int16_t>(0, strip_y)));
+
+		// World badge (icon + name) in the blue banner. v83 ships world/0..19
+		// plus test worlds t0/t1; anything out of range just shows no badge.
+		nl::node world = source["world"][std::to_string(selected_world)];
+
+		if (world)
+			sprites.emplace_back(world, DrawArgument(WORLD_OFFSET));
+
+		// BtChange (91x18) and BtCancel (47x18) side by side, centred in the strip
+		int16_t pair_x = (WIDTH - (BT_CHANGE_W + BTN_GAP + BT_CANCEL_W)) / 2;
+		int16_t btn_y = strip_y + BTN_Y_IN_STRIP;
+
+		buttons[BT_CHANGE] = std::make_unique<MapleButton>(source["BtChange"], Point<int16_t>(pair_x, btn_y));
+		buttons[BT_CANCEL] = std::make_unique<MapleButton>(source["BtCancel"], Point<int16_t>(pair_x + BT_CHANGE_W + BTN_GAP, btn_y));
+
+		cover_normal = source["channel0"];
+		cover_current = source["channel1"];
+		cover_selected = source["channel2"];
 
 		nl::node ch_src = source["ch"];
-		Point<int16_t> ch_pos = CH_SPRITE_OFFSET;
 
-		for (uint8_t row = 0; row < ROWS; row++)
-		{
-			for (uint8_t col = 0; col < COLS; col++)
-			{
-				uint8_t n = row * COLS + col;
+		for (uint8_t n = 0; n < channel_count; n++)
+			ch_sprites.emplace_back(ch_src[std::to_string(n)], DrawArgument(cell_pos(n) + CH_OFFSET));
 
-				if (n >= channel_count)
-					break;
-
-				ch_sprites.emplace_back(ch_src[n], DrawArgument(ch_pos));
-				ch_pos.shift_x(STRIDE_HORIZ);
-			}
-
-			ch_pos.set_x(CH_SPRITE_OFFSET.x());
-			ch_pos.shift_y(STRIDE_VERT);
-		}
-
-		dimension = Point<int16_t>(WIDTH, HEIGHT);
+		dimension = Point<int16_t>(WIDTH, strip_y + BOTTOM_H);
 		dragarea = Point<int16_t>(WIDTH, DRAG_HEIGHT);
+	}
+
+	Point<int16_t> UIChannel::cell_pos(uint8_t channel) const
+	{
+		return Point<int16_t>(
+			GRID_X + (channel % COLS) * STRIDE_HORIZ,
+			TOP_H + (channel / COLS) * STRIDE_VERT
+		);
 	}
 
 	void UIChannel::draw(float inter) const
 	{
-		UIElement::draw(inter);
+		UIElement::draw_sprites(inter);
 
-		Point<int16_t> base_pos = COVER_OFFSET + position;
-
-		// Draw current channel marker
-		Point<int16_t> curr_pos = base_pos + Point<int16_t>(
-			(current_channel % COLS) * STRIDE_HORIZ,
-			(current_channel / COLS) * STRIDE_VERT
-		);
-		channel_cover[false].draw(DrawArgument(curr_pos));
-
-		// Draw selected channel marker (if different)
-		if (selected_channel != current_channel)
+		for (uint8_t n = 0; n < channel_count; n++)
 		{
-			Point<int16_t> sel_pos = base_pos + Point<int16_t>(
-				(selected_channel % COLS) * STRIDE_HORIZ,
-				(selected_channel / COLS) * STRIDE_VERT
-			);
-			channel_cover[true].draw(DrawArgument(sel_pos));
+			const Texture& cover = (n == selected_channel && selected_channel != current_channel)
+				? cover_selected
+				: (n == current_channel ? cover_current : cover_normal);
+
+			cover.draw(DrawArgument(position + cell_pos(n)));
 		}
 
-		// Draw channel number sprites
 		for (auto& sprite : ch_sprites)
 			sprite.draw(position, inter);
+
+		UIElement::draw_buttons(inter);
 	}
 
 	void UIChannel::update()
@@ -120,22 +129,27 @@ namespace ms
 
 	int8_t UIChannel::channel_by_pos(Point<int16_t> cursorpos) const
 	{
-		Point<int16_t> relative = cursorpos - position - COVER_OFFSET;
+		Point<int16_t> relative = cursorpos - position - Point<int16_t>(GRID_X, TOP_H);
 
 		if (relative.x() < 0 || relative.y() < 0)
 			return -1;
 
-		if (relative.x() >= COLS * STRIDE_HORIZ || relative.y() >= ROWS * STRIDE_VERT)
+		if (relative.x() >= COLS * STRIDE_HORIZ || relative.y() >= rows * STRIDE_VERT)
 			return -1;
 
 		int16_t col = relative.x() / STRIDE_HORIZ;
 		int16_t row = relative.y() / STRIDE_VERT;
-		uint8_t ch = row * COLS + col;
+
+		// The 16px gap to the right of each cover is dead space
+		if (relative.x() - col * STRIDE_HORIZ >= CELL_W)
+			return -1;
+
+		int16_t ch = row * COLS + col;
 
 		if (ch >= channel_count)
 			return -1;
 
-		return ch;
+		return static_cast<int8_t>(ch);
 	}
 
 	void UIChannel::send_key(int32_t keycode, bool pressed, bool escape)
@@ -158,7 +172,7 @@ namespace ms
 			if (selected_channel >= COLS)
 				selected_channel -= COLS;
 			else
-				selected_channel += COLS * (ROWS - 1);
+				selected_channel += COLS * (rows - 1);
 
 			if (selected_channel >= channel_count)
 				selected_channel = current_channel;
