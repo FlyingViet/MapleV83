@@ -270,6 +270,50 @@ namespace ms
 		ServerPort() : StringEntry("ServerPort", "8484") {}
 	};
 
+	// Host of the WebSocket->TCP proxy used by the web build.
+	// Empty means the hostname the page was served from.
+	struct ProxyIP : public Configuration::StringEntry
+	{
+		ProxyIP() : StringEntry("ProxyIP", "") {}
+	};
+
+	// Port of the WebSocket->TCP proxy used by the web build
+	struct ProxyPort : public Configuration::StringEntry
+	{
+		ProxyPort() : StringEntry("ProxyPort", "8080") {}
+	};
+
+	// Optional URL path of the WebSocket->TCP proxy (for path-routed reverse proxies)
+	struct ProxyPath : public Configuration::StringEntry
+	{
+		ProxyPath() : StringEntry("ProxyPath", "") {}
+	};
+
+	// WebSocket scheme used for the proxy and the assets server: "ws" or "wss"
+	struct AssetsServerProtocol : public Configuration::StringEntry
+	{
+		AssetsServerProtocol() : StringEntry("AssetsServerProtocol", "ws") {}
+	};
+
+	// Host of the LazyFS assets server used by the web build.
+	// Empty means the hostname the page was served from.
+	struct AssetsServerIP : public Configuration::StringEntry
+	{
+		AssetsServerIP() : StringEntry("AssetsServerIP", "") {}
+	};
+
+	// Port of the LazyFS assets server used by the web build
+	struct AssetsServerPort : public Configuration::StringEntry
+	{
+		AssetsServerPort() : StringEntry("AssetsServerPort", "") {}
+	};
+
+	// Optional URL path of the LazyFS assets server
+	struct AssetsServerPath : public Configuration::StringEntry
+	{
+		AssetsServerPath() : StringEntry("AssetsServerPath", "") {}
+	};
+
 	// Whether to start in full screen mode
 	struct Fullscreen : public Configuration::BoolEntry
 	{

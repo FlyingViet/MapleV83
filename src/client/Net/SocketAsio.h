@@ -19,7 +19,7 @@
 
 #include "../MapleStory.h"
 
-#ifdef USE_ASIO
+#if defined(USE_ASIO) && !defined(MS_PLATFORM_WASM)
 #include "NetConstants.h"
 
 #define BOOST_DATE_TIME_NO_LIB

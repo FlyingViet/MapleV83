@@ -19,7 +19,7 @@
 
 #include "../MapleStory.h"
 
-#ifndef USE_ASIO
+#if !defined(USE_ASIO) && !defined(MS_PLATFORM_WASM)
 #include "NetConstants.h"
 
 namespace ms

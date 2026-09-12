@@ -27,6 +27,13 @@ namespace ms
 	{
 		settings.emplace<ServerIP>();
 		settings.emplace<ServerPort>();
+		settings.emplace<ProxyIP>();
+		settings.emplace<ProxyPort>();
+		settings.emplace<ProxyPath>();
+		settings.emplace<AssetsServerProtocol>();
+		settings.emplace<AssetsServerIP>();
+		settings.emplace<AssetsServerPort>();
+		settings.emplace<AssetsServerPath>();
 		settings.emplace<Fullscreen>();
 		settings.emplace<Width>();
 		settings.emplace<Height>();
@@ -179,6 +186,8 @@ namespace ms
 		static const std::vector<std::pair<const char*, std::vector<const char*>>> sections = {
 			{ "Connection",  { "ServerIP", "ServerPort", "SaveLogin", "Account", "Password",
 			                   "World", "Channel", "Character", "Region" } },
+			{ "Web",         { "ProxyIP", "ProxyPort", "ProxyPath", "AssetsServerProtocol",
+			                   "AssetsServerIP", "AssetsServerPort", "AssetsServerPath" } },
 			{ "Display",     { "Width", "Height", "Fullscreen", "VSync" } },
 			{ "Audio",       { "BGMVolume", "SFXVolume" } },
 			{ "Quality",     { "GraphicsQuality", "EffectsQuality", "ScreenShake" } },

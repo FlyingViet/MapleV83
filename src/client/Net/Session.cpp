@@ -19,6 +19,11 @@
 
 #include "../Configuration.h"
 
+#ifdef MS_PLATFORM_WASM
+#include <iostream>
+#include <string>
+#endif
+
 namespace ms
 {
 	Session::Session()
@@ -36,14 +41,38 @@ namespace ms
 
 	bool Session::init(const char* host, const char* port)
 	{
+#ifdef MS_PLATFORM_WASM
+		// The proxy opens the TCP connection on our behalf, so a wildcard host
+		// in the server's channel list means "the machine this page came from".
+		std::string target = (host != nullptr) ? host : "";
+
+		if (target == "0.0.0.0")
+		{
+			target = SocketWeb::browser_hostname();
+
+			std::cout << "[Session] Host is 0.0.0.0, resolving to " << target << std::endl;
+		}
+
+		std::cout << "[Session] Connecting to " << target << ":" << port << std::endl;
+
+		// Connect to the server
+		connected = socket.open(target.c_str(), port);
+#else
 		// Connect to the server
 		connected = socket.open(host, port);
+#endif
 
 		if (connected)
 		{
 			// Read keys necessary for communicating with the server
 			cryptography = { socket.get_buffer() };
 		}
+#ifdef MS_PLATFORM_WASM
+		else
+		{
+			std::cout << "[Session] Failed to connect" << std::endl;
+		}
+#endif
 
 		return connected;
 	}

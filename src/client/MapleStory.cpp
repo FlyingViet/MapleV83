@@ -18,6 +18,13 @@
 #include <iostream>
 #include <thread>
 
+#ifdef MS_PLATFORM_WASM
+#include <cstdlib>
+
+#include <emscripten.h>
+#endif
+
+#include "Configuration.h"
 #include "Constants.h"
 #include "Gameplay/Stage.h"
 #include "Graphics/Text.h"
@@ -38,6 +45,43 @@ namespace ms
 {
 	Error init()
 	{
+#ifdef MS_PLATFORM_WASM
+		// The page configures the client through the JS object Module.LazyFS
+		// (see nmnsnv's Journey.cpp). Copy each string it defines into the
+		// matching setting before anything reads them.
+		auto loadConfigString = [](const char* key, auto& setting)
+		{
+			char* val = (char*)EM_ASM_INT({
+				var k = UTF8ToString($0);
+				if (typeof Module !== 'undefined' && Module.LazyFS && Module.LazyFS[k] !== undefined && Module.LazyFS[k] !== null) {
+					var str = Module.LazyFS[k].toString();
+					var lengthBytes = lengthBytesUTF8(str) + 1;
+					var stringOnWasmHeap = _malloc(lengthBytes);
+					stringToUTF8(str, stringOnWasmHeap, lengthBytes);
+					return stringOnWasmHeap;
+				}
+				return 0;
+			}, key);
+
+			if (val)
+			{
+				setting.save(std::string(val));
+				std::free(val);
+			}
+		};
+
+		// nmnsnv's page uses MapleStoryServerIp/Port for the game server
+		loadConfigString("MapleStoryServerIp", Setting<ServerIP>::get());
+		loadConfigString("MapleStoryServerPort", Setting<ServerPort>::get());
+		loadConfigString("ProxyIP", Setting<ProxyIP>::get());
+		loadConfigString("ProxyPort", Setting<ProxyPort>::get());
+		loadConfigString("ProxyPath", Setting<ProxyPath>::get());
+		loadConfigString("AssetsServerProtocol", Setting<AssetsServerProtocol>::get());
+		loadConfigString("AssetsServerIP", Setting<AssetsServerIP>::get());
+		loadConfigString("AssetsServerPort", Setting<AssetsServerPort>::get());
+		loadConfigString("AssetsServerPath", Setting<AssetsServerPath>::get());
+#endif
+
 		std::cout << "[Init] Connecting to server..." << std::endl;
 
 		if (Error error = Session::get().init())
@@ -117,6 +161,76 @@ namespace ms
 			&& Window::get().not_closed();
 	}
 
+#ifdef MS_PLATFORM_WASM
+	namespace
+	{
+		// The browser drives frames through emscripten_set_main_loop instead of
+		// a blocking while loop, so the fixed-timestep state lives here and
+		// persists between ticks.
+		const int64_t TIMESTEP = Constants::TIMESTEP * 1000;
+		int64_t accumulator = TIMESTEP;
+
+		// FPS counter accumulators.
+		int64_t fps_accum = 0;
+		int32_t fps_frames = 0;
+
+		void main_tick()
+		{
+			if (!running())
+			{
+				emscripten_cancel_main_loop();
+
+				Sound::close();
+
+				return;
+			}
+
+			int64_t elapsed = Timer::get().stop();
+
+			// Same clamp as the native loop: a stalled tab must not fast-forward
+			// physics by a burst of update() steps.
+			accumulator += elapsed;
+
+			const int64_t MAX_ACCUM = TIMESTEP * 5;
+
+			if (accumulator > MAX_ACCUM)
+				accumulator = MAX_ACCUM;
+
+			// Update game with constant timestep as many times as possible.
+			for (; accumulator >= TIMESTEP; accumulator -= TIMESTEP)
+				update();
+
+			// Draw the game. Interpolate to account for remaining time.
+			float alpha = static_cast<float>(accumulator) / TIMESTEP;
+			draw(alpha);
+
+			// Recompute the on-screen FPS ~4 times per second.
+			fps_accum += elapsed;
+			fps_frames++;
+
+			if (fps_accum >= 250000)
+			{
+				g_fps = static_cast<int>(fps_frames * 1000000LL / fps_accum);
+				fps_frames = 0;
+				fps_accum = 0;
+			}
+		}
+	}
+
+	void loop()
+	{
+		Timer::get().start();
+
+		accumulator = TIMESTEP;
+		fps_accum = 0;
+		fps_frames = 0;
+
+		// fps 0 = requestAnimationFrame; simulate_infinite_loop = 1 means this
+		// call never returns. The browser paces frames, so the native FPSCap
+		// sleep is deliberately absent here (sleep_for would stall the tab).
+		emscripten_set_main_loop(main_tick, 0, 1);
+	}
+#else
 	void loop()
 	{
 		Timer::get().start();
@@ -182,6 +296,7 @@ namespace ms
 
 		Sound::close();
 	}
+#endif
 
 	void start()
 	{

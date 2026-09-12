@@ -23,6 +23,13 @@
 #include <nlnx/node.hpp>
 #include <nlnx/nx.hpp>
 
+#ifdef MS_PLATFORM_WASM
+#include "../LazyFS/LazyFS.h"
+
+#include <cstring>
+#include <string>
+#endif
+
 #ifdef PLATFORM_IOS
 #include <string>
 #include <sys/stat.h>
@@ -75,9 +82,29 @@ namespace ms
 			chdir(nx_dir.c_str());
 #endif
 
+#ifdef MS_PLATFORM_WASM
+			// The browser has no local files: register every NX file with
+			// LazyFS so nlnx fetches it on demand from the assets server.
+			constexpr const char* REQUIRED_ROOT_NX = "Base.nx";
+
+			LazyFS::Initialize();
+
+			if (!LazyFS::RegisterFile(REQUIRED_ROOT_NX, std::string("/assets/") + REQUIRED_ROOT_NX))
+				return Error(Error::Code::MISSING_FILE, REQUIRED_ROOT_NX);
+
+			for (auto filename : filenames)
+			{
+				if (std::strcmp(filename, REQUIRED_ROOT_NX) == 0)
+					continue;
+
+				if (!LazyFS::RegisterFile(filename, std::string("/assets/") + filename))
+					return Error(Error::Code::MISSING_FILE, filename);
+			}
+#else
 			for (auto filename : filenames)
 				if (std::ifstream{ filename }.good() == false)
 					return Error(Error::Code::MISSING_FILE, filename);
+#endif
 
 			try
 			{

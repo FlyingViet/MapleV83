@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SocketWinsock.h"
 
-#ifndef USE_ASIO
+#if !defined(USE_ASIO) && !defined(MS_PLATFORM_WASM)
 #include <ws2tcpip.h>
 
 #pragma comment (lib, "Ws2_32.lib")

@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SocketAsio.h"
 
-#ifdef USE_ASIO
+#if defined(USE_ASIO) && !defined(MS_PLATFORM_WASM)
 namespace ms
 {
 	SocketAsio::SocketAsio() : resolver(iocontext), socket(iocontext) {}
