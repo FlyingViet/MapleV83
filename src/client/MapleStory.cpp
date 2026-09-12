@@ -17,6 +17,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include <iostream>
 #include <thread>
+#include <algorithm>
 
 #ifdef MS_PLATFORM_WASM
 #include <cstdlib>
@@ -98,6 +99,21 @@ namespace ms
 		loadConfigString("AssetsServerPath", Setting<AssetsServerPath>::get());
 		loadConfigShort("Width", Setting<Width>::get());
 		loadConfigShort("Height", Setting<Height>::get());
+
+		// Apply the configured render size now: OpenStory hard-codes a 1920x1080
+		// surface with a 1.5 UI scale (1280x720 logical). Keep the logical layout and
+		// derive the scale from the requested physical width, so phones can run a
+		// smaller canvas without changing the UI layout.
+		{
+			int16_t w = static_cast<int16_t>(Setting<Width>::get().load());
+			int16_t h = static_cast<int16_t>(Setting<Height>::get().load());
+			if (w >= 640 && h >= 360)
+			{
+				Constants::Constants::get().set_viewwidth(w);
+				Constants::Constants::get().set_viewheight(h);
+				Constants::Constants::get().set_ui_scale(std::max(1.0f, w / 1280.0f));
+			}
+		}
 #endif
 
 		std::cout << "[Init] Connecting to server..." << std::endl;
