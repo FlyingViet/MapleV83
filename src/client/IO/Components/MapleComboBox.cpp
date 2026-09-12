@@ -27,14 +27,34 @@
 
 namespace ms
 {
+	namespace
+	{
+		// v83 Basic.img has the three-piece (left / middle / right) combo boxes
+		// ComboBox, ComboBox3, ComboBox4 and ComboBox5 only. ComboBox2 is a
+		// single 81x20 bitmap and every later style does not exist, so those
+		// types fall back to the default box.
+		nl::node combobox_node(MapleComboBox::Type type)
+		{
+			nl::node basic = nl::nx::ui["Basic.img"];
+
+			switch (type)
+			{
+				case MapleComboBox::Type::BROWN:
+					return basic["ComboBox3"];
+				case MapleComboBox::Type::BLUENEG:
+					return basic["ComboBox4"];
+				case MapleComboBox::Type::DEFAULT2:
+					return basic["ComboBox5"];
+				case MapleComboBox::Type::DEFAULT:
+				default:
+					return basic["ComboBox"];
+			}
+		}
+	}
+
 	MapleComboBox::MapleComboBox(Type type, std::vector<std::string> o, uint16_t default_option, Point<int16_t> ppos, Point<int16_t> pos, int64_t w) : options(o), selected_index(default_option), parentpos(ppos), rwidth(w)
 	{
-		std::string combobox = "ComboBox";
-
-		if (type != Type::DEFAULT)
-			combobox += std::to_string(type);
-
-		nl::node src = nl::nx::ui["Basic.img"][combobox];
+		nl::node src = combobox_node(type);
 
 		textures[Button::State::PRESSED][0] = src["pressed"][0];
 		textures[Button::State::PRESSED][1] = src["pressed"][1];

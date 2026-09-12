@@ -17,6 +17,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "MapTooltip.h"
 
+#include "TooltipFrame.h"
+
+#include "../../Constants.h"
 #include "../../Util/Misc.h"
 
 #ifdef USE_NX
@@ -27,14 +30,8 @@ namespace ms
 {
 	MapTooltip::MapTooltip() : name(""), description(""), fillwidth(MIN_WIDTH), fillheight(0)
 	{
-		nl::node Frame = nl::nx::ui["UIToolTip.img"]["Item"]["Frame2"];
-		nl::node WorldMap = nl::nx::ui["UIWindow2.img"]["ToolTip"]["WorldMap"];
-
-		frame = Frame;
-		cover = Frame["cover"];
-		Mob = WorldMap["Mob"];
-		Npc = WorldMap["Npc"];
-		Party = WorldMap["Party"];
+		// v83 has no UIToolTip.img frame art (drawn by TooltipFrame) and no
+		// WorldMap Mob/Npc/Party tooltip icons; those textures stay invalid.
 	}
 
 	void MapTooltip::draw(Point<int16_t> pos) const
@@ -64,7 +61,7 @@ namespace ms
 				if (adj_y > 0)
 					pos.shift_y(adj_y * -1);
 
-				frame.draw(pos + Point<int16_t>(new_width / 2 + 2, new_height - 7), new_width - 14, new_height - 18);
+				TooltipFrame::draw(pos + Point<int16_t>(-PANEL_PAD_X, -PANEL_PAD_Y), new_width + PANEL_PAD_X * 2, new_height + PANEL_PAD_Y * 2);
 
 				if (new_height > 18)
 					name_simple.draw(pos);
@@ -95,8 +92,7 @@ namespace ms
 
 				int16_t half_width = new_width / 2;
 
-				frame.draw(pos + Point<int16_t>(half_width + 2, new_height - 7 + BOTTOM_PADDING), new_width - 14, new_height - 18 + BOTTOM_PADDING);
-				cover.draw(pos + Point<int16_t>(-5, -2));
+				TooltipFrame::draw(pos + Point<int16_t>(-PANEL_PAD_X, -PANEL_PAD_Y), new_width + PANEL_PAD_X * 2, new_height + BOTTOM_PADDING + PANEL_PAD_Y * 2);
 				name_label.draw(pos + Point<int16_t>(half_width, -2));
 
 				pos.shift_y(name_height);
@@ -121,8 +117,7 @@ namespace ms
 
 			int16_t half_width = fillwidth / 2;
 
-			frame.draw(pos + Point<int16_t>(half_width + 2, fillheight - 7 + BOTTOM_PADDING), fillwidth - 14, fillheight - 18 + BOTTOM_PADDING);
-			cover.draw(pos + Point<int16_t>(-5, -2));
+			TooltipFrame::draw(pos + Point<int16_t>(-PANEL_PAD_X, -PANEL_PAD_Y), fillwidth + PANEL_PAD_X * 2, fillheight + BOTTOM_PADDING + PANEL_PAD_Y * 2);
 			name_label.draw(pos + Point<int16_t>(half_width, 0));
 
 			int16_t name_height = name_label.height();

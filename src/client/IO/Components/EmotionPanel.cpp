@@ -25,16 +25,9 @@ namespace ms
 {
 	EmotionPanel::EmotionPanel()
 	{
-		nl::node src = nl::nx::ui["Emotion.img"];
-
-		if (!src)
-			return;
-
-		for (auto iter : src)
-		{
-			emotions.emplace_back(iter);
-			emotion_names.emplace_back(iter.name());
-		}
+		// Dropped for v83: UI.nx has no Emotion.img (the emoticon panel arrived
+		// with the newer chat UI), so the panel stays empty - count() is 0 and
+		// get_emotion() returns an empty Animation.
 	}
 
 	void EmotionPanel::draw(Point<int16_t> position) const

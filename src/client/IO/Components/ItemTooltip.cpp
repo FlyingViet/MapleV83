@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "ItemTooltip.h"
 
+#include "TooltipFrame.h"
+
 #include "../../Constants.h"
 
 #include "../../Data/ItemData.h"
@@ -30,16 +32,9 @@ namespace ms
 	// Blue dot indicator not implemented
 	ItemTooltip::ItemTooltip()
 	{
-		nl::node Item = nl::nx::ui["UIToolTip.img"]["Item"];
-		nl::node Frame = Item["Frame2"];
-		nl::node ItemIcon = Item["ItemIcon"];
-
-		frame = Frame;
-		cover = Frame["cover"];
-		base = ItemIcon["base"];
-		itemcover = ItemIcon["cover"];
-		type[true] = ItemIcon["new"];
-		type[false] = ItemIcon["old"];
+		// v83 has no UIToolTip.img frame / icon art; the panel is drawn by
+		// TooltipFrame and the icon well by a ColorBox.
+		iconwell = ColorBox(ICON_WELL, ICON_WELL, Color::Name::WHITE, 0.65f);
 
 		itemid = 0;
 	}
@@ -107,8 +102,9 @@ namespace ms
 		if (adj_y > 0)
 			pos.shift_y(adj_y * -1);
 
-		frame.draw(pos + Point<int16_t>(150, 118 + adj_d + adj_t), fillwidth, fillheight + adj_t);
-		cover.draw(pos + Point<int16_t>(4, 4));
+		// Panel: name row on top, icon well bottom-left, description to its right.
+		// Content ends at x = 14 + 90 + 185 and y = fillheight + adj_t + 15.
+		TooltipFrame::draw(pos + Point<int16_t>(2, 2), fillwidth + 30, fillheight + adj_t + 18);
 		name.draw(pos + Point<int16_t>(22, 8));
 
 		if (untradable || unique)
@@ -116,10 +112,8 @@ namespace ms
 
 		pos.shift(14, 18 + name.height() + adj_t);
 
-		base.draw(pos);
-		type[true].draw(pos);
+		iconwell.draw(DrawArgument(pos));
 		itemicon.draw(DrawArgument(pos + Point<int16_t>(8, 72), 2.0f, 2.0f));
-		itemcover.draw(pos);
 		desc.draw(pos + Point<int16_t>(90, -6));
 	}
 }

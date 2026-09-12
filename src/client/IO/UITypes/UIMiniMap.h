@@ -25,6 +25,14 @@
 
 namespace ms
 {
+	// v83 minimap (UIWindow.img/MiniMap). Three window states:
+	//   MIN    - "Min" strip (w/c/e, 20 px tall): map name + buttons only
+	//   NORMAL - "MinMap" 9-slice frame: 29 px title bar, map canvas, 14 px foot
+	//   MAX    - "MaxMap" 9-slice frame: 72 px header (title bar + map mark,
+	//            region and street names), map canvas, 15 px foot
+	// The min/max toggles come from Basic.img (BtMin/BtMax); the world map
+	// button is MiniMap/BtMap. v83 has no NPC list, no simple mode and no
+	// big/small variants, so those OpenStory features are gone.
 	class UIMiniMap : public UIDragElement<PosMINIMAP>
 	{
 	public:
@@ -44,22 +52,43 @@ namespace ms
 
 		UIElement::Type get_type() const override;
 
-		// Select and highlight an NPC on the minimap by its data ID
+		// Highlight an NPC on the minimap by its data ID (quest "Find NPC").
 		void set_quest_npc(int32_t npcid);
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
 
 	private:
-		static constexpr int16_t CENTER_START_X = 64;
+		/// v83 frame geometry (all from UIWindow.img/MiniMap bitmap sizes)
+		// Min strip: w 8x20, c 1x20, e 4x20
+		static constexpr int16_t MIN_STRIP_H = 20;
+		static constexpr int16_t MIN_STRIP_W_W = 8;
+		static constexpr int16_t MIN_STRIP_E_W = 4;
+		// MinMap/MaxMap 9-slice: corner/side pieces are 6 px wide
+		static constexpr int16_t FRAME_SIDE_W = 6;
+		// MinMap: n/nw/ne are 29 px tall, s/sw/se 14 px
+		static constexpr int16_t NORMAL_TOP_H = 29;
+		static constexpr int16_t NORMAL_BOTTOM_H = 14;
+		// MaxMap: n/nw/ne are 72 px tall, s/sw/se 15 px
+		static constexpr int16_t MAX_TOP_H = 72;
+		static constexpr int16_t MAX_BOTTOM_H = 15;
+		// Extra header height of the MAX frame over the NORMAL frame; every
+		// canvas-relative position is shifted down by this much in MAX state.
+		static constexpr int16_t MAX_ADJ = MAX_TOP_H - NORMAL_TOP_H;
+		// Buttons (12 px tall) sit inside the white title box (y 3..22)
+		static constexpr int16_t BTN_Y = 6;
 		static constexpr int16_t BTN_MIN_Y = 4;
-		static constexpr int16_t ML_MR_Y = 17;
-		static constexpr int16_t MAX_ADJ = 40;
-		static constexpr int16_t M_START = 36;
-		static constexpr int16_t LISTNPC_ITEM_HEIGHT = 17;
-		static constexpr int16_t LISTNPC_ITEM_WIDTH = 140;
-		static constexpr int16_t LISTNPC_TEXT_WIDTH = 114;
-		static constexpr Point<int16_t> WINDOW_UL_POS = Point<int16_t>(0, 0);
+		// Map name text inside the title box
+		static constexpr Point<int16_t> TITLE_TEXT_POS = Point<int16_t>(8, 4);
+		// Gap between the frame's inner edge and the map canvas
+		static constexpr int16_t CANVAS_PAD = 4;
+		// MAX header: map mark (38x38) and region/street text in the blue band
+		static constexpr Point<int16_t> MARK_POS = Point<int16_t>(8, 27);
+		static constexpr int16_t MAX_TEXT_X = 50;
+		static constexpr int16_t MAX_REGION_Y = 26;
+		static constexpr int16_t MAX_TOWN_Y = 42;
+		// Smallest frame width we bother drawing
+		static constexpr int16_t MIN_WINDOW_W = 150;
 
 		void update_buttons();
 		void toggle_buttons();
@@ -70,21 +99,13 @@ namespace ms
 		void draw_movable_markers(Point<int16_t> init_pos, float alpha) const;
 		Point<int16_t> get_scroll_offset(Point<int16_t> view_dims, int16_t y_adj) const;
 		void update_static_markers();
-		void set_npclist_active(bool active);
 		void update_dimensions();
-		void update_npclist();
-		void draw_npclist(Point<int16_t> minimap_dims, float alpha) const;
-		void select_npclist(int16_t choice);
 
 		enum Buttons
 		{
 			BT_MIN,
 			BT_MAX,
-			BT_SMALL,
-			BT_BIG,
-			BT_MAP,
-			BT_NPC,
-			BT_SCROLL_LOCK
+			BT_MAP
 		};
 
 		enum Type
@@ -98,8 +119,6 @@ namespace ms
 		int32_t mapid = -1;
 		int8_t type;
 		int8_t user_type;
-		bool simpleMode;
-		bool big_map;
 		bool scroll_locked;
 		bool has_map;
 		int16_t scale;
@@ -109,11 +128,11 @@ namespace ms
 		Texture map_sprite;
 		Animation player_marker;
 		int16_t combined_text_width;
-		int16_t middle_right_x;
+		int16_t window_width;
 		int16_t bt_min_width;
 		int16_t bt_max_width;
 		int16_t bt_map_width;
-		// CPU-upscaled minimap canvas (bilinear x3) drawn via drawraw so
+		// CPU-upscaled minimap canvas (bicubic x3) drawn via drawraw so
 		// zooming samples a pre-smoothed image instead of stretching pixels.
 		std::vector<uint8_t> canvas_hd;
 		int16_t canvas_hd_w = 0;
@@ -134,27 +153,13 @@ namespace ms
 		Text region_text;
 		Text town_text;
 
-		bool listNpc_enabled;
-		nl::node listNpc;
-		std::vector<Sprite> listNpc_sprites;
-		std::vector<MapObject*> listNpc_list;
-		std::vector<Text> listNpc_names;
-		std::vector<std::string> listNpc_full_names;
-
-		Point<int16_t> listNpc_dimensions;
-
-		Slider listNpc_slider;
-		int16_t listNpc_offset;
-		int16_t selected;
-		Animation selected_marker;
-
-		// Additional minimap marks
-		std::unordered_map<std::string, Texture> mark_textures;
+		// Quest NPC highlight (MapHelper.img/minimap/startnpc over the NPC)
+		int32_t quest_npc_id;
+		Animation quest_npc_marker;
 
 		// Pre-allocated draw objects
 		mutable Animation portal_marker_anim;
 		mutable Animation npc_marker_anim;
-		ColorBox npc_highlight;
 
 		// Drag-to-resize state
 		bool drag_resize;

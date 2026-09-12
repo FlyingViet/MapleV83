@@ -29,7 +29,8 @@
 
 namespace ms
 {
-
+	// v83 skill window: UIWindow.img/Skill (175x289) with an optional
+	// UIWindow.img/SkillMacro panel (207x289) docked to its right edge.
 	class UISkillBook : public UIDragElement<PosSKILL>
 	{
 	public:
@@ -141,13 +142,20 @@ namespace ms
 		bool check_required(int32_t id) const;
 
 		void set_macro(bool enabled);
+		void macro_select_row(int16_t row);
+		void save_macros();
+
+		// Macro panel geometry (screen space). The panel is docked at
+		// position + (bg_dimensions.x(), 0); see the layout constants in the .cpp.
+		Point<int16_t> macro_panel_pos() const;
+		Point<int16_t> macro_row_pos(int16_t row) const;
+		Point<int16_t> macro_handle_pos(int16_t row) const;
+		Point<int16_t> macro_slot_pos(int16_t row, int16_t slot) const;
+		Point<int16_t> macro_name_pos() const;
 
 		enum Buttons : uint16_t
 		{
 			BT_CLOSE,
-			BT_HYPER,
-			BT_GUILDSKILL,
-			BT_RIDE,
 			BT_MACRO,
 			BT_MACRO_OK,
 			BT_TAB0,
@@ -162,10 +170,7 @@ namespace ms
 		};
 
 		static constexpr int16_t ROWS = 4;
-		static constexpr int16_t ROW_HEIGHT = 40;
-		static constexpr Point<int16_t> SKILL_OFFSET = Point<int16_t>(11, 93);
-		static constexpr Point<int16_t> ICON_OFFSET = Point<int16_t>(2, 2);
-		static constexpr Point<int16_t> LINE_OFFSET = Point<int16_t>(2, 37);
+		static constexpr int16_t MACRO_COUNT = 3;
 
 		const CharStats& stats;
 		const SkillBook& skillbook;
@@ -173,7 +178,6 @@ namespace ms
 		Slider slider;
 		Texture skille;
 		Texture skilld;
-		Texture skillb;
 		Texture line;
 		Texture bookicon;
 		Text booktext;
@@ -192,35 +196,25 @@ namespace ms
 
 		Point<int16_t> bg_dimensions;
 
+		// Inline macro editor, built from UIWindow.img/SkillMacro parts
 		bool macro_enabled;
-		Texture macro_backgrnd;
-		Texture macro_backgrnd2;
-		Texture macro_backgrnd3;
-
-		// Inline macro editor controls (drawn on top of macro_backgrnd* when macro_enabled)
-		static constexpr int16_t MACRO_COUNT = 3;
-		Texture macro_slot;
-		// Layout (relative to macro panel top-left = position + (bg_dimensions.x(), 0))
-		Point<int16_t> macro_slots_origin;   // top-left of the 3x3 slot grid
-		int16_t macro_slot_size;             // width/height of each slot
-		int16_t macro_slot_gap;              // spacing between slots
-		int16_t macro_row_gap;               // spacing between rows
-		Point<int16_t> macro_name_origin;    // top-left of the single name field
-		Point<int16_t> macro_name_size;      // width/height of name field
-		int16_t selected_macro;              // which row the bottom name field edits
-		Textfield macro_name_field;          // single shared bottom field
+		Point<int16_t> macro_dimensions;
+		Texture macro_backgrnd;                      // SkillMacro/backgrnd (207x289)
+		Texture macro_band;                          // SkillMacro/macroslot2 (168x42): one per macro row
+		Texture macro_handle_frame;                  // SkillMacro/macroslot1 (38x37): frame around the row's drag handle
+		Texture macro_slots;                         // SkillMacro/macroslot (124x38): the three numbered skill slots
+		Texture macro_name_frame;                    // SkillMacro/macroname (164x57): name box + "shout" strip
+		Texture macro_check_off;                     // Basic.img/CheckBox/0
+		Texture macro_check_on;                      // Basic.img/CheckBox/1
+		Texture macro_handle_sprites[MACRO_COUNT];   // Macroicon/i/icon, origin-normalised for direct draws
+		std::unique_ptr<Icon> macro_row_icons[MACRO_COUNT];
+		int16_t selected_macro;                      // which row the bottom name field edits
+		Textfield macro_name_field;                  // single shared bottom field
 		std::string macro_names[MACRO_COUNT];
 		bool macro_shouts[MACRO_COUNT];
-		Texture macro_check_sprite;
-		Texture macro_select_sprite;
-		Texture macro_handle_sprites[MACRO_COUNT];   // per-row macro icons
-		std::unique_ptr<Icon> macro_row_icons[MACRO_COUNT];
-		// Queue of skill ids pending from a triggered macro — fired one
+		// Queue of skill ids pending from a triggered macro - fired one
 		// at a time in update() once the player can attack again.
 		std::vector<int32_t> pending_macro_skills;
 		int32_t macro_skills[MACRO_COUNT][3];
-
-		void macro_select_row(int16_t row);
-		void save_macros();
 	};
 }

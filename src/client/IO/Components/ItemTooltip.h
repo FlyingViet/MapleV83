@@ -19,10 +19,8 @@
 
 #include "Tooltip.h"
 
-#include "../Components/MapleFrame.h"
-
+#include "../../Graphics/Geometry.h"
 #include "../../Graphics/Text.h"
-#include "../../Template/BoolPair.h"
 
 namespace ms
 {
@@ -45,11 +43,9 @@ namespace ms
 		Text name;
 		Text desc;
 		Text qual;
-		MapleFrame frame;
-		Texture cover;
-		Texture base;
-		Texture itemcover;
-		BoolPair<Texture> type;
+		// v83 has no ItemIcon/base well art; a light box sits behind the 2x icon
+		static constexpr int16_t ICON_WELL = 80;
+		ColorBox iconwell;
 		bool untradable;
 		bool unique;
 	};

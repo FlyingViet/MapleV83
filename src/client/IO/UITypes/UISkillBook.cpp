@@ -22,6 +22,7 @@
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
+#include "../Components/TwoSpriteButton.h"
 
 #include "../../Character/SkillId.h"
 #include "../../Data/JobData.h"
@@ -31,7 +32,6 @@
 #include "../../Net/Packets/PlayerPackets.h"
 #include "../../Net/Packets/MessagingPackets.h"
 
-
 #include <unordered_set>
 
 #ifdef USE_NX
@@ -40,11 +40,84 @@
 
 namespace ms
 {
+	namespace
+	{
+		// ---- UIWindow.img/Skill/backgrnd (175x289), measured from the v83 bitmap ----
+
+		// Title bar text box spans y 5..18; the 12x12 Basic.img/BtClose sits at its right end.
+		constexpr Point<int16_t> CLOSE_POS = Point<int16_t>(159, 6);
+
+		// Tab strip: light grey band y 23..41 (red underline y 42..44), x 5..169.
+		// The Tab/enabled|disabled glyphs (dot, I, II, III, IV; 7-16 px wide, 11-12 px
+		// tall) carry no origin, so each one is centred in a fifth of the strip
+		// (centres x = 21, 54, 87, 121, 154) at y 27 (4 px above, 3 px below).
+		constexpr int16_t TAB_Y = 27;
+		constexpr int16_t TAB_X[5] = { 16, 51, 81, 113, 146 };
+
+		// Job icon frame (the "SKILL BOOK" placeholder) spans x 7..42, y 50..90.
+		constexpr Point<int16_t> BOOK_ICON_CENTER = Point<int16_t>(25, 70);
+		// Dark job-name band x 42..166, y 62..80: centred white text.
+		constexpr Point<int16_t> BOOK_TEXT_POS = Point<int16_t>(104, 64);
+
+		// White list area x 3..171, y 95..256. skill0/skill1 rows are 141x35 and
+		// repeat every 40 px from (11, 95); the last row ends at y 250 and the
+		// strip x 152..171 is left for the 12 px wide Basic.img/VScr scrollbar.
+		constexpr Point<int16_t> SKILL_OFFSET = Point<int16_t>(11, 95);
+		constexpr int16_t ROW_WIDTH = 141;
+		constexpr int16_t ROW_HEIGHT = 40;
+		constexpr int16_t ROW_ART_HEIGHT = 35;
+		// Row art: 36 px icon cell on the left (pink divider at x 36), name line
+		// y 0..16 and level line y 17..34 (white divider at y 16).
+		constexpr Point<int16_t> ICON_OFFSET = Point<int16_t>(2, 2);     // 32x32 icon inside the icon cell
+		constexpr Point<int16_t> NAME_OFFSET = Point<int16_t>(40, 1);    // relative to the row
+		constexpr Point<int16_t> LEVEL_OFFSET = Point<int16_t>(40, 19);
+		constexpr Point<int16_t> LINE_OFFSET = Point<int16_t>(0, 37);    // 141x1 separator under the row
+		constexpr Point<int16_t> SPUP_OFFSET = Point<int16_t>(124, 20);  // 12x12 "+" at the right end of the level line
+		constexpr int16_t SLIDER_X = 158;
+		constexpr int16_t SLIDER_TOP = 97;
+		constexpr int16_t SLIDER_BOTTOM = 254;
+
+		// "SKILL POINT" box x 83..111, y 266..280: right-aligned number.
+		constexpr Point<int16_t> SP_LABEL_POS = Point<int16_t>(109, 267);
+		// v83 Skill has no macro button; Basic.img/BtMacro (48x18) goes in the
+		// bottom band right of the SP box.
+		constexpr Point<int16_t> MACRO_BT_POS = Point<int16_t>(121, 264);
+
+		// ---- UIWindow.img/SkillMacro (207x289), docked at (175, 0) ----
+		// Title bar y 5..18, empty band y 20..38, white area x 14..203 / y 46..260,
+		// bottom band y 265..285.
+
+		// Basic.img/BtOK2 (47x18) in the empty band under the title.
+		constexpr Point<int16_t> MACRO_OK_POS = Point<int16_t>(152, 21);
+		// One macroslot2 band (168x42) per macro, centred in the 190 px white area.
+		constexpr int16_t MACRO_ROW_X = 25;
+		constexpr int16_t MACRO_ROW_Y = 58;
+		constexpr int16_t MACRO_ROW_PITCH = 46;                                     // 42 px band + 4 px gap; rows end at y 190
+		constexpr Point<int16_t> MACRO_HANDLE_FRAME_OFFSET = Point<int16_t>(3, 2);  // macroslot1 (38x37) inside the band
+		constexpr Point<int16_t> MACRO_HANDLE_OFFSET = Point<int16_t>(6, 5);        // 32x32 Macroicon inside macroslot1
+		constexpr Point<int16_t> MACRO_SLOTS_OFFSET = Point<int16_t>(41, 2);        // macroslot (124x38) inside the band
+		constexpr int16_t MACRO_SLOT_X = 3;                                         // numbered boxes at x 4..33, 41..70, 78..107
+		constexpr int16_t MACRO_SLOT_Y = 3;
+		constexpr int16_t MACRO_SLOT_PITCH = 37;
+		constexpr int16_t MACRO_SLOT_SIZE = 32;
+		// macroname (164x57): white name box y 0..41 and a transparent "SHOUT SKILL
+		// NAME" strip y 42..56 that is meant to overhang the bottom band, so the
+		// frame is placed 42 px above the band.
+		constexpr Point<int16_t> MACRO_NAME_POS = Point<int16_t>(27, 218);
+		constexpr Point<int16_t> MACRO_NAME_ICON_OFFSET = Point<int16_t>(5, 5);     // preview box x 3..38, y 3..37
+		constexpr Point<int16_t> MACRO_NAME_FIELD_LT = Point<int16_t>(42, 5);       // typed name, right of the preview
+		constexpr Point<int16_t> MACRO_NAME_FIELD_RB = Point<int16_t>(160, 19);
+		constexpr Point<int16_t> MACRO_SHOUT_CHECK_OFFSET = Point<int16_t>(27, 45); // 12x12 CheckBox left of the "SHOUT" text
+		constexpr int16_t MACRO_SHOUT_CHECK_HIT = 14;
+		constexpr size_t MACRO_NAME_LIMIT = 13;
+	}
+
 	UISkillBook::SkillIcon::SkillIcon(int32_t id) : skill_id(id) {}
 
 	void UISkillBook::SkillIcon::drop_on_bindings(Point<int16_t> cursorposition, bool remove) const
 	{
 		auto keyconfig = UI::get().get_element<UIKeyConfig>();
+		if (!keyconfig) return;
 		Keyboard::Mapping mapping = Keyboard::Mapping(KeyType::SKILL, skill_id);
 
 		if (remove)
@@ -87,6 +160,7 @@ namespace ms
 		name_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::EMPEROR, namestr);
 		level_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::EMPEROR, levelstr);
 
+		// Name line runs from x 40 to the row's right edge (141) minus the "+" button
 		constexpr uint16_t MAX_NAME_WIDTH = 97;
 		size_t overhang = 3;
 
@@ -101,9 +175,10 @@ namespace ms
 
 	void UISkillBook::SkillDisplayMeta::draw(const DrawArgument& args) const
 	{
+		// args is the icon position (row + ICON_OFFSET); text offsets are row-relative
 		icon->draw(args.getpos());
-		name_text.draw(args + Point<int16_t>(38, -5));
-		level_text.draw(args + Point<int16_t>(38, 13));
+		name_text.draw(args + (NAME_OFFSET - ICON_OFFSET));
+		level_text.draw(args + (LEVEL_OFFSET - ICON_OFFSET));
 	}
 
 	int32_t UISkillBook::SkillDisplayMeta::get_id() const
@@ -121,75 +196,73 @@ namespace ms
 		return icon.get();
 	}
 
-	UISkillBook::UISkillBook(const CharStats& in_stats, const SkillBook& in_skillbook) : UIDragElement<PosSKILL>(Point<int16_t>(174, 20)), stats(in_stats), skillbook(in_skillbook), grabbing(false), tab(0), macro_enabled(false)
+	UISkillBook::UISkillBook(const CharStats& in_stats, const SkillBook& in_skillbook) : UIDragElement<PosSKILL>(Point<int16_t>(175, 20)), stats(in_stats), skillbook(in_skillbook), sp(0), beginner_sp(0), tab(0), skillcount(0), offset(0), grabbing(false), macro_enabled(false), selected_macro(0)
 	{
-		nl::node Skill = nl::nx::ui["UIWindow2.img"]["Skill"];
-		nl::node main = Skill["main"];
-		nl::node ui_backgrnd = main["backgrnd"];
+		nl::node Skill = nl::nx::ui["UIWindow.img"]["Skill"];
+		nl::node ui_backgrnd = Skill["backgrnd"];
 
 		bg_dimensions = Texture(ui_backgrnd).get_dimensions();
 
-		skilld = main["skill0"];
-		skille = main["skill1"];
-		skillb = main["skillBlank"];
-		line = main["line"];
+		sprites.emplace_back(ui_backgrnd);
 
-		buttons[Buttons::BT_HYPER] = std::make_unique<MapleButton>(main["BtHyper"]);
-		buttons[Buttons::BT_GUILDSKILL] = std::make_unique<MapleButton>(main["BtGuildSkill"]);
-		buttons[Buttons::BT_RIDE] = std::make_unique<MapleButton>(main["BtRide"]);
-		buttons[Buttons::BT_MACRO] = std::make_unique<MapleButton>(main["BtMacro"]);
+		// v83 has skill0 (locked, grey) and skill1 (available, blue) only; empty
+		// rows simply show the white list area (there is no skillBlank).
+		skilld = Skill["skill0"];
+		skille = Skill["skill1"];
+		line = Skill["line"];
 
-		buttons[Buttons::BT_HYPER]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_GUILDSKILL]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_RIDE]->set_state(Button::State::DISABLED);
+		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(nl::nx::ui["Basic.img"]["BtClose"], CLOSE_POS);
+		buttons[Buttons::BT_MACRO] = std::make_unique<MapleButton>(nl::nx::ui["Basic.img"]["BtMacro"], MACRO_BT_POS);
 
+		nl::node Tab = Skill["Tab"];
+		nl::node enabled = Tab["enabled"];
+		nl::node disabled = Tab["disabled"];
 
-		sprites.emplace_back(ui_backgrnd, Point<int16_t>(1, 0));
-		sprites.emplace_back(main["backgrnd2"]);
-		sprites.emplace_back(main["backgrnd3"]);
-
-		nl::node macro = Skill["macro"];
-
-		macro_backgrnd = macro["backgrnd"];
-		macro_backgrnd2 = macro["backgrnd2"];
-		macro_backgrnd3 = macro["backgrnd3"];
-		macro_check_sprite = macro["check"];
-		macro_select_sprite = macro["select"];
-		// Macro activation icons (32x32) — each row gets its own style
-		// from Macroicon/0..4. MACRO_COUNT=3 so we use indices 0, 1, 2.
+		for (uint16_t i = Buttons::BT_TAB0; i <= Buttons::BT_TAB4; ++i)
 		{
-			nl::node macro_icons = nl::nx::ui["UIWindow.img"]["SkillMacro"]["Macroicon"];
-			for (int16_t i = 0; i < MACRO_COUNT; i++)
+			uint16_t tabid = i - Buttons::BT_TAB0;
+			buttons[i] = std::make_unique<TwoSpriteButton>(disabled[tabid], enabled[tabid], Point<int16_t>(TAB_X[tabid], TAB_Y));
+		}
+
+		for (uint16_t i = Buttons::BT_SPUP0; i <= Buttons::BT_SPUP3; ++i)
+		{
+			uint16_t row = i - Buttons::BT_SPUP0;
+			Point<int16_t> spup_position = SKILL_OFFSET + SPUP_OFFSET + Point<int16_t>(0, row * ROW_HEIGHT);
+			buttons[i] = std::make_unique<MapleButton>(Skill["BtSpUp"], spup_position);
+		}
+
+		booktext = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, "", 120);
+		splabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::BLACK);
+
+		// Type LINE_CYAN maps to Basic.img/VScr, which exists in v83
+		slider = Slider(
+			Slider::Type::LINE_CYAN, Range<int16_t>(SLIDER_TOP, SLIDER_BOTTOM), SLIDER_X, ROWS, 1,
+			[&](bool upwards)
 			{
-				macro_handle_sprites[i] = macro_icons[std::to_string(i)]["icon"];
+				int16_t shift = upwards ? -1 : 1;
+				bool above = offset + shift >= 0;
+				bool below = offset + ROWS + shift <= skillcount;
+
+				if (above && below)
+					change_offset(offset + shift);
 			}
-		}
+		);
 
-		buttons[Buttons::BT_MACRO_OK] = std::make_unique<MapleButton>(macro["BtOK"], Point<int16_t>(bg_dimensions.x(), 0));
+		// ---- Macro panel (UIWindow.img/SkillMacro) ----
+		nl::node SkillMacro = nl::nx::ui["UIWindow.img"]["SkillMacro"];
 
-		// Load slot sprite from the standalone SkillMacro NX (UIWindow.img/SkillMacro)
-		nl::node sm = nl::nx::ui["UIWindow.img"]["SkillMacro"];
-		if (sm["slot"].size() > 0)
-		{
-			macro_slot = sm["slot"];
-			// Normalize: draw at pos places top-left at pos (origin -> 0,0)
-			macro_slot.shift(macro_slot.get_origin());
-		}
+		macro_backgrnd = SkillMacro["backgrnd"];
+		macro_dimensions = macro_backgrnd.get_dimensions();
+		macro_band = SkillMacro["macroslot2"];
+		macro_handle_frame = SkillMacro["macroslot1"];
+		macro_slots = SkillMacro["macroslot"];
+		macro_name_frame = SkillMacro["macroname"];
 
-		// Layout for the v83 inline macro panel:
-		//   - 3 rows x 3 slots grid at the top
-		//   - Single name field at the bottom (edits selected row)
-		macro_slots_origin = Point<int16_t>(14, 46);
-		macro_slot_size = 32;
-		macro_slot_gap = 4;          // 32 + 4 = 36 between slot columns
-		macro_row_gap = 12;          // 32 + 12 = 44 between slot rows
+		nl::node CheckBox = nl::nx::ui["Basic.img"]["CheckBox"];
+		macro_check_off = CheckBox["0"];
+		macro_check_on = CheckBox["1"];
 
-		// Text input box baked into the backdrop — centered around (97, 210)
-		// per in-game click measurement.
-		macro_name_origin = Point<int16_t>(60, 200);
-		macro_name_size = Point<int16_t>(120, 20);
-
-		selected_macro = 0;
+		nl::node Macroicon = SkillMacro["Macroicon"];
 
 		for (int16_t i = 0; i < MACRO_COUNT; i++)
 		{
@@ -199,56 +272,25 @@ namespace ms
 			macro_skills[i][1] = 0;
 			macro_skills[i][2] = 0;
 
-			macro_row_icons[i] = std::make_unique<Icon>(
-				std::make_unique<MacroIcon>(i), macro_handle_sprites[i], -1);
+			nl::node icon_src = Macroicon[std::to_string(i)]["icon"];
+
+			// Icon normalises the (0, 32) origin itself, so it gets the raw texture;
+			// the copy used for direct drawing is normalised here instead.
+			macro_row_icons[i] = std::make_unique<Icon>(std::make_unique<MacroIcon>(i), Texture(icon_src), -1);
+			macro_handle_sprites[i] = icon_src;
+			macro_handle_sprites[i].shift(macro_handle_sprites[i].get_origin());
 		}
 
+		buttons[Buttons::BT_MACRO_OK] = std::make_unique<MapleButton>(nl::nx::ui["Basic.img"]["BtOK2"], Point<int16_t>(bg_dimensions.x(), 0) + MACRO_OK_POS);
+
 		{
-			Point<int16_t> field_lt = Point<int16_t>(bg_dimensions.x(), 0) + macro_name_origin;
-			Point<int16_t> field_rb = field_lt + macro_name_size;
+			// Textfield bounds are relative to the element position
+			Point<int16_t> name_lt = Point<int16_t>(bg_dimensions.x(), 0) + MACRO_NAME_POS;
 			macro_name_field = Textfield(
 				Text::A11M, Text::LEFT, Color::Name::BLACK,
-				Rectangle<int16_t>(field_lt, field_rb), 13
+				Rectangle<int16_t>(name_lt + MACRO_NAME_FIELD_LT, name_lt + MACRO_NAME_FIELD_RB), MACRO_NAME_LIMIT
 			);
 		}
-
-
-		nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
-
-		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(close, Point<int16_t>(bg_dimensions.x() - 23, 6));
-
-		nl::node Tab = main["Tab"];
-		nl::node enabled = Tab["enabled"];
-		nl::node disabled = Tab["disabled"];
-
-		for (uint16_t i = Buttons::BT_TAB0; i <= Buttons::BT_TAB4; ++i)
-		{
-			uint16_t tabid = i - Buttons::BT_TAB0;
-			buttons[i] = std::make_unique<TwoSpriteButton>(disabled[tabid], enabled[tabid]);
-		}
-
-		for (uint16_t i = Buttons::BT_SPUP0; i <= Buttons::BT_SPUP3; ++i)
-		{
-			uint16_t row = i - Buttons::BT_SPUP0;
-			Point<int16_t> spup_position = SKILL_OFFSET + Point<int16_t>(124, 20 + row * ROW_HEIGHT);
-			buttons[i] = std::make_unique<MapleButton>(main["BtSpUp"], spup_position);
-		}
-
-		booktext = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, "", 150);
-		splabel = Text(Text::Font::A12M, Text::Alignment::RIGHT, Color::Name::BLACK);
-
-		slider = Slider(
-			Slider::Type::DEFAULT_SILVER, Range<int16_t>(92, 236), 154, ROWS, 1,
-			[&](bool upwards)
-			{
-				int16_t shift = upwards ? -1 : 1;
-				bool above = offset + shift >= 0;
-				bool below = offset + 4 + shift <= skillcount;
-
-				if (above && below)
-					change_offset(offset + shift);
-			}
-		);
 
 		change_job(stats.get_stat(MapleStat::Id::JOB));
 
@@ -262,9 +304,12 @@ namespace ms
 	{
 		UIElement::draw_sprites(alpha);
 
-		bookicon.draw(position + Point<int16_t>(11, 85));
-		booktext.draw(position + Point<int16_t>(95, 59));
-		splabel.draw(position + Point<int16_t>(bg_dimensions.x() - 18, 251));
+		// bookicon is origin-normalised in change_tab, so centre it by its size
+		if (bookicon.is_valid())
+			bookicon.draw(position + BOOK_ICON_CENTER - bookicon.get_dimensions() / 2);
+
+		booktext.draw(position + BOOK_TEXT_POS);
+		splabel.draw(position + SP_LABEL_POS);
 
 		Point<int16_t> skill_position = position + SKILL_OFFSET;
 
@@ -285,14 +330,10 @@ namespace ms
 				}
 
 				skills[idx].draw(skill_position + ICON_OFFSET);
-			}
-			else
-			{
-				skillb.draw(skill_position);
-			}
 
-			if (i < ROWS - 1)
-				line.draw(skill_position + LINE_OFFSET);
+				if (i < ROWS - 1)
+					line.draw(skill_position + LINE_OFFSET);
+			}
 
 			skill_position.shift_y(ROW_HEIGHT);
 		}
@@ -301,89 +342,53 @@ namespace ms
 
 		if (macro_enabled)
 		{
-			Point<int16_t> macro_pos = position + Point<int16_t>(bg_dimensions.x(), 0);
+			Point<int16_t> macro_pos = macro_panel_pos();
 
-			macro_backgrnd.draw(macro_pos + Point<int16_t>(1, 0));
-			macro_backgrnd2.draw(macro_pos);
-			macro_backgrnd3.draw(macro_pos);
+			macro_backgrnd.draw(macro_pos);
 
-			// Row-selection highlight (drawn under the slot grid)
-			if (macro_select_sprite.is_valid())
-			{
-				Point<int16_t> row_tl = macro_pos + macro_slots_origin
-					+ Point<int16_t>(-1, selected_macro * (macro_slot_size + macro_row_gap) - 6);
-				macro_select_sprite.draw(DrawArgument(row_tl));
-			}
-
-			// Per-row macro activation icon at the right end of each row.
-			// The Macroicon sprite has origin (0, 32) so texture.draw
-			// subtracts that — pass +32 on Y to land on the target top.
-			int16_t handle_x = macro_slots_origin.x() + 3 * macro_slot_size + 2 * macro_slot_gap + 20;
-			int16_t handle_y_offset = -6;  // nudge up
 			for (int16_t i = 0; i < MACRO_COUNT; i++)
 			{
-				if (!macro_handle_sprites[i].is_valid()) continue;
-				Point<int16_t> h_pos = macro_pos + Point<int16_t>(
-					handle_x,
-					macro_slots_origin.y() + i * (macro_slot_size + macro_row_gap)
-						+ handle_y_offset + 32);
-				macro_handle_sprites[i].draw(DrawArgument(h_pos));
-			}
+				Point<int16_t> row_pos = macro_row_pos(i);
 
-			// 3x3 macro skill slot grid
-			for (int16_t i = 0; i < MACRO_COUNT; i++)
-			{
+				macro_band.draw(row_pos);
+				macro_handle_frame.draw(row_pos + MACRO_HANDLE_FRAME_OFFSET);
+				macro_slots.draw(row_pos + MACRO_SLOTS_OFFSET);
+
+				// Drag handle: the row's own Macroicon style
+				if (macro_handle_sprites[i].is_valid())
+					macro_handle_sprites[i].draw(macro_handle_pos(i));
+
 				for (int16_t s = 0; s < 3; s++)
 				{
-					Point<int16_t> slot_pos = macro_pos + macro_slots_origin + Point<int16_t>(
-						s * (macro_slot_size + macro_slot_gap),
-						i * (macro_slot_size + macro_row_gap)
-					);
-
 					int32_t skillid = macro_skills[i][s];
 
-					if (skillid > 0)
-					{
-						const SkillData& data = SkillData::get(skillid);
-						Texture icon = data.get_icon(SkillData::Icon::NORMAL);
+					if (skillid <= 0)
+						continue;
 
-						if (icon.is_valid())
-						{
-							icon.shift(Point<int16_t>(0, 32));
-							// Third column nudged a bit further left so it
-							// lines up with the backdrop's right cutout.
-							int16_t icon_dx = (s == 2) ? -2 : 1;
-							icon.draw(DrawArgument(slot_pos + Point<int16_t>(icon_dx, -2)));
-						}
-					}
+					Texture icon = SkillData::get(skillid).get_icon(SkillData::Icon::NORMAL);
+
+					if (!icon.is_valid())
+						continue;
+
+					// Skill icons carry a bottom-left origin; draw top-left on the slot box
+					icon.shift(icon.get_origin());
+					icon.draw(macro_slot_pos(i, s));
 				}
 			}
 
-			// Bottom name field (for currently selected row)
+			// Name box: preview icon of the selected row, the typed name and the shout checkbox
+			Point<int16_t> name_pos = macro_name_pos();
+
+			macro_name_frame.draw(name_pos);
+
+			if (macro_handle_sprites[selected_macro].is_valid())
+				macro_handle_sprites[selected_macro].draw(name_pos + MACRO_NAME_ICON_OFFSET);
+
 			macro_name_field.draw(position);
 
-			// Preview slot to the left of the name field — shows the
-			// macro icon for the currently selected row.
-			if (selected_macro >= 0 && selected_macro < MACRO_COUNT
-				&& macro_handle_sprites[selected_macro].is_valid())
-			{
-				Point<int16_t> preview_pos = macro_pos + Point<int16_t>(15, 189);
-				// Macroicon origin is (0, 32) so the texture's top-left
-				// is at draw_pos.y - 32 — shift y by +32 to land it on
-				// the intended spot.
-				macro_handle_sprites[selected_macro].draw(
-					DrawArgument(preview_pos + Point<int16_t>(0, 32)));
-			}
-
-			// Shout checkbox state indicator — real NX sprite drawn at
-			// its own origin (-161, -235) inside the macro panel.
-			if (macro_shouts[selected_macro] && macro_check_sprite.is_valid())
-			{
-				Point<int16_t> macro_pos = position + Point<int16_t>(bg_dimensions.x(), 0);
-				macro_check_sprite.draw(DrawArgument(macro_pos));
-			}
+			const Texture& check = macro_shouts[selected_macro] ? macro_check_on : macro_check_off;
+			check.draw(name_pos + MACRO_SHOUT_CHECK_OFFSET);
 		}
-
 
 		UIElement::draw_buttons(alpha);
 	}
@@ -413,9 +418,6 @@ namespace ms
 
 	Button::State UISkillBook::button_pressed(uint16_t id)
 	{
-		std::string sp_text = splabel.get_text();
-		int16_t cur_sp = sp_text.empty() ? 0 : std::stoi(sp_text);
-
 		switch (id)
 		{
 		case Buttons::BT_CLOSE:
@@ -442,9 +444,6 @@ namespace ms
 			save_macros();
 			set_macro(false);
 			break;
-		case Buttons::BT_HYPER:
-		case Buttons::BT_GUILDSKILL:
-		case Buttons::BT_RIDE:
 		default:
 			break;
 		}
@@ -494,12 +493,12 @@ namespace ms
 
 		if (macro_enabled)
 		{
-			// Shout checkbox baked into backdrop around (152, 236).
+			// Shout checkbox next to the "SHOUT SKILL NAME" strip
 			if (clicked)
 			{
-				Point<int16_t> cb_tl = position + Point<int16_t>(bg_dimensions.x(), 0)
-					+ Point<int16_t>(144, 228);
-				Rectangle<int16_t> cb_rect(cb_tl, cb_tl + Point<int16_t>(18, 18));
+				Point<int16_t> cb_lt = macro_name_pos() + MACRO_SHOUT_CHECK_OFFSET - Point<int16_t>(1, 1);
+				Rectangle<int16_t> cb_rect(cb_lt, cb_lt + Point<int16_t>(MACRO_SHOUT_CHECK_HIT, MACRO_SHOUT_CHECK_HIT));
+
 				if (cb_rect.contains(cursorpos))
 				{
 					macro_shouts[selected_macro] = !macro_shouts[selected_macro];
@@ -512,41 +511,38 @@ namespace ms
 			if (tstate != Cursor::State::IDLE)
 				return tstate;
 
-			if (clicked)
+			for (int16_t i = 0; i < MACRO_COUNT; i++)
 			{
-				Point<int16_t> macro_pos = position + Point<int16_t>(bg_dimensions.x(), 0);
-				int16_t handle_x = macro_slots_origin.x() + 3 * macro_slot_size + 2 * macro_slot_gap + 20;
-				int16_t handle_y_offset = -6;
+				// Draggable macro handle at the left end of the row
+				Point<int16_t> h_lt = macro_handle_pos(i);
+				Rectangle<int16_t> h_rect(h_lt, h_lt + Point<int16_t>(MACRO_SLOT_SIZE, MACRO_SLOT_SIZE));
 
-				for (int16_t i = 0; i < MACRO_COUNT; i++)
+				if (h_rect.contains(cursorpos))
 				{
-					// Draggable macro handle at the right end of the row.
-					Point<int16_t> h_tl = macro_pos + Point<int16_t>(
-						handle_x,
-						macro_slots_origin.y() + i * (macro_slot_size + macro_row_gap) + handle_y_offset);
-					Rectangle<int16_t> h_rect(h_tl, h_tl + Point<int16_t>(32, 32));
-
-					if (h_rect.contains(cursorpos))
+					if (clicked)
 					{
 						macro_select_row(i);
+
 						if (macro_row_icons[i])
 						{
-							macro_row_icons[i]->start_drag(cursorpos - h_tl);
+							macro_row_icons[i]->start_drag(cursorpos - h_lt);
 							UI::get().drag_icon(macro_row_icons[i].get());
 						}
+
 						return Cursor::State::GRABBING;
 					}
 
-					// Slot grid — click selects the row for name editing.
-					Point<int16_t> row_tl = macro_pos + macro_slots_origin + Point<int16_t>(0, i * (macro_slot_size + macro_row_gap));
-					Point<int16_t> row_br = row_tl + Point<int16_t>(3 * macro_slot_size + 2 * macro_slot_gap, macro_slot_size);
-					Rectangle<int16_t> row_rect(row_tl, row_br);
+					return Cursor::State::CANGRAB;
+				}
 
-					if (row_rect.contains(cursorpos))
-					{
-						macro_select_row(i);
-						return Cursor::State::CLICKING;
-					}
+				// Anywhere else on the band selects the row for name editing
+				Point<int16_t> row_lt = macro_row_pos(i);
+				Rectangle<int16_t> row_rect(row_lt, row_lt + macro_band.get_dimensions());
+
+				if (clicked && row_rect.contains(cursorpos))
+				{
+					macro_select_row(i);
+					return Cursor::State::CLICKING;
 				}
 			}
 		}
@@ -589,7 +585,7 @@ namespace ms
 				if (idx >= skills.size())
 					break;
 
-				constexpr Rectangle<int16_t> bounds = Rectangle<int16_t>(0, 148, 0, 32);
+				constexpr Rectangle<int16_t> bounds = Rectangle<int16_t>(0, ROW_WIDTH, 0, ROW_ART_HEIGHT);
 				Point<int16_t> icon_pos = skill_position + ICON_OFFSET;
 				bool inrange = bounds.contains(cursorpos - skill_position);
 
@@ -769,14 +765,16 @@ namespace ms
 		uint16_t subid = job.get_subjob(joblevel);
 
 		const JobData& data = JobData::get(subid);
+		// Normalise the origin so draw() can centre the icon in the frame by size
 		bookicon = data.get_icon();
+		bookicon.shift(bookicon.get_origin());
 		booktext.change_text(data.get_name());
 
 		// Union of two sources, both filtered to prefix == subid:
-		//  (a) NX Skill.wz/<subid>.img — full job tree, so unlearned
+		//  (a) NX Skill.wz/<subid>.img - full job tree, so unlearned
 		//      skills appear as grey 0-level rows.
 		//  (b) skillbook entries the server has granted whose prefix
-		//      (sid / 10000) matches subid — covers anything the server
+		//      (sid / 10000) matches subid - covers anything the server
 		//      assigned that NX doesn't list.
 		// Both lists are filtered by prefix so unrelated branches
 		// (e.g. Aran skills on an Explorer beginner) never appear.
@@ -784,14 +782,14 @@ namespace ms
 		auto push = [&](int32_t sid)
 		{
 			// Common prefix-0 skills (000.img, e.g. Monster Riding 1004)
-			// belong on the beginner tab of every tree — GM (900) included.
+			// belong on the beginner tab of every tree - GM (900) included.
 			bool common_on_beginner = sid / 10000 == 0 && joblevel == Job::Level::BEGINNER;
 
 			if (sid / 10000 != static_cast<int32_t>(subid) && !common_on_beginner)
 				return;
 			// NX flags mount/item-tied skills (Balrog, spaceship, custom
 			// riding) and many GM/utility skills with invisible = 1. Hide those
-			// only while UNLEARNED — a learned invisible skill (e.g. a GM's Hide
+			// only while UNLEARNED - a learned invisible skill (e.g. a GM's Hide
 			// or a granted skill) should still show, matching the vanilla client.
 			if (SkillData::get(sid).is_invisible() && skillbook.get_level(sid) == 0)
 				return;
@@ -919,7 +917,7 @@ namespace ms
 	{
 		int16_t x = cursorpos.x();
 
-		if (x < SKILL_OFFSET.x() || x > 148)
+		if (x < SKILL_OFFSET.x() || x > SKILL_OFFSET.x() + ROW_WIDTH)
 			return nullptr;
 
 		int16_t y = cursorpos.y();
@@ -965,17 +963,43 @@ namespace ms
 		return true;
 	}
 
+	/// Macro panel geometry
+	Point<int16_t> UISkillBook::macro_panel_pos() const
+	{
+		return position + Point<int16_t>(bg_dimensions.x(), 0);
+	}
+
+	Point<int16_t> UISkillBook::macro_row_pos(int16_t row) const
+	{
+		return macro_panel_pos() + Point<int16_t>(MACRO_ROW_X, MACRO_ROW_Y + row * MACRO_ROW_PITCH);
+	}
+
+	Point<int16_t> UISkillBook::macro_handle_pos(int16_t row) const
+	{
+		return macro_row_pos(row) + MACRO_HANDLE_OFFSET;
+	}
+
+	Point<int16_t> UISkillBook::macro_slot_pos(int16_t row, int16_t slot) const
+	{
+		return macro_row_pos(row) + MACRO_SLOTS_OFFSET + Point<int16_t>(MACRO_SLOT_X + slot * MACRO_SLOT_PITCH, MACRO_SLOT_Y);
+	}
+
+	Point<int16_t> UISkillBook::macro_name_pos() const
+	{
+		return macro_panel_pos() + MACRO_NAME_POS;
+	}
+
 	void UISkillBook::set_macro(bool enabled)
 	{
 		macro_enabled = enabled;
 
 		if (macro_enabled)
 		{
-			// Extend dimension to cover the inline macro panel so drops over it hit this UI.
-			int16_t panel_w = macro_backgrnd.get_dimensions().x();
-			int16_t panel_h = std::max<int16_t>(bg_dimensions.y(),
-				macro_name_origin.y() + macro_name_size.y() + 16);
-			dimension = Point<int16_t>(bg_dimensions.x() + panel_w, panel_h);
+			// Extend dimension to cover the docked macro panel so drops over it hit this UI.
+			dimension = Point<int16_t>(
+				bg_dimensions.x() + macro_dimensions.x(),
+				std::max<int16_t>(bg_dimensions.y(), macro_dimensions.y())
+			);
 		}
 		else
 		{
@@ -1030,7 +1054,7 @@ namespace ms
 		if (index < 0 || index >= MACRO_COUNT)
 			return;
 
-		// Queue all 3 skills — update() fires them one at a time as
+		// Queue all 3 skills - update() fires them one at a time as
 		// the player becomes ready to attack again, so the second and
 		// third don't get swallowed by can_attack() == false.
 		pending_macro_skills.clear();
@@ -1077,17 +1101,12 @@ namespace ms
 		if (skill_id == 0)
 			return true;
 
-		Point<int16_t> macro_pos = position + Point<int16_t>(bg_dimensions.x(), 0);
-
 		for (int16_t i = 0; i < MACRO_COUNT; i++)
 		{
 			for (int16_t s = 0; s < 3; s++)
 			{
-				Point<int16_t> slot_pos = macro_pos + macro_slots_origin + Point<int16_t>(
-					s * (macro_slot_size + macro_slot_gap),
-					i * (macro_slot_size + macro_row_gap)
-				);
-				Rectangle<int16_t> slot_rect(slot_pos, slot_pos + Point<int16_t>(macro_slot_size, macro_slot_size));
+				Point<int16_t> slot_lt = macro_slot_pos(i, s);
+				Rectangle<int16_t> slot_rect(slot_lt, slot_lt + Point<int16_t>(MACRO_SLOT_SIZE, MACRO_SLOT_SIZE));
 
 				if (slot_rect.contains(cursorpos))
 				{
@@ -1099,5 +1118,4 @@ namespace ms
 
 		return true;
 	}
-
 }

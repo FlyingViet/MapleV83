@@ -19,6 +19,7 @@
 
 #include "../UIDragElement.h"
 #include "../Components/Icon.h"
+#include "../Components/Slider.h"
 
 #include "../../Character/Inventory/Inventory.h"
 #include "../../Character/Inventory/InventoryType.h"
@@ -29,6 +30,13 @@
 
 namespace ms
 {
+	// v83 storage (UIWindow.img/Trunk, 463x318). Two list panels:
+	//   left  (x 3..229)  - storage keeper portrait, 5 rows of stored items
+	//                       (current tab), storage meso box
+	//   right (x 233..459) - player portrait, inventory tabs, 4 rows of the
+	//                       player's items, wallet meso box
+	// Items are shown as icon + name rows (not a cube grid); each panel
+	// scrolls with the Basic.img VScr slider in its white track.
 	class UIStorage : public UIDragElement<PosSTORAGE>
 	{
 	public:
@@ -71,6 +79,38 @@ namespace ms
 		Button::State button_pressed(uint16_t buttonid) override;
 
 	private:
+		/// v83 layout constants (pixel-measured on UIWindow.img/Trunk/backgrnd)
+		// Row art: 34 px icon box (x 7..40) + 162 px name strip (x 43..204),
+		// 35 px tall, repeated every 40 px. The left panel has no tab band
+		// so its rows start higher and it fits one more row.
+		static constexpr int16_t ROW_PITCH = 40;
+		static constexpr int16_t ROW_ART_H = 35;
+		static constexpr int16_t ROW_W = 198;
+		static constexpr int16_t NAME_STRIP_DX = 36;
+		static constexpr int16_t STORAGE_X = 7;
+		static constexpr int16_t STORAGE_ROW_Y = 88;
+		static constexpr int16_t STORAGE_ROWS = 5;
+		static constexpr int16_t INVENTORY_X = 237;
+		static constexpr int16_t INVENTORY_ROW_Y = 127;
+		static constexpr int16_t INVENTORY_ROWS = 4;
+		// Panel split (the 2 px frame between the panels)
+		static constexpr int16_t PANEL_DIVIDER_X = 231;
+		// Scrollbar columns (12 px LINE_CYAN VScr in the white tracks)
+		static constexpr int16_t STORAGE_SLIDER_X = 212;
+		static constexpr int16_t INVENTORY_SLIDER_X = 442;
+		static constexpr int16_t SLIDER_BOTTOM = 270;
+		// Tab band (y 91..115) on the right panel; text bitmaps 9-12 px tall
+		static constexpr int16_t TAB_Y = 97;
+		static constexpr int16_t TAB_X = 245;
+		static constexpr int16_t TAB_GAP = 12;
+		// Portrait feet (shadow blobs in the header boxes)
+		static constexpr Point<int16_t> NPC_POS = Point<int16_t>(53, 78);
+		static constexpr Point<int16_t> CHAR_POS = Point<int16_t>(283, 78);
+		// Meso boxes (y 296..309): x 43..194 (storage) and 274..424 (wallet),
+		// each followed by a baked-in "mesos" label; text is right-aligned
+		static constexpr Point<int16_t> STORAGE_MESO_POS = Point<int16_t>(192, 296);
+		static constexpr Point<int16_t> PLAYER_MESO_POS = Point<int16_t>(422, 296);
+
 		// Icon type for storage items (drag from storage = take out)
 		class StorageItemIcon : public Icon::Type
 		{
@@ -133,14 +173,19 @@ namespace ms
 		void close_with_packet();
 
 		uint16_t button_by_tab(InventoryType::Id type) const;
+		// Index of the Trunk/Tab bitmap ("0" Equip, "1" Use, "2" Set-up, "3" Etc, "4" Cash)
+		static int16_t tab_art_index(InventoryType::Id type);
 
-		// Grid position helpers
+		// Row position helpers. "Visual slot" = index into the panel's
+		// slot_map; rows scroll by the panel's offset.
 		int16_t storage_slot_by_cursor(Point<int16_t> cursoroffset) const;
 		int16_t inventory_slot_by_cursor(Point<int16_t> cursoroffset) const;
 		Point<int16_t> storage_icon_pos(int16_t index) const;
 		Point<int16_t> inventory_icon_pos(int16_t index) const;
 		bool in_left_panel(Point<int16_t> cursoroffset) const;
 		bool in_right_panel(Point<int16_t> cursoroffset) const;
+		// Draw one item row (icon, count, name) at the row's top-left
+		void draw_row(Point<int16_t> rowpos, int32_t itemid, int16_t count, const Text& name, bool dragged, float alpha) const;
 
 		const Inventory& inventory;
 
@@ -158,14 +203,18 @@ namespace ms
 		std::vector<InventoryEntry> inventory_items;
 
 		// Icon objects for drag-and-drop (keyed by item index in the
-		// tab's item vector, not by visual cell).
+		// tab's item vector, not by visual row).
 		std::map<int16_t, std::unique_ptr<Icon>> storage_icons;
 		std::map<int16_t, std::unique_ptr<Icon>> inv_icons;
 
-		// Visual layout tables: slot_map[visual_cell] = item index (or -1).
+		// Item name labels, parallel to the tab's item vectors
+		std::vector<Text> storage_names;
+		std::vector<Text> inventory_names;
+
+		// Visual layout tables: slot_map[visual_row] = item index (or -1).
 		// Rebuilt on refresh; mutated on same-panel drag/drop so the user
-		// can place items in any cube instead of being forced into the
-		// server's dense 0..N-1 order.
+		// can reorder rows instead of being forced into the server's
+		// dense 0..N-1 order.
 		std::vector<int16_t> storage_slot_map;
 		std::vector<int16_t> inventory_slot_map;
 
@@ -177,15 +226,24 @@ namespace ms
 
 		int16_t drag_source_slot;
 
-		Texture disabled_slot;
-		Texture meso_icon;
+		// Row highlights: Trunk/select (162x35 name strip) for the
+		// selected rows, Trunk/en (199x35 full row) for the hovered row
+		Texture select_row;
+		Texture hover_row;
 		Animation npc_anim;
-		Animation newitemslot;
 		Text storage_mesolabel;
 		Text player_mesolabel;
 
+		// List scrolling
+		Slider storage_slider;
+		Slider inventory_slider;
+		int16_t storage_offset;
+		int16_t inventory_offset;
+		int16_t hover_storage_row;
+		int16_t hover_inventory_row;
+
 		InventoryType::Id current_tab;
-		// Multi-select — click toggles each item in/out of the set.
+		// Multi-select — right-click toggles each item in/out of the set.
 		// Retrieve / Store buttons act on every selected item.
 		std::set<int16_t> storage_selection;
 		std::set<int16_t> inventory_selection;
@@ -206,14 +264,6 @@ namespace ms
 		int32_t storage_meso;
 		uint8_t storage_slots;
 		int32_t npc_id;
-
-		// Grid layout params
-		int16_t storage_grid_x, storage_grid_y;
-		int16_t inventory_grid_x, inventory_grid_y;
-		int16_t cell_size;
-		int16_t storage_cols, inventory_cols;
-		int16_t storage_rows, inventory_rows;
-		int16_t panel_divider_x;
 
 		enum Buttons : int16_t
 		{

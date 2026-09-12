@@ -26,6 +26,11 @@
 
 namespace ms
 {
+	// v83 NPC shop (UIWindow.img/Shop, 463x339). Two panels:
+	//   left  (x 3..229)  - shopkeeper portrait, buy-side category tabs,
+	//                       5 rows of NPC stock, BtBuy / BtRecharge
+	//   right (x 233..459) - player portrait + meso box, inventory tabs,
+	//                       5 rows of the player's items, BtSell / BtExit
 	class UIShop : public UIDragElement<PosSHOP>
 	{
 	public:
@@ -62,6 +67,36 @@ namespace ms
 		Button::State button_pressed(uint16_t buttonid) override;
 
 	private:
+		/// v83 layout constants (pixel-measured on UIWindow.img/Shop/backgrnd)
+		// Visible item rows per panel and their pitch; each row's art is a
+		// 34 px icon box (x 7..40) plus a 162 px name strip (x 43..204),
+		// both 35 px tall starting 3 px below the row top.
+		static constexpr int16_t ROWS = 5;
+		static constexpr int16_t ROW_Y = 124;
+		static constexpr int16_t ROW_PITCH = 40;
+		static constexpr int16_t ROW_ART_Y = 3;
+		static constexpr int16_t ROW_ART_H = 35;
+		static constexpr int16_t ROW_W = 198;
+		// Left edge of each panel's icon box
+		static constexpr int16_t BUY_X = 7;
+		static constexpr int16_t SELL_X = 237;
+		// Name strip / "select" highlight offset from the row's left edge
+		static constexpr int16_t NAME_STRIP_DX = 36;
+		// Scrollbar column (12 px LINE_CYAN VScr) in the white track right of the rows
+		static constexpr int16_t BUY_SLIDER_X = 212;
+		static constexpr int16_t SELL_SLIDER_X = 442;
+		static constexpr int16_t SLIDER_TOP = 124;
+		static constexpr int16_t SLIDER_BOTTOM = 310;
+		// Tab band (y 91..115); tab text bitmaps are 9-15 px tall
+		static constexpr int16_t TAB_Y = 97;
+		static constexpr int16_t BUY_TAB_X = 12;
+		static constexpr int16_t TAB_GAP = 12;
+		// Portrait feet positions (shadow blobs in the header boxes)
+		static constexpr Point<int16_t> NPC_POS = Point<int16_t>(53, 78);
+		static constexpr Point<int16_t> CHAR_POS = Point<int16_t>(283, 78);
+		// Meso box (x 361..450, y 63..80) in the right header; text is right-aligned
+		static constexpr Point<int16_t> MESO_TEXT_POS = Point<int16_t>(448, 65);
+
 		void clear_tooltip();
 		void show_item(int16_t slot, bool sale);
 		void changeselltab(InventoryType::Id tab);
@@ -70,13 +105,15 @@ namespace ms
 		uint16_t buy_tab_by_inventory(InventoryType::Id type);
 		void changebuytab(InventoryType::Id type);
 		void exit_shop();
+		// Index of the TabSell bitmap ("0" Equip, "1" Use, "2" Set-up, "3" Etc, "4" Cash)
+		static int16_t tab_art_index(InventoryType::Id type);
 
 		enum Buttons : int16_t
 		{
 			BUY_ITEM,
 			SELL_ITEM,
 			EXIT,
-			CHECKBOX,
+			RECHARGE,
 			OVERALL,
 			EQUIP,
 			USE,
@@ -93,19 +130,11 @@ namespace ms
 			BUY2,
 			BUY3,
 			BUY4,
-			BUY5,
-			BUY6,
-			BUY7,
-			BUY8,
 			SELL0,
 			SELL1,
 			SELL2,
 			SELL3,
 			SELL4,
-			SELL5,
-			SELL6,
-			SELL7,
-			SELL8,
 			NUM_BUTTONS
 		};
 
@@ -116,16 +145,9 @@ namespace ms
 		Texture buy_selection;
 		Texture sell_selection;
 		Texture meso;
-		// Single shared meso-coin animation overlaid on every item's
-		// price row, so all items blink in sync.
-		Animation meso_anim;
 		int32_t currency_item = 0;
 		Texture currency_icon;
 		std::string currency_name;
-		// Local frame counter for the char portrait so it animates
-		// independently of whatever the player's world char is doing.
-		mutable uint8_t charframe = 0;
-		mutable uint16_t charframe_delay = 0;
 		Text mesolabel;
 
 		Slider buyslider;
@@ -135,8 +157,6 @@ namespace ms
 		int16_t buy_width;
 		int16_t sell_x;
 		int16_t sell_width;
-
-		BoolPair<Texture> checkBox;
 
 		bool rightclicksell;
 
@@ -228,6 +248,7 @@ namespace ms
 			void draw(Point<int16_t> position, const Texture& selected) const;
 			void show_item(int16_t slot);
 			void sell(bool skip_confirmation) const;
+			void recharge() const;
 			void select(int16_t selected);
 		};
 

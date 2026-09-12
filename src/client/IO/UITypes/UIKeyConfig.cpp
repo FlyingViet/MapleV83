@@ -40,27 +40,40 @@ namespace ms
 		keyboard = &UI::get().get_keyboard();
 		staged_mappings = keyboard->get_maplekeys();
 
-		nl::node KeyConfig = nl::nx::ui["UIWindow2.img"]["KeyConfig"];
+		// v83: everything lives directly under UIWindow.img/KeyConfig (no UIWindow2)
+		nl::node KeyConfig = nl::nx::ui["UIWindow.img"]["KeyConfig"];
 
 		icon = KeyConfig["icon"];
 
-		sprites.emplace_back(KeyConfig["backgrnd"]);
-		sprites.emplace_back(KeyConfig["backgrnd2"]);
-		sprites.emplace_back(KeyConfig["backgrnd3"]);
+		// The v83 backgrnd (629x373) carries a centred origin (314, 186); drawing
+		// it at that origin puts its top-left corner on the element's origin, so
+		// every other coordinate in this file is relative to the bitmap's corner.
+		// v83 has no backgrnd2/backgrnd3 layers.
+		Texture backgrnd = KeyConfig["backgrnd"];
+		Point<int16_t> bg_dimensions = backgrnd.get_dimensions();
+		sprites.emplace_back(KeyConfig["backgrnd"], DrawArgument(backgrnd.get_origin()));
 
-		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(KeyConfig["BtCancel"]);
-		buttons[Buttons::DEFAULT] = std::make_unique<MapleButton>(KeyConfig["BtDefault"]);
-		buttons[Buttons::DELETE] = std::make_unique<MapleButton>(KeyConfig["BtDelete"]);
-		buttons[Buttons::KEYSETTING] = std::make_unique<MapleButton>(KeyConfig["BtQuickSlot"]);
-		buttons[Buttons::OK] = std::make_unique<MapleButton>(KeyConfig["BtOK"]);
+		// v83 button bitmaps have a (0, 0) origin, so they need explicit positions.
+		// The keyboard panel ends at y 232 and the unbound-icon grid's divider is
+		// at y 261; the 29 px strip between them is the button row (18 px tall
+		// buttons at y 237). BtQuickSlot (96x18) sits at the left; Default (60),
+		// Delete (77), OK (47) and Cancel (47) are right-aligned to the panel edge
+		// x 620 with 4 px gaps. BtClose (12x12) goes at the right end of the title
+		// bar (y 6..19).
+		buttons[Buttons::CLOSE] = std::make_unique<MapleButton>(KeyConfig["BtClose"], Point<int16_t>(606, 7));
+		buttons[Buttons::KEYSETTING] = std::make_unique<MapleButton>(KeyConfig["BtQuickSlot"], Point<int16_t>(10, 237));
+		buttons[Buttons::DEFAULT] = std::make_unique<MapleButton>(KeyConfig["BtDefault"], Point<int16_t>(377, 237));
+		buttons[Buttons::DELETE] = std::make_unique<MapleButton>(KeyConfig["BtDelete"], Point<int16_t>(441, 237));
+		buttons[Buttons::OK] = std::make_unique<MapleButton>(KeyConfig["BtOK"], Point<int16_t>(522, 237));
+		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(KeyConfig["BtCancel"], Point<int16_t>(573, 237));
 
-		dimension = Point<int16_t>(622, 374);
-		dragarea = Point<int16_t>(622, 20);
+		dimension = bg_dimensions;
+		dragarea = Point<int16_t>(bg_dimensions.x(), 20);
 
 		// Center on screen
 		int16_t screen_w = Constants::Constants::get().get_viewwidth();
 		int16_t screen_h = Constants::Constants::get().get_viewheight();
-		position = Point<int16_t>((screen_w - 622) / 2, (screen_h - 374) / 2);
+		position = Point<int16_t>((screen_w - bg_dimensions.x()) / 2, (screen_h - bg_dimensions.y()) / 2);
 
 		load_keys_pos();
 		load_unbound_actions_pos();
@@ -76,7 +89,13 @@ namespace ms
 	/// Load
 	void UIKeyConfig::load_keys_pos()
 	{
-		// Positions from LibreMaple — hardcoded per-key to match the background image exactly
+		// Positions from LibreMaple, hardcoded per-key. Verified against the v83
+		// UIWindow.img/KeyConfig/backgrnd: its white key caps are 28x25 and sit on
+		// rows y 29/68/101/134/167/200 (F-row, numbers, QWERTY, ASDF, ZXCV, bottom)
+		// 34 px apart; each keys_pos is the top-left of the 32x32 icon slot, i.e.
+		// cap - (4, 1) on the letter rows, so the icon overhangs the cap by ~2 px
+		// on every side. The values below match that within 1-2 px except the
+		// ones marked "v83 fix", which pointed at a neighbouring cap.
 
 		// F-key row (y=28)
 		keys_pos[KeyConfig::Key::ESCAPE] = Point<int16_t>(11, 28);
@@ -137,7 +156,7 @@ namespace ms
 		keys_pos[KeyConfig::Key::APOSTROPHE] = Point<int16_t>(418, 132);
 
 		// ZXCV row (y=165)
-		keys_pos[KeyConfig::Key::LEFT_SHIFT] = Point<int16_t>(36, 165);
+		keys_pos[KeyConfig::Key::LEFT_SHIFT] = Point<int16_t>(30, 165); // v83 fix: Shift cap x 15..75, centre 45
 		keys_pos[KeyConfig::Key::Z] = Point<int16_t>(95, 165);
 		keys_pos[KeyConfig::Key::X] = Point<int16_t>(129, 165);
 		keys_pos[KeyConfig::Key::C] = Point<int16_t>(163, 165);
@@ -147,14 +166,14 @@ namespace ms
 		keys_pos[KeyConfig::Key::M] = Point<int16_t>(299, 165);
 		keys_pos[KeyConfig::Key::COMMA] = Point<int16_t>(333, 165);
 		keys_pos[KeyConfig::Key::PERIOD] = Point<int16_t>(367, 165);
-		keys_pos[KeyConfig::Key::RIGHT_SHIFT] = Point<int16_t>(407, 165);
+		keys_pos[KeyConfig::Key::RIGHT_SHIFT] = Point<int16_t>(455, 165); // v83 fix: cap x 439..500 (407 was the "/" cap)
 
 		// Bottom row (y=198)
 		keys_pos[KeyConfig::Key::LEFT_CONTROL] = Point<int16_t>(19, 198);
 		keys_pos[KeyConfig::Key::LEFT_ALT] = Point<int16_t>(120, 198);
 		keys_pos[KeyConfig::Key::SPACE] = Point<int16_t>(231, 198);
-		keys_pos[KeyConfig::Key::RIGHT_ALT] = Point<int16_t>(362, 198);
-		keys_pos[KeyConfig::Key::RIGHT_CONTROL] = Point<int16_t>(453, 198);
+		keys_pos[KeyConfig::Key::RIGHT_ALT] = Point<int16_t>(346, 198); // v83 fix: cap x 337..386 (362 straddled Alt and the menu key)
+		keys_pos[KeyConfig::Key::RIGHT_CONTROL] = Point<int16_t>(458, 198); // v83: cap x 449..500, centre 474
 
 		// Quickslot keys
 		keys_pos[KeyConfig::Key::INSERT] = Point<int16_t>(511, 65);
@@ -164,12 +183,20 @@ namespace ms
 		keys_pos[KeyConfig::Key::END] = Point<int16_t>(545, 99);
 		keys_pos[KeyConfig::Key::PAGE_DOWN] = Point<int16_t>(579, 99);
 
-		keys_pos[KeyConfig::Key::SCROLL_LOCK] = Point<int16_t>(511, 28);
+		keys_pos[KeyConfig::Key::SCROLL_LOCK] = Point<int16_t>(545, 28); // v83 fix: Slk is the middle cap of Psc/Slk/Brk (x 549..576); 511 was Psc
 	}
 
 	void UIKeyConfig::load_unbound_actions_pos()
 	{
-		int16_t row_x = 5;
+		// v83 backgrnd: the unbound-icon grid is 18 x 3 cells of 28x28 at
+		// (10 + 34 * col, 269 + 34 * row); a 32x32 icon centred on a cell starts
+		// 2 px up-left of it, hence (8, 267). There is no fourth row on the v83
+		// bitmap (it ends at y 373), so the face icons, which used to have their
+		// own row, take the free cells at the end of row 2, and the actions that
+		// have no v83 icon (KeyConfig/icon stops at index 27 apart from 50..54
+		// and 100..106, so load_action_icons never creates them) are parked on
+		// the off-bitmap fourth row instead.
+		int16_t row_x = 8;
 		int16_t row_y = 267;
 
 		int16_t slot_width = 34;
@@ -220,22 +247,25 @@ namespace ms
 		unbound_actions_pos[KeyAction::Id::MAINMENU] = Point<int16_t>(row_x + (slot_width * 3), row_y + (slot_height * 2));
 		unbound_actions_pos[KeyAction::Id::SCREENSHOT] = Point<int16_t>(row_x + (slot_width * 4), row_y + (slot_height * 2));
 		unbound_actions_pos[KeyAction::Id::FAMILY] = Point<int16_t>(row_x + (slot_width * 5), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::SILENTCRUSADE] = Point<int16_t>(row_x + (slot_width * 6), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::MANAGELEGION] = Point<int16_t>(row_x + (slot_width * 7), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::BATTLEANALYSIS] = Point<int16_t>(row_x + (slot_width * 8), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::GUIDE] = Point<int16_t>(row_x + (slot_width * 9), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::ENHANCEEQUIP] = Point<int16_t>(row_x + (slot_width * 10), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::MONSTERCOLLECTION] = Point<int16_t>(row_x + (slot_width * 11), row_y + (slot_height * 2));
-		unbound_actions_pos[KeyAction::Id::MAPLENEWS] = Point<int16_t>(row_x + (slot_width * 12), row_y + (slot_height * 2));
+		// Faces (icons 100..106 exist in v83) fill the rest of row 2
+		unbound_actions_pos[KeyAction::Id::FACE1] = Point<int16_t>(row_x + (slot_width * 6), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE2] = Point<int16_t>(row_x + (slot_width * 7), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE3] = Point<int16_t>(row_x + (slot_width * 8), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE4] = Point<int16_t>(row_x + (slot_width * 9), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE5] = Point<int16_t>(row_x + (slot_width * 10), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE6] = Point<int16_t>(row_x + (slot_width * 11), row_y + (slot_height * 2));
+		unbound_actions_pos[KeyAction::Id::FACE7] = Point<int16_t>(row_x + (slot_width * 12), row_y + (slot_height * 2));
 
-		// Row 3: Faces
-		unbound_actions_pos[KeyAction::Id::FACE1] = Point<int16_t>(row_x + (slot_width * 0), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE2] = Point<int16_t>(row_x + (slot_width * 1), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE3] = Point<int16_t>(row_x + (slot_width * 2), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE4] = Point<int16_t>(row_x + (slot_width * 3), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE5] = Point<int16_t>(row_x + (slot_width * 4), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE6] = Point<int16_t>(row_x + (slot_width * 5), row_y + (slot_height * 3));
-		unbound_actions_pos[KeyAction::Id::FACE7] = Point<int16_t>(row_x + (slot_width * 6), row_y + (slot_height * 3));
+		// Row 3 (below the v83 bitmap): post-v83 actions with no icon in
+		// UIWindow.img/KeyConfig/icon; load_action_icons skips them, so these
+		// slots are never drawn and only keep the positions table complete.
+		unbound_actions_pos[KeyAction::Id::SILENTCRUSADE] = Point<int16_t>(row_x + (slot_width * 0), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::MANAGELEGION] = Point<int16_t>(row_x + (slot_width * 1), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::BATTLEANALYSIS] = Point<int16_t>(row_x + (slot_width * 2), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::GUIDE] = Point<int16_t>(row_x + (slot_width * 3), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::ENHANCEEQUIP] = Point<int16_t>(row_x + (slot_width * 4), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::MONSTERCOLLECTION] = Point<int16_t>(row_x + (slot_width * 5), row_y + (slot_height * 3));
+		unbound_actions_pos[KeyAction::Id::MAPLENEWS] = Point<int16_t>(row_x + (slot_width * 6), row_y + (slot_height * 3));
 	}
 
 	void UIKeyConfig::load_action_mappings()
@@ -482,12 +512,11 @@ namespace ms
 			}
 		}
 
-		Point<int16_t> unbound_center(1, 1); // center 32x32 icon in 34x34 cell
-
+		// unbound_actions_pos already centres the 32x32 icon on its 28x28 v83 cell
 		for (auto const& ubicon : action_icons)
 			if (ubicon.second)
 				if (std::find(bound_actions.begin(), bound_actions.end(), ubicon.first) == bound_actions.end())
-					ubicon.second->draw(position + unbound_actions_pos[ubicon.first] + unbound_center);
+					ubicon.second->draw(position + unbound_actions_pos[ubicon.first]);
 
 	}
 

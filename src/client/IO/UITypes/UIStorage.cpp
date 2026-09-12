@@ -75,114 +75,99 @@ namespace ms
 		return true;
 	}
 
-	UIStorage::UIStorage(const Inventory& inv) : UIDragElement<PosSTORAGE>(Point<int16_t>(500, 20)), inventory(inv)
+	UIStorage::UIStorage(const Inventory& inv) : UIDragElement<PosSTORAGE>(Point<int16_t>(463, 30)), inventory(inv)
 	{
-		nl::node src = nl::nx::ui["UIWindow2.img"]["Trunk"];
+		// v83: everything lives flat under UIWindow.img/Trunk
+		nl::node src = nl::nx::ui["UIWindow.img"]["Trunk"];
 
-		// Use FullBackgrnd for two-panel layout
-		nl::node full_bg_node = src["FullBackgrnd"];
-		Texture full_bg_tex = full_bg_node;
-		bool use_full = full_bg_tex.is_valid() && full_bg_tex.get_dimensions().x() > 0;
-
-		if (use_full)
-		{
-			sprites.emplace_back(full_bg_node);
-			nl::node fb2 = src["FullBackgrnd2"];
-			nl::node fb3 = src["FullBackgrnd3"];
-			if (Texture(fb2).is_valid()) sprites.emplace_back(fb2);
-			if (Texture(fb3).is_valid()) sprites.emplace_back(fb3);
-		}
-		else
-		{
-			sprites.emplace_back(src["backgrnd"]);
-			sprites.emplace_back(src["backgrnd2"]);
-			sprites.emplace_back(src["backgrnd3"]);
-		}
-
-		Texture bg = use_full ? full_bg_tex : Texture(src["backgrnd"]);
+		nl::node background = src["backgrnd"];
+		Texture bg = background;
 		auto bg_dim = bg.get_dimensions();
 
-		// Buttons from NX
-		buttons[BT_GET] = std::make_unique<MapleButton>(src["BtGet"]);
-		buttons[BT_PUT] = std::make_unique<MapleButton>(src["BtPut"]);
-		buttons[BT_SORT] = std::make_unique<MapleButton>(src["BtSort"]);
+		sprites.emplace_back(background);
+
+		// Header buttons. Each header box (y 7..82) has the portrait left of
+		// a faint divider (x 105 / 335) and free space to its right:
+		//   left  : BtGet (70x18) + BtOutCoin (36x18), BtSort (71x18) below
+		//   right : BtPut (70x18) + BtInCoin (36x18), BtExit (70x18) below
+		buttons[BT_GET] = std::make_unique<MapleButton>(src["BtGet"], Point<int16_t>(112, 30));
+		buttons[BT_OUT_COIN] = std::make_unique<MapleButton>(src["BtOutCoin"], Point<int16_t>(186, 30));
+		// BtSort is the one Trunk button with a centred origin (35, 9), so
+		// its position is the button's centre: top-left lands at (112, 52).
+		buttons[BT_SORT] = std::make_unique<MapleButton>(src["BtSort"], Point<int16_t>(147, 61));
 		// Cosmic's StorageProcessor has no arrange action (modes 4/5/7 only),
 		// so the sort request would be silently ignored — grey the button.
 		buttons[BT_SORT]->set_state(Button::State::DISABLED);
-		buttons[BT_EXIT] = std::make_unique<MapleButton>(src["BtExit"]);
+		buttons[BT_PUT] = std::make_unique<MapleButton>(src["BtPut"], Point<int16_t>(342, 30));
+		buttons[BT_IN_COIN] = std::make_unique<MapleButton>(src["BtInCoin"], Point<int16_t>(416, 30));
+		buttons[BT_EXIT] = std::make_unique<MapleButton>(src["BtExit"], Point<int16_t>(342, 52));
 
-		nl::node bt_incoin = src["BtInCoin"];
-		if (bt_incoin.size() > 0)
-			buttons[BT_IN_COIN] = std::make_unique<MapleButton>(bt_incoin);
-		else
-			buttons[BT_IN_COIN] = std::make_unique<AreaButton>(Point<int16_t>(184, 317), Point<int16_t>(70, 20));
-
-		nl::node bt_outcoin = src["BtOutCoin"];
-		if (bt_outcoin.size() > 0)
-			buttons[BT_OUT_COIN] = std::make_unique<MapleButton>(bt_outcoin);
-		else
-			buttons[BT_OUT_COIN] = std::make_unique<AreaButton>(Point<int16_t>(11, 317), Point<int16_t>(70, 20));
-
-		// Tab buttons
+		// Inventory tabs (Trunk/Tab: Equip, Use, Set-up, Etc, Cash) in the
+		// right panel's tab band, packed left to right
 		nl::node tab_en = src["Tab"]["enabled"];
 		nl::node tab_dis = src["Tab"]["disabled"];
 
-		if (tab_en.size() > 0 && tab_dis.size() > 0)
 		{
-			buttons[BT_TAB_EQUIP] = std::make_unique<TwoSpriteButton>(tab_dis["0"], tab_en["0"]);
-			buttons[BT_TAB_USE] = std::make_unique<TwoSpriteButton>(tab_dis["1"], tab_en["1"]);
-			buttons[BT_TAB_ETC] = std::make_unique<TwoSpriteButton>(tab_dis["2"], tab_en["2"]);
-			buttons[BT_TAB_SETUP] = std::make_unique<TwoSpriteButton>(tab_dis["3"], tab_en["3"]);
-			buttons[BT_TAB_CASH] = std::make_unique<TwoSpriteButton>(tab_dis["4"], tab_en["4"]);
-		}
-		else
-		{
-			int16_t tab_w = 55;
-			int16_t tab_x = use_full ? 352 : 7;
-			for (int i = 0; i < 5; i++)
-				buttons[BT_TAB_EQUIP + i] = std::make_unique<AreaButton>(Point<int16_t>(tab_x + tab_w * i, 75), Point<int16_t>(tab_w - 2, 20));
+			int16_t tab_x = TAB_X;
+			const InventoryType::Id order[5] = {
+				InventoryType::Id::EQUIP,
+				InventoryType::Id::USE,
+				InventoryType::Id::SETUP,
+				InventoryType::Id::ETC,
+				InventoryType::Id::CASH
+			};
+
+			for (InventoryType::Id t : order)
+			{
+				std::string tabnum = std::to_string(tab_art_index(t));
+				buttons[button_by_tab(t)] = std::make_unique<TwoSpriteButton>(tab_dis[tabnum], tab_en[tabnum], Point<int16_t>(tab_x, TAB_Y));
+				tab_x += Texture(tab_dis[tabnum]).get_dimensions().x() + TAB_GAP;
+			}
 		}
 
 		buttons[button_by_tab(InventoryType::Id::EQUIP)]->set_state(Button::State::PRESSED);
 
-		// Sprites
-		disabled_slot = src["disabled"];
-		meso_icon = nl::nx::ui["UIWindow2.img"]["Shop2"]["meso"];
-		// Reuse the inventory "new item" animated outline for the
-		// selection highlight so it matches the rest of the game UI.
-		newitemslot = nl::nx::ui["UIWindow.img"]["Item"]["New"]["inventory"];
+		// Row highlights
+		select_row = src["select"];
+		hover_row = src["en"];
 
-		// Labels — left-aligned so they sit immediately after the coin icon.
-		storage_mesolabel = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::MINESHAFT);
-		player_mesolabel = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::MINESHAFT);
+		// Labels — right-aligned so they end just before the "mesos" text
+		// baked into the background next to each meso box.
+		storage_mesolabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::MINESHAFT);
+		player_mesolabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::MINESHAFT);
 
-		// Grid layout — matches the cube strip on the backdrop.
-		// Left panel (storage) is the narrower pane; right panel
-		// (inventory) is wider so it gets more columns and starts
-		// higher up to fit one extra row.
-		cell_size = 36;
+		// v83 Basic.img only ships the plain "VScr" scrollbar, which is
+		// Slider::Type::LINE_CYAN; every other type would resolve to a
+		// missing "VScrN" node.
+		storage_slider = Slider(
+			Slider::Type::LINE_CYAN, Range<int16_t>(STORAGE_ROW_Y, SLIDER_BOTTOM), STORAGE_SLIDER_X, STORAGE_ROWS, 1,
+			[&](bool upwards)
+			{
+				int16_t shift = upwards ? -1 : 1;
+				int16_t rows = static_cast<int16_t>(storage_slot_map.size());
+				bool above = storage_offset + shift >= 0;
+				bool below = storage_offset + shift <= rows - STORAGE_ROWS;
 
-		storage_cols = 4;
-		storage_rows = 6;
-		storage_grid_x = 11;
-		storage_grid_y = 102;
+				if (above && below)
+					storage_offset += shift;
+			}
+		);
+		storage_slider.setenabled(false);
 
-		panel_divider_x = 186;
-		if (use_full)
-		{
-			inventory_cols = 16;
-			inventory_rows = 6;
-			inventory_grid_x = panel_divider_x;
-			inventory_grid_y = 100;
-		}
-		else
-		{
-			panel_divider_x = bg_dim.x();
-			inventory_grid_x = 0;
-			inventory_grid_y = storage_grid_y;
-			inventory_cols = 0;
-			inventory_rows = 0;
-		}
+		inventory_slider = Slider(
+			Slider::Type::LINE_CYAN, Range<int16_t>(INVENTORY_ROW_Y, SLIDER_BOTTOM), INVENTORY_SLIDER_X, INVENTORY_ROWS, 1,
+			[&](bool upwards)
+			{
+				int16_t shift = upwards ? -1 : 1;
+				int16_t rows = static_cast<int16_t>(inventory_slot_map.size());
+				bool above = inventory_offset + shift >= 0;
+				bool below = inventory_offset + shift <= rows - INVENTORY_ROWS;
+
+				if (above && below)
+					inventory_offset += shift;
+			}
+		);
+		inventory_slider.setenabled(false);
 
 		// State
 		current_tab = InventoryType::Id::EQUIP;
@@ -190,22 +175,17 @@ namespace ms
 		inventory_selection.clear();
 		drag_source = DRAG_NONE;
 		drag_source_slot = -1;
+		storage_offset = 0;
+		inventory_offset = 0;
+		hover_storage_row = -1;
+		hover_inventory_row = -1;
 		storage_meso = 0;
 		storage_slots = 0;
 		npc_id = 0;
 
-		// Ensure dimension covers both panels including the inventory grid
-		int16_t min_width = bg_dim.x();
-		if (inventory_cols > 0)
-		{
-			int16_t right_edge = inventory_grid_x + inventory_cols * cell_size + 10;
-			min_width = std::max(min_width, right_edge);
-		}
-
-		dimension = Point<int16_t>(min_width, bg_dim.y());
-		// Wider drag-strip — the top 30 px (where the window has no
-		// interactive buttons or slots) can be grabbed to move the UI.
-		dragarea = Point<int16_t>(min_width, 30);
+		dimension = bg_dim;
+		// The top 30 px (above every button and row) can be grabbed to move the UI.
+		dragarea = Point<int16_t>(bg_dim.x(), 30);
 		active = false;
 	}
 
@@ -213,13 +193,13 @@ namespace ms
 	{
 		UIElement::draw(alpha);
 
-		// Animated storage-keeper NPC portrait pinned above the grid.
-		// Tall sprites (Fredrick et al.) get a uniform scale to fit a
-		// 75-px slot; small NPCs draw at native size.
+		// Animated storage-keeper NPC portrait standing on the shadow blob
+		// in the left header. Tall sprites (Fredrick et al.) get a uniform
+		// scale so they stay inside the 75 px header box.
 		{
-			Point<int16_t> portrait_pos = position + Point<int16_t>(55, 85);
+			Point<int16_t> portrait_pos = position + NPC_POS;
 			auto dim = npc_anim.get_dimensions();
-			constexpr int16_t PORTRAIT_SLOT = 75;
+			constexpr int16_t PORTRAIT_SLOT = 70;
 			float s = 1.0f;
 			if (dim.x() > 0 && dim.y() > 0)
 			{
@@ -231,71 +211,95 @@ namespace ms
 			npc_anim.draw(DrawArgument(portrait_pos, s, s, 1.0f), alpha);
 		}
 
-		// Player's own character portrait above the inventory grid.
-		if (inventory_cols > 0)
+		// Player's own character on the right header's shadow blob, facing
+		// the storage keeper.
 		{
 			const CharLook& look = Stage::get().get_player().get_look();
-			Point<int16_t> player_pos = position
-				+ Point<int16_t>(panel_divider_x + 30, 60);
-			const_cast<CharLook&>(look).draw(
-				DrawArgument(player_pos, 0.75f, 0.75f, 1.0f), 1.0f);
+			look.draw(position + CHAR_POS, /*flipped*/ false, Stance::Id::STAND1, Expression::Id::DEFAULT);
 		}
 
-		// Selection highlight — only storage items can be highlighted,
-		// so no pass for the inventory panel.
-		for (int16_t s = 0; s < static_cast<int16_t>(storage_slot_map.size()); s++)
+		// Storage rows (left panel)
 		{
-			int16_t idx = storage_slot_map[s];
-			if (idx >= 0 && storage_selection.count(idx))
-				newitemslot.draw(position + storage_icon_pos(s) + Point<int16_t>(1, 1), alpha);
+			const auto& items = get_storage_tab(current_tab);
+
+			for (int16_t r = 0; r < STORAGE_ROWS; r++)
+			{
+				int16_t s = storage_offset + r;
+				if (s < 0 || s >= static_cast<int16_t>(storage_slot_map.size()))
+					break;
+
+				Point<int16_t> rowpos = position + Point<int16_t>(STORAGE_X, STORAGE_ROW_Y + r * ROW_PITCH);
+				int16_t idx = storage_slot_map[s];
+
+				if (hover_storage_row == s)
+					hover_row.draw(rowpos);
+
+				if (idx >= 0 && storage_selection.count(idx))
+					select_row.draw(rowpos + Point<int16_t>(NAME_STRIP_DX, 0));
+
+				if (idx < 0 || idx >= static_cast<int16_t>(items.size()))
+					continue;
+
+				bool dragged = drag_source == DRAG_STORAGE && drag_source_slot == s;
+				int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : items[idx].count;
+				const Text& name = (idx < static_cast<int16_t>(storage_names.size())) ? storage_names[idx] : Text();
+
+				draw_row(rowpos, items[idx].itemid, count, name, dragged, alpha);
+			}
 		}
 
-		// Draw items at their visual-cell positions. storage_slot_map
-		// and inventory_slot_map are the client-side arrangement —
-		// rebuilt on refresh but mutated by in-panel drag-drop so the
-		// player can put items in any cube they like.
-		for (int16_t s = 0; s < static_cast<int16_t>(storage_slot_map.size()); s++)
+		// Inventory rows (right panel)
+		for (int16_t r = 0; r < INVENTORY_ROWS; r++)
 		{
-			int16_t item_idx = storage_slot_map[s];
-			if (item_idx < 0) continue;
-			auto it = storage_icons.find(item_idx);
-			if (it == storage_icons.end() || !it->second) continue;
-			Point<int16_t> iconpos = position + storage_icon_pos(s);
-			it->second->draw(iconpos);
+			int16_t s = inventory_offset + r;
+			if (s < 0 || s >= static_cast<int16_t>(inventory_slot_map.size()))
+				break;
+
+			Point<int16_t> rowpos = position + Point<int16_t>(INVENTORY_X, INVENTORY_ROW_Y + r * ROW_PITCH);
+			int16_t idx = inventory_slot_map[s];
+
+			if (hover_inventory_row == s)
+				hover_row.draw(rowpos);
+
+			if (idx >= 0 && inventory_selection.count(idx))
+				select_row.draw(rowpos + Point<int16_t>(NAME_STRIP_DX, 0));
+
+			if (idx < 0 || idx >= static_cast<int16_t>(inventory_items.size()))
+				continue;
+
+			bool dragged = drag_source == DRAG_INVENTORY && drag_source_slot == s;
+			int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : inventory_items[idx].count;
+			const Text& name = (idx < static_cast<int16_t>(inventory_names.size())) ? inventory_names[idx] : Text();
+
+			draw_row(rowpos, inventory_items[idx].itemid, count, name, dragged, alpha);
 		}
-		for (int16_t s = 0; s < static_cast<int16_t>(inventory_slot_map.size()); s++)
+
+		storage_slider.draw(position);
+		inventory_slider.draw(position);
+
+		// Meso boxes: storage amount on the left, wallet on the right
+		storage_mesolabel.draw(position + STORAGE_MESO_POS);
+		player_mesolabel.draw(position + PLAYER_MESO_POS);
+	}
+
+	// `rowpos` is the row's top-left (icon box edge). Item icons are
+	// bottom-left anchored (Item.wz origin = (x, height)), so they sit on
+	// the icon box's floor; the count uses the inventory digit charset in
+	// the icon's lower half and the name goes on the strip to the right.
+	void UIStorage::draw_row(Point<int16_t> rowpos, int32_t itemid, int16_t count, const Text& name, bool dragged, float alpha) const
+	{
+		const Texture& icon = ItemData::get(itemid).get_icon(false);
+		float opacity = dragged ? 0.5f : 1.0f;
+
+		icon.draw(DrawArgument(rowpos + Point<int16_t>(1, 37), opacity));
+
+		if (count >= 0)
 		{
-			int16_t item_idx = inventory_slot_map[s];
-			if (item_idx < 0) continue;
-			auto it = inv_icons.find(item_idx);
-			if (it == inv_icons.end() || !it->second) continue;
-			Point<int16_t> iconpos = position + inventory_icon_pos(s);
-			it->second->draw(iconpos);
+			static const Charset countset = Charset(nl::nx::ui["Basic.img"]["ItemNo"], Charset::Alignment::LEFT);
+			countset.draw(std::to_string(count), rowpos + Point<int16_t>(0, 23));
 		}
 
-		// Meso row: left panel shows the player's current wallet, right
-		// panel shows the storage amount as sent by the server. Labels
-		// draw immediately to the right of each coin icon.
-		const int16_t left_icon_x  = 52;
-		const int16_t left_icon_y  = 318;
-		const int16_t right_icon_x_off = 49;
-		const int16_t right_icon_y = 320;
-
-		// Text baseline — Text draws from the top so pull up to
-		// visually land the digits on the coin's centre line.
-		const int16_t left_label_y_adjust  = -4;
-		const int16_t right_label_y_adjust = -7;
-
-		if (meso_icon.is_valid())
-			meso_icon.draw(position + Point<int16_t>(left_icon_x, left_icon_y));
-		storage_mesolabel.draw(position + Point<int16_t>(left_icon_x + 20, left_icon_y + left_label_y_adjust));
-
-		if (inventory_cols > 0)
-		{
-			if (meso_icon.is_valid())
-				meso_icon.draw(position + Point<int16_t>(panel_divider_x + right_icon_x_off, right_icon_y));
-			player_mesolabel.draw(position + Point<int16_t>(panel_divider_x + right_icon_x_off + 20, right_icon_y + right_label_y_adjust));
-		}
+		name.draw(rowpos + Point<int16_t>(40, 9));
 	}
 
 	void UIStorage::update()
@@ -303,7 +307,6 @@ namespace ms
 		// Advance the NPC portrait animation so the storage keeper
 		// breathes / blinks instead of being a still frame.
 		npc_anim.update();
-		newitemslot.update(6);
 
 		int64_t player_meso = inventory.get_meso();
 
@@ -328,9 +331,34 @@ namespace ms
 		Point<int16_t> cursoroffset = cursorpos - position;
 		lastcursorpos = cursoroffset;
 
-		// Visual-cell → item-index lookup
+		if (storage_slider.isenabled())
+		{
+			Cursor::State sstate = storage_slider.send_cursor(cursoroffset, clicked);
+
+			if (sstate != Cursor::State::IDLE)
+			{
+				clear_tooltip();
+				return sstate;
+			}
+		}
+
+		if (inventory_slider.isenabled())
+		{
+			Cursor::State istate = inventory_slider.send_cursor(cursoroffset, clicked);
+
+			if (istate != Cursor::State::IDLE)
+			{
+				clear_tooltip();
+				return istate;
+			}
+		}
+
+		// Visual-row → item-index lookup
 		int16_t svisual = storage_slot_by_cursor(cursoroffset);
 		int16_t ivisual = inventory_slot_by_cursor(cursoroffset);
+
+		hover_storage_row = svisual;
+		hover_inventory_row = ivisual;
 
 		int16_t s_item = -1;
 		int16_t i_item = -1;
@@ -359,8 +387,7 @@ namespace ms
 			clear_tooltip();
 		}
 
-		// Handle clicks — clicking an already-highlighted item removes
-		// the highlight; clicking an un-highlighted item starts a drag.
+		// Handle clicks — clicking a row starts a drag of its item.
 		if (clicked)
 		{
 			if (svisual >= 0 && s_item >= 0)
@@ -425,7 +452,7 @@ namespace ms
 			return true;
 		}
 
-		// Same-panel drop — rearrange the visual cell (client-side only).
+		// Same-panel drop — reorder the rows (client-side only).
 		// The server keeps its own sequential order; we just remember
 		// where the player wants each item displayed.
 		if (drag_source == DRAG_STORAGE && in_left_panel(cursoroffset) && drag_source_slot >= 0)
@@ -489,6 +516,17 @@ namespace ms
 
 	void UIStorage::send_scroll(double yoffset)
 	{
+		// Wheel over a panel scrolls that panel's list
+		if (in_left_panel(lastcursorpos))
+		{
+			if (storage_slider.isenabled())
+				storage_slider.send_scroll(yoffset);
+		}
+		else if (in_right_panel(lastcursorpos))
+		{
+			if (inventory_slider.isenabled())
+				inventory_slider.send_scroll(yoffset);
+		}
 	}
 
 	void UIStorage::doubleclick(Point<int16_t> cursorpos)
@@ -745,10 +783,16 @@ namespace ms
 		storage_cash.clear();
 		storage_icons.clear();
 		inv_icons.clear();
+		storage_names.clear();
+		inventory_names.clear();
 		storage_slot_map.clear();
 		inventory_slot_map.clear();
 		storage_preferred_slot.clear();
 		inventory_preferred_slot.clear();
+		storage_offset = 0;
+		inventory_offset = 0;
+		hover_storage_row = -1;
+		hover_inventory_row = -1;
 
 		current_tab = InventoryType::Id::EQUIP;
 
@@ -769,8 +813,16 @@ namespace ms
 		inventory_selection.clear();
 		storage_icons.clear();
 		inv_icons.clear();
+		storage_names.clear();
+		inventory_names.clear();
 		storage_slot_map.clear();
 		inventory_slot_map.clear();
+		storage_offset = 0;
+		inventory_offset = 0;
+		hover_storage_row = -1;
+		hover_inventory_row = -1;
+		storage_slider.setenabled(false);
+		inventory_slider.setenabled(false);
 	}
 
 	void UIStorage::set_items_for_all(InventoryType::Id types[], size_t ntypes,
@@ -854,23 +906,30 @@ namespace ms
 	void UIStorage::refresh_storage_icons()
 	{
 		storage_icons.clear();
+		storage_names.clear();
 
 		const auto& items = get_storage_tab(current_tab);
-		int16_t total_cells = storage_cols * storage_rows;
+		int16_t total_cells = static_cast<int16_t>(items.size());
 		storage_slot_map.assign(total_cells, -1);
 
 		for (int16_t i = 0; i < static_cast<int16_t>(items.size()); i++)
 		{
 			int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : items[i].count;
-			const Texture& tex = ItemData::get(items[i].itemid).get_icon(false);
+			const ItemData& idata = ItemData::get(items[i].itemid);
+			const Texture& tex = idata.get_icon(false);
 
 			storage_icons[i] = std::make_unique<Icon>(
 				std::make_unique<StorageItemIcon>(i, current_tab),
 				tex, count
 			);
 
-			// Try the player's preferred slot for this itemid; fall back
-			// to the first empty visual cell.
+			std::string name = idata.get_name();
+			if (name.length() >= 28)
+				name = name.substr(0, 28) + "..";
+			storage_names.emplace_back(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::MINESHAFT, name);
+
+			// Try the player's preferred row for this itemid; fall back
+			// to the first empty row.
 			int16_t slot = -1;
 			auto pref = storage_preferred_slot.find(items[i].itemid);
 			if (pref != storage_preferred_slot.end()
@@ -892,25 +951,40 @@ namespace ms
 				storage_preferred_slot[items[i].itemid] = slot;
 			}
 		}
+
+		// Keep the scroll window inside the new list
+		int16_t max_offset = std::max<int16_t>(0, total_cells - STORAGE_ROWS);
+		if (storage_offset > max_offset)
+			storage_offset = max_offset;
+
+		storage_slider.setrows(STORAGE_ROWS, total_cells);
+		storage_slider.setenabled(total_cells > STORAGE_ROWS);
 	}
 
 	void UIStorage::refresh_inventory_icons()
 	{
 		inv_icons.clear();
+		inventory_names.clear();
 
-		int16_t total_cells = (inventory_cols > 0) ? inventory_cols * inventory_rows : 0;
+		int16_t total_cells = static_cast<int16_t>(inventory_items.size());
 		inventory_slot_map.assign(total_cells, -1);
 
 		for (int16_t i = 0; i < static_cast<int16_t>(inventory_items.size()); i++)
 		{
 			const auto& entry = inventory_items[i];
 			int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : entry.count;
-			const Texture& tex = ItemData::get(entry.itemid).get_icon(false);
+			const ItemData& idata = ItemData::get(entry.itemid);
+			const Texture& tex = idata.get_icon(false);
 
 			inv_icons[i] = std::make_unique<Icon>(
 				std::make_unique<PlayerItemIcon>(entry.slot, entry.itemid, entry.count),
 				tex, count
 			);
+
+			std::string name = idata.get_name();
+			if (name.length() >= 28)
+				name = name.substr(0, 28) + "..";
+			inventory_names.emplace_back(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::MINESHAFT, name);
 
 			int16_t slot = -1;
 			auto pref = inventory_preferred_slot.find(entry.slot);
@@ -933,6 +1007,13 @@ namespace ms
 				inventory_preferred_slot[entry.slot] = slot;
 			}
 		}
+
+		int16_t max_offset = std::max<int16_t>(0, total_cells - INVENTORY_ROWS);
+		if (inventory_offset > max_offset)
+			inventory_offset = max_offset;
+
+		inventory_slider.setrows(INVENTORY_ROWS, total_cells);
+		inventory_slider.setenabled(total_cells > INVENTORY_ROWS);
 	}
 
 	void UIStorage::refresh_inventory_tab()
@@ -971,6 +1052,10 @@ namespace ms
 		current_tab = type;
 		storage_selection.clear();
 		inventory_selection.clear();
+		storage_offset = 0;
+		inventory_offset = 0;
+		hover_storage_row = -1;
+		hover_inventory_row = -1;
 
 		refresh_storage_icons();
 		refresh_inventory_tab();
@@ -1092,64 +1177,85 @@ namespace ms
 		}
 	}
 
+	int16_t UIStorage::tab_art_index(InventoryType::Id type)
+	{
+		// UIWindow.img/Trunk/Tab bitmap order: Equip, Use, Set-up, Etc, Cash
+		switch (type)
+		{
+		case InventoryType::Id::EQUIP: return 0;
+		case InventoryType::Id::USE: return 1;
+		case InventoryType::Id::SETUP: return 2;
+		case InventoryType::Id::ETC: return 3;
+		case InventoryType::Id::CASH: return 4;
+		default: return 0;
+		}
+	}
+
 	bool UIStorage::in_left_panel(Point<int16_t> cursoroffset) const
 	{
-		return cursoroffset.x() >= 0 && cursoroffset.x() < panel_divider_x
+		return cursoroffset.x() >= 0 && cursoroffset.x() < PANEL_DIVIDER_X
 			&& cursoroffset.y() >= 0 && cursoroffset.y() < dimension.y();
 	}
 
 	bool UIStorage::in_right_panel(Point<int16_t> cursoroffset) const
 	{
-		if (inventory_cols <= 0) return false;
-		return cursoroffset.x() >= panel_divider_x
+		return cursoroffset.x() >= PANEL_DIVIDER_X && cursoroffset.x() < dimension.x()
 			&& cursoroffset.y() >= 0 && cursoroffset.y() < dimension.y();
 	}
 
 	Point<int16_t> UIStorage::storage_icon_pos(int16_t index) const
 	{
-		int16_t col = index % storage_cols;
-		int16_t row = index / storage_cols;
-		return Point<int16_t>(storage_grid_x + col * cell_size, storage_grid_y + row * cell_size);
+		int16_t row = index - storage_offset;
+		return Point<int16_t>(STORAGE_X, STORAGE_ROW_Y + row * ROW_PITCH);
 	}
 
 	Point<int16_t> UIStorage::inventory_icon_pos(int16_t index) const
 	{
-		if (inventory_cols <= 0) return Point<int16_t>(0, 0);
-		int16_t col = index % inventory_cols;
-		int16_t row = index / inventory_cols;
-		return Point<int16_t>(inventory_grid_x + col * cell_size, inventory_grid_y + row * cell_size);
+		int16_t row = index - inventory_offset;
+		return Point<int16_t>(INVENTORY_X, INVENTORY_ROW_Y + row * ROW_PITCH);
 	}
 
 	int16_t UIStorage::storage_slot_by_cursor(Point<int16_t> cursoroffset) const
 	{
-		int16_t x = cursoroffset.x() - storage_grid_x;
-		int16_t y = cursoroffset.y() - storage_grid_y;
+		int16_t x = cursoroffset.x() - STORAGE_X;
+		int16_t y = cursoroffset.y() - STORAGE_ROW_Y;
 
-		if (x < 0 || y < 0) return -1;
+		if (x < 0 || x >= ROW_W || y < 0)
+			return -1;
 
-		int16_t col = x / cell_size;
-		int16_t row = y / cell_size;
+		int16_t row = y / ROW_PITCH;
 
-		if (col >= storage_cols || row >= storage_rows) return -1;
+		// Only the row art counts, not the separator gap below it
+		if (row >= STORAGE_ROWS || y % ROW_PITCH >= ROW_ART_H)
+			return -1;
 
-		return row * storage_cols + col;
+		int16_t index = row + storage_offset;
+
+		if (index >= static_cast<int16_t>(storage_slot_map.size()))
+			return -1;
+
+		return index;
 	}
 
 	int16_t UIStorage::inventory_slot_by_cursor(Point<int16_t> cursoroffset) const
 	{
-		if (inventory_cols <= 0) return -1;
+		int16_t x = cursoroffset.x() - INVENTORY_X;
+		int16_t y = cursoroffset.y() - INVENTORY_ROW_Y;
 
-		int16_t x = cursoroffset.x() - inventory_grid_x;
-		int16_t y = cursoroffset.y() - inventory_grid_y;
+		if (x < 0 || x >= ROW_W || y < 0)
+			return -1;
 
-		if (x < 0 || y < 0) return -1;
+		int16_t row = y / ROW_PITCH;
 
-		int16_t col = x / cell_size;
-		int16_t row = y / cell_size;
+		if (row >= INVENTORY_ROWS || y % ROW_PITCH >= ROW_ART_H)
+			return -1;
 
-		if (col >= inventory_cols || row >= inventory_rows) return -1;
+		int16_t index = row + inventory_offset;
 
-		return row * inventory_cols + col;
+		if (index >= static_cast<int16_t>(inventory_slot_map.size()))
+			return -1;
+
+		return index;
 	}
 
 	std::vector<UIStorage::ItemEntry>& UIStorage::get_storage_tab(InventoryType::Id type)

@@ -24,39 +24,82 @@
 
 namespace ms
 {
+	namespace
+	{
+		// v83 Basic.img ships VScr (the cyan line) and VScr2..VScr8, whose looks
+		// match the first eight Type names in enum order. Every later type - and
+		// the StatusBar2.img chat scrollbar, which v83 does not have - falls back
+		// to the closest v83 bar so no lookup can miss:
+		//   VScr  cyan line        VScr5 grey (rock blue)
+		//   VScr2 brown line       VScr6 dark brown line, yellow thumb
+		//   VScr3 small blue line  VScr7 orange
+		//   VScr4 silver, blue thumb (the general-purpose v83 window bar)
+		//   VScr8 sandal / beige
+		nl::node vscr_node(int32_t type)
+		{
+			nl::node basic = nl::nx::ui["Basic.img"];
+
+			switch (type)
+			{
+				case Slider::Type::LINE_CYAN:
+					return basic["VScr"];
+				case Slider::Type::LINE_CONTESSA:
+				case Slider::Type::LINE_MINESHAFT:
+				case Slider::Type::THIN_WOODYBROWN:
+					return basic["VScr2"];
+				case Slider::Type::SMALL_HAVELOCKBLUE:
+				case Slider::Type::THIN_DUSTYGRAY_LIGHT:
+				case Slider::Type::THIN_MINESHAFT:
+				case Slider::Type::THIN_DUSTYGRAY:
+				case Slider::Type::THIN_MINESHAFT_LIGHT:
+				case Slider::Type::THIN_ZORBA:
+				case Slider::Type::THIN_MIKADO:
+				case Slider::Type::THIN_SLATEGRAY:
+					return basic["VScr3"];
+				case Slider::Type::NORMAL_ROCKBLUE:
+				case Slider::Type::NORMAL_JUDGEGRAY:
+					return basic["VScr5"];
+				case Slider::Type::LINE_PUNGA:
+					return basic["VScr6"];
+				case Slider::Type::LINE_YELLOWMETAL:
+				case Slider::Type::LINE_HOTCINNAMON:
+				case Slider::Type::ARROWS_IRISHCOFFEE:
+					return basic["VScr7"];
+				case Slider::Type::DEFAULT_SANDAL:
+				case Slider::Type::DEFAULT_QUICKSAND:
+				case Slider::Type::DEFAULT_ARROWTOWN:
+					return basic["VScr8"];
+				case Slider::Type::NORMAL_CALYPSO:
+				case Slider::Type::DEFAULT_SILVER:
+				case Slider::Type::DEFAULT_ALTO:
+				case Slider::Type::BLIZZARDBLUE:
+				case Slider::Type::ARROWS_TORYBLUE:
+				case Slider::Type::CHATBAR:
+				default:
+					return basic["VScr4"];
+			}
+		}
+	}
+
 	Slider::Slider(int32_t t, Range<int16_t> ver, int16_t xp, int16_t ur, int16_t rm, std::function<void(bool)> om) : type(t), vertical(ver), x(xp), onmoved(om)
 	{
 		start = Point<int16_t>(x, vertical.first());
 		end = Point<int16_t>(x, vertical.second());
 
-		nl::node src;
-		std::string base_str = "base";
-
-		if (type == Type::CHATBAR)
-		{
-			src = nl::nx::ui["StatusBar2.img"]["chat"]["common"]["scroll"];
-			base_str += "_c";
-		}
-		else
-		{
-			std::string VScr = "VScr";
-
-			if (type != Type::LINE_CYAN)
-				VScr += std::to_string(type);
-
-			src = nl::nx::ui["Basic.img"][VScr];
-		}
+		// Every v83 VScr* node has disabled/{base,prev,next} and
+		// enabled/{base,prev0,prev1,next0,next1,thumb0,thumb1}
+		nl::node src = vscr_node(type);
 
 		nl::node dsrc = src["disabled"];
 
-		dbase = dsrc[base_str];
+		dbase = dsrc["base"];
 
 		dprev = dsrc["prev"];
 		dnext = dsrc["next"];
 
 		nl::node esrc = src["enabled"];
 
-		base = esrc[base_str];
+		base = esrc["base"];
 
 		prev = TwoSpriteButton(esrc["prev0"], esrc["prev1"], start);
 		next = TwoSpriteButton(esrc["next0"], esrc["next1"], end);

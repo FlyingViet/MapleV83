@@ -21,6 +21,7 @@
 #include "Tooltip.h"
 
 #include "../../Character/MapleStat.h"
+#include "../../Graphics/Geometry.h"
 #include "../../Graphics/Text.h"
 #include "../../Template/BoolPair.h"
 
@@ -38,6 +39,21 @@ namespace ms
 		void draw_preview(Point<int16_t> position) const;
 
 	private:
+		void draw_jobs(Point<int16_t> position, const std::vector<uint8_t>& allowed, bool jobok) const;
+
+		// v83 has no UIToolTip.img frame art: the panel is a TooltipFrame of
+		// this width; FRAME_PAD is the header/footer space around `height`.
+		static constexpr int16_t WIDTH = 264;
+		static constexpr int16_t FRAME_PAD = 26;
+		// Separator lines are drawn LINE_X in from either edge
+		static constexpr int16_t LINE_X = 8;
+		// Light well behind the 2x item icon (replaces ItemIcon/base)
+		static constexpr int16_t ICON_WELL = 76;
+		// Job-name strip: v83 Can/<job> / Cannot/<job> bitmaps laid out in a row
+		static constexpr uint8_t JOB_COUNT = 6;
+		static constexpr int16_t JOB_X = 12;
+		static constexpr int16_t JOB_GAP = 6;
+
 		int16_t invpos;
 		int16_t invpos_preview;
 		int16_t height;
@@ -67,24 +83,14 @@ namespace ms
 		Text slots_preview;
 		Text hammers;
 		Text hammers_preview;
-		Text atkinc;
-		Text atkinc_preview;
 		EnumMap<EquipStat::Id, Text> statlabels;
 		EnumMap<EquipStat::Id, Text> statlabels_preview;
 
-		Texture top;
-		Texture mid;
-		Texture line;
-		Texture bot;
-		Texture base;
+		ColorLine line;
+		ColorBox iconwell;
 
-		EnumMap<Equip::Potential, Texture> potential;
 		Equip::Potential prank;
 		Equip::Potential prank_preview;
-
-		Texture cover;
-		Texture itemcover;
-		BoolPair<Texture> type;
 
 		std::vector<MapleStat::Id> requirements;
 		EnumMap<MapleStat::Id, BoolPair<Texture>> reqstattextures;
@@ -93,9 +99,7 @@ namespace ms
 		EnumMap<MapleStat::Id, Point<int16_t>> reqstatpositions;
 		BoolPair<Charset> reqset;
 		BoolPair<Charset> lvset;
-		BoolPair<Charset> atkincset;
 
-		Texture jobsback;
 		BoolPair<std::map<uint8_t, Texture>> jobs;
 		std::vector<uint8_t> okjobs;
 		std::vector<uint8_t> okjobs_preview;

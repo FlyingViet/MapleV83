@@ -17,8 +17,13 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "EquipTooltip.h"
 
+#include "TooltipFrame.h"
+
+#include "../../Constants.h"
 #include "../../Data/WeaponData.h"
 #include "../../Gameplay/Stage.h"
+
+#include <algorithm>
 
 #ifdef USE_NX
 #include <nlnx/nx.hpp>
@@ -28,29 +33,17 @@ namespace ms
 {
 	EquipTooltip::EquipTooltip()
 	{
-		nl::node Item = nl::nx::ui["UIToolTip.img"]["Item"];
-		nl::node Frame = Item["Frame"];
-		nl::node ItemIcon = Item["ItemIcon"];
-		nl::node Equip = Item["Equip"];
+		// v83 keeps only the requirement glyphs under UIWindow.img/ToolTip/Equip.
+		// The newer UIToolTip.img frame, icon well, potential-rank icons,
+		// ATT-increase summary charsets and job icon strip do not exist: the
+		// frame and well are drawn with geometry, the job strip uses the v83
+		// per-class name bitmaps, and the potential / ATT-increase art is dropped.
+		nl::node Equip = nl::nx::ui["UIWindow.img"]["ToolTip"]["Equip"];
 		nl::node EquipCan = Equip["Can"];
 		nl::node EquipCannot = Equip["Cannot"];
 
-		top = Frame["top"];
-		mid = Frame["line"];
-		line = Frame["dotline"];
-		bot = Frame["bottom"];
-		base = ItemIcon["base"];
-		cover = Frame["cover"];
-		itemcover = ItemIcon["cover"];
-		type[true] = ItemIcon["new"];
-		type[false] = ItemIcon["old"];
-
-		potential[Equip::Potential::POT_NONE] = Texture();
-		potential[Equip::Potential::POT_HIDDEN] = ItemIcon["0"];
-		potential[Equip::Potential::POT_RARE] = ItemIcon["1"];
-		potential[Equip::Potential::POT_EPIC] = ItemIcon["2"];
-		potential[Equip::Potential::POT_UNIQUE] = ItemIcon["3"];
-		potential[Equip::Potential::POT_LEGENDARY] = ItemIcon["4"];
+		line = ColorLine(WIDTH - LINE_X * 2, Color::Name::WHITE, 0.3f, false);
+		iconwell = ColorBox(ICON_WELL, ICON_WELL, Color::Name::WHITE, 0.65f);
 
 		requirements.push_back(MapleStat::Id::LEVEL);
 		requirements.push_back(MapleStat::Id::STR);
@@ -80,25 +73,20 @@ namespace ms
 		reqset[false] = Charset(EquipCannot, Charset::Alignment::LEFT);
 		reqset[true] = Charset(EquipCan, Charset::Alignment::LEFT);
 
+		// v83 has no YellowNumber charset; the level uses the same digits
 		lvset[false] = Charset(EquipCannot, Charset::Alignment::LEFT);
-		lvset[true] = Charset(Equip["YellowNumber"], Charset::Alignment::LEFT);
+		lvset[true] = Charset(EquipCan, Charset::Alignment::LEFT);
 
-		atkincset[false] = Charset(Equip["Summary"]["decline"], Charset::Alignment::RIGHT);
-		atkincset[true] = Charset(Equip["Summary"]["incline"], Charset::Alignment::RIGHT);
+		// v83 spells the wearable classes out as one bitmap per job under
+		// Can/ (wearable) and Cannot/ (not wearable). Index order matches
+		// okjobs: 0 beginner, 1 warrior, 2 magician, 3 bowman, 4 thief, 5 pirate.
+		static const char* const JOB_NAMES[JOB_COUNT] = { "beginner", "warrior", "magician", "bowman", "thief", "pirate" };
 
-		jobsback = Equip["Job"]["normal"];
-		jobs[false][0] = Equip["Job"]["disable"]["0"];
-		jobs[false][1] = Equip["Job"]["disable"]["1"];
-		jobs[false][2] = Equip["Job"]["disable"]["2"];
-		jobs[false][3] = Equip["Job"]["disable"]["3"];
-		jobs[false][4] = Equip["Job"]["disable"]["4"];
-		jobs[false][5] = Equip["Job"]["disable"]["5"];
-		jobs[true][0] = Equip["Job"]["enable"]["0"];
-		jobs[true][1] = Equip["Job"]["enable"]["1"];
-		jobs[true][2] = Equip["Job"]["enable"]["2"];
-		jobs[true][3] = Equip["Job"]["enable"]["3"];
-		jobs[true][4] = Equip["Job"]["enable"]["4"];
-		jobs[true][5] = Equip["Job"]["enable"]["5"];
+		for (uint8_t j = 0; j < JOB_COUNT; j++)
+		{
+			jobs[false][j] = EquipCannot[JOB_NAMES[j]];
+			jobs[true][j] = EquipCan[JOB_NAMES[j]];
+		}
 
 		invpos = 0;
 		invpos_preview = 0;
@@ -283,7 +271,6 @@ namespace ms
 					}
 
 					name_preview = Text(Text::Font::A12B, Text::Alignment::LEFT, namecolor, namestr, 400);
-					atkinc_preview = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::DUSTYGRAY, "ATT INCREASE");
 
 					std::string desctext = itemdata.get_desc();
 					hasdesc_preview = desctext.size() > 0;
@@ -496,7 +483,6 @@ namespace ms
 		}
 
 		name = Text(Text::Font::A12B, Text::Alignment::LEFT, namecolor, namestr, 400);
-		atkinc = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::DUSTYGRAY, "ATT INCREASE");
 
 		std::string desctext = itemdata.get_desc();
 		hasdesc = desctext.size() > 0;
@@ -573,11 +559,11 @@ namespace ms
 
 		int16_t max_width = Constants::Constants::get().get_viewwidth();
 		int16_t max_height = Constants::Constants::get().get_viewheight();
-		int16_t cur_width = pos.x() + top.width();
+		int16_t cur_width = pos.x() + WIDTH;
 		int16_t cur_height = pos.y() + 36;
 
 		if (invpos_preview == 1)
-			cur_width += top.width();
+			cur_width += WIDTH;
 
 		if (invpos_preview == 1)
 			cur_height += (height > height_preview) ? height : height_preview;
@@ -593,10 +579,7 @@ namespace ms
 		if (adj_y > 0)
 			pos.shift_y(adj_y * -1);
 
-		top.draw(pos);
-		mid.draw(DrawArgument(pos + Point<int16_t>(0, 13), Point<int16_t>(0, height)));
-		bot.draw(pos + Point<int16_t>(0, height + 13));
-		cover.draw(pos);
+		TooltipFrame::draw(pos, WIDTH, height + FRAME_PAD);
 
 		name.draw(pos + Point<int16_t>(17, 7));
 
@@ -608,43 +591,11 @@ namespace ms
 
 		pos.shift_y(44);
 
-		line.draw(pos);
+		line.draw(pos + Point<int16_t>(LINE_X, 0));
 
-		atkinc.draw(pos + Point<int16_t>(248, 4));
-		base.draw(pos + Point<int16_t>(12, 10));
-		type[false].draw(pos + Point<int16_t>(12, 10));
+		// Icon well on the left; the 2x icon is anchored by its bottom-left origin
+		iconwell.draw(DrawArgument(pos + Point<int16_t>(12, 10)));
 		itemicon.draw(DrawArgument(pos + Point<int16_t>(18, 82), 2.0f, 2.0f));
-		potential[prank].draw(pos + Point<int16_t>(12, 10));
-		itemcover.draw(pos + Point<int16_t>(12, 10));
-
-		int16_t atkincnum = 0;
-		std::string atkincstr = std::to_string(atkincnum);
-		bool atkinc_pos = true;
-
-		if (canequip[MapleStat::Id::JOB])
-		{
-			if (atkincnum < 0)
-			{
-				atkincstr = "m" + atkincstr;
-				atkinc_pos = false;
-			}
-			else if (atkincnum > 0)
-			{
-				atkincstr = "p" + atkincstr;
-				atkinc_pos = true;
-			}
-			else
-			{
-				atkinc_pos = true;
-			}
-		}
-		else
-		{
-			atkincstr = "m";
-			atkinc_pos = false;
-		}
-
-		atkincset[atkinc_pos].draw(atkincstr, 11, pos + Point<int16_t>(239, 26));
 
 		pos.shift_y(12);
 
@@ -662,13 +613,9 @@ namespace ms
 
 		pos.shift_y(88);
 
-		Point<int16_t> job_position(pos + Point<int16_t>(10, 14));
-		jobsback.draw(job_position);
+		draw_jobs(pos + Point<int16_t>(JOB_X, 14), okjobs, canequip[MapleStat::Id::JOB]);
 
-		for (auto& jbit : okjobs)
-			jobs[canequip[MapleStat::Id::JOB]].at(jbit).draw(job_position);
-
-		line.draw(pos + Point<int16_t>(0, 47));
+		line.draw(pos + Point<int16_t>(LINE_X, 47));
 
 		pos.shift_y(49);
 
@@ -705,7 +652,7 @@ namespace ms
 		if (hasdesc)
 		{
 			pos.shift_y(13);
-			line.draw(pos);
+			line.draw(pos + Point<int16_t>(LINE_X, 0));
 			desc.draw(pos + Point<int16_t>(9, 3));
 		}
 	}
@@ -715,11 +662,11 @@ namespace ms
 		if (invpos_preview == 0)
 			return;
 
-		pos.shift_x(top.width());
+		pos.shift_x(WIDTH);
 
 		int16_t max_width = Constants::Constants::get().get_viewwidth();
 		int16_t max_height = Constants::Constants::get().get_viewheight();
-		int16_t cur_width = pos.x() + top.width();
+		int16_t cur_width = pos.x() + WIDTH;
 		int16_t cur_height = pos.y() + height_preview + 36;
 
 		int16_t adj_x = cur_width - max_width;
@@ -731,10 +678,7 @@ namespace ms
 		if (adj_y > 0)
 			pos.shift_y(adj_y * -1);
 
-		top.draw(pos);
-		mid.draw(DrawArgument(pos + Point<int16_t>(0, 13), Point<int16_t>(0, height_preview)));
-		bot.draw(pos + Point<int16_t>(0, height_preview + 13));
-		cover.draw(pos);
+		TooltipFrame::draw(pos, WIDTH, height_preview + FRAME_PAD);
 
 		name_preview.draw(pos + Point<int16_t>(17, 7));
 
@@ -746,43 +690,10 @@ namespace ms
 
 		pos.shift_y(44);
 
-		line.draw(pos);
+		line.draw(pos + Point<int16_t>(LINE_X, 0));
 
-		atkinc_preview.draw(pos + Point<int16_t>(248, 4));
-		base.draw(pos + Point<int16_t>(12, 10));
-		type[false].draw(pos + Point<int16_t>(12, 10));
+		iconwell.draw(DrawArgument(pos + Point<int16_t>(12, 10)));
 		itemicon_preview.draw(DrawArgument(pos + Point<int16_t>(18, 82), 2.0f, 2.0f));
-		potential[prank_preview].draw(pos + Point<int16_t>(12, 10));
-		itemcover.draw(pos + Point<int16_t>(12, 10));
-
-		int16_t atkincnum = 0;
-		std::string atkincstr = std::to_string(atkincnum);
-		bool atkinc_pos = true;
-
-		if (canequip_preview[MapleStat::Id::JOB])
-		{
-			if (atkincnum < 0)
-			{
-				atkincstr = "m" + atkincstr;
-				atkinc_pos = false;
-			}
-			else if (atkincnum > 0)
-			{
-				atkincstr = "p" + atkincstr;
-				atkinc_pos = true;
-			}
-			else
-			{
-				atkinc_pos = true;
-			}
-		}
-		else
-		{
-			atkincstr = "m";
-			atkinc_pos = false;
-		}
-
-		atkincset[atkinc_pos].draw(atkincstr, 11, pos + Point<int16_t>(239, 26));
 
 		pos.shift_y(12);
 
@@ -800,13 +711,9 @@ namespace ms
 
 		pos.shift_y(88);
 
-		Point<int16_t> job_position(pos + Point<int16_t>(10, 14));
-		jobsback.draw(job_position);
+		draw_jobs(pos + Point<int16_t>(JOB_X, 14), okjobs_preview, canequip_preview[MapleStat::Id::JOB]);
 
-		for (auto& jbit : okjobs_preview)
-			jobs[canequip_preview[MapleStat::Id::JOB]].at(jbit).draw(job_position);
-
-		line.draw(pos + Point<int16_t>(0, 47));
+		line.draw(pos + Point<int16_t>(LINE_X, 47));
 
 		pos.shift_y(49);
 
@@ -843,8 +750,26 @@ namespace ms
 		if (hasdesc_preview)
 		{
 			pos.shift_y(-4);
-			line.draw(pos);
+			line.draw(pos + Point<int16_t>(LINE_X, 0));
 			desc_preview.draw(pos + Point<int16_t>(9, 8));
+		}
+	}
+
+	// Draws the v83 class strip: every job name in a row, from the Can/ set
+	// when the item allows that job and the player passes the job check,
+	// otherwise from the greyed Cannot/ set.
+	void EquipTooltip::draw_jobs(Point<int16_t> position, const std::vector<uint8_t>& allowed, bool jobok) const
+	{
+		for (uint8_t j = 0; j < JOB_COUNT; j++)
+		{
+			bool ok = jobok && std::find(allowed.begin(), allowed.end(), j) != allowed.end();
+			auto iter = jobs[ok].find(j);
+
+			if (iter == jobs[ok].end())
+				continue;
+
+			iter->second.draw(position);
+			position.shift_x(iter->second.width() + JOB_GAP);
 		}
 	}
 }

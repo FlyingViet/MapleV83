@@ -43,18 +43,48 @@ namespace ms
 
 		void draw(bool textfield) const;
 
+		// Kept for callers of the old Notice6 layout: false = the button row's
+		// y, true = the text field's y (same as button_row_y / textfield_y).
 		int16_t box2offset(bool textfield) const;
+		// Top of the button row inside the bottom piece's grey strip
+		int16_t button_row_y() const;
+		// Top of the white text field baked into Basic.img/Notice4/s
+		int16_t textfield_y() const;
+
+		// v83 Basic.img/Notice3 (plain) and Notice4 (with text field) are
+		// 266px wide t/c/s stacks: t is 21px with the blue panel starting 10px
+		// down, c is a 20px blue tile, s closes the panel and carries a grey
+		// button strip (Notice3: rows 12..51; Notice4: text field rows 5..19,
+		// strip rows 35..71).
+		static constexpr int16_t BODY_PAD = 6;          // blue space above/below the text
+		static constexpr int16_t BODY_MIN_ROWS = 2;     // never fewer centre tiles than this
+		static constexpr int16_t TOP_BLUE_Y = 10;       // blue panel starts here inside t
+		static constexpr int16_t BOTTOM_BLUE_H = 11;    // blue rows at the top of Notice3/s
+		static constexpr int16_t FIELD_BLUE_H = 4;      // blue rows above the field in Notice4/s
+		static constexpr int16_t TEXT_WIDTH = 230;      // wrap width for left/centre text
+		static constexpr int16_t TEXT_LEFT_X = 16;      // left-aligned text x
+		static constexpr int16_t TEXT_CENTER_X = 133;   // centred text x (half of 266)
+		static constexpr int16_t STRIP_Y = 12;          // grey strip top inside Notice3/s
+		static constexpr int16_t STRIP_H = 40;
+		static constexpr int16_t FIELD_STRIP_Y = 35;    // grey strip top inside Notice4/s
+		static constexpr int16_t FIELD_STRIP_H = 37;
+		static constexpr int16_t FIELD_Y = 5;           // white field top inside Notice4/s
+		static constexpr int16_t FIELD_H = 15;
+		static constexpr int16_t FIELD_LEFT = 22;       // white field x range (19..246) with a little inset
+		static constexpr int16_t FIELD_RIGHT = 244;
+		static constexpr int16_t BUTTON_H = 18;         // Basic.img/BtOK2 and BtCancel2 are 47x18
+		static constexpr int16_t BUTTON_W = 47;
+		static constexpr int16_t BTN_YES_X = 156;       // right-aligned OK / Cancel pair
+		static constexpr int16_t BTN_NO_X = 210;
+		static constexpr int16_t BTN_OK_X = 110;        // a lone OK button, centred
 
 	private:
 		Texture top;
 		Texture center;
-		Texture centerbox;
-		Texture box;
-		Texture box2;
 		Texture bottom;
-		Texture bottombox;
 		Text question;
 		int16_t height;
+		int16_t body_rows;
 		NoticeType type;
 		Text::Alignment alignment;
 	};
@@ -89,8 +119,10 @@ namespace ms
 	class UIEnterNumber : public UINotice
 	{
 	public:
+		// The offsets nudge the field / buttons away from their Notice4 slots;
+		// 0 puts them exactly on the baked-in art.
 		UIEnterNumber(std::string message, std::function<void(int32_t number)> numhandler, int32_t max, int32_t quantity,
-			int16_t field_y_offset = -41,
+			int16_t field_y_offset = 0,
 			int16_t button_x_offset = 0,
 			int16_t button_y_offset = 0);
 
@@ -148,7 +180,7 @@ namespace ms
 	// Wide 286x146 modal used specifically for the "You have died"
 	// popup. Sources the backdrop from UIWindow.img/Notice/0 so the
 	// death dialog reads as a proper standalone panel instead of the
-	// small generic Basic.img/Notice6 frame used by UIOk.
+	// small generic Basic.img/Notice3 frame used by UIOk.
 	class UIDeathNotice : public UIDragElement<PosNOTICE>
 	{
 	public:

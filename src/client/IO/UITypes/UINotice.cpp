@@ -35,32 +35,39 @@ namespace ms
 {
 	UINotice::UINotice(std::string message, NoticeType t, Text::Alignment a) : UIDragElement<PosNOTICE>(Point<int16_t>(250, 20)), type(t), alignment(a)
 	{
-		nl::node src = nl::nx::ui["Basic.img"]["Notice6"];
+		// v83 Basic.img has no Notice6. Notice3 is the plain blue notice and
+		// Notice4 the variant whose bottom piece carries a white text field,
+		// so between them they replace Notice6's c_box / box / box2 stack.
+		nl::node basic = nl::nx::ui["Basic.img"];
+		nl::node src = (type == NoticeType::ENTERNUMBER) ? basic["Notice4"] : basic["Notice3"];
 
 		top = src["t"];
 		center = src["c"];
-		centerbox = src["c_box"];
-		box = src["box"];
-		box2 = src["box2"];
 		bottom = src["s"];
-		bottombox = src["s_box"];
 
 		if (type == NoticeType::YESNO)
 		{
-			question = Text(Text::Font::A11M, alignment, Color::Name::WHITE, message, 200);
+			question = Text(Text::Font::A11M, alignment, Color::Name::WHITE, message, TEXT_WIDTH);
 		}
 		else if (type == NoticeType::ENTERNUMBER)
 		{
-			question = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::WHITE, message, 200);
+			question = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::WHITE, message, TEXT_WIDTH);
 		}
 		else if (type == NoticeType::OK)
 		{
-			uint16_t maxwidth = top.width() - 6;
-			question = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, message, maxwidth);
+			question = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE, message, TEXT_WIDTH);
 		}
 
 		height = question.height();
-		dimension = Point<int16_t>(top.width(), top.height() + height + bottom.height());
+
+		// Enough 20px centre tiles for the text plus its padding
+		int16_t tile = center.height() > 0 ? center.height() : 20;
+		body_rows = (height + BODY_PAD * 2 + tile - 1) / tile;
+
+		if (body_rows < BODY_MIN_ROWS)
+			body_rows = BODY_MIN_ROWS;
+
+		dimension = Point<int16_t>(top.width(), top.height() + body_rows * tile + bottom.height());
 
 		// Settings store the top-left corner already (that's what
 		// UIDragElement saves). Re-centring on every open caused the
@@ -75,53 +82,50 @@ namespace ms
 
 	void UINotice::draw(bool textfield) const
 	{
+		// The piece set was chosen by type in the constructor, so the flag only
+		// decides where the text is centred: above the field or in the whole panel.
 		Point<int16_t> start = position;
+		int16_t body = body_rows * center.height();
 
 		top.draw(start);
 		start.shift_y(top.height());
 
-		if (textfield)
-		{
-			center.draw(start);
-			start.shift_y(center.height());
-			centerbox.draw(start);
-			start.shift_y(centerbox.height() - 1);
-			box2.draw(start);
-			start.shift_y(box2.height());
-			box.draw(DrawArgument(start, Point<int16_t>(0, 29)));
-			start.shift_y(29);
+		center.draw(DrawArgument(start, Point<int16_t>(0, body)));
+		start.shift_y(body);
 
-			question.draw(position + Point<int16_t>(13, 8));
-		}
-		else
-		{
-			int16_t pos_y = height >= 32 ? height : 32;
+		bottom.draw(start);
 
-			center.draw(DrawArgument(start, Point<int16_t>(0, pos_y)));
-			start.shift_y(pos_y);
-			centerbox.draw(start);
-			start.shift_y(centerbox.height());
-			box.draw(start);
-			start.shift_y(box.height());
+		// Centre the text vertically in the blue area
+		int16_t blue_h = (top.height() - TOP_BLUE_Y) + body + (textfield ? FIELD_BLUE_H : BOTTOM_BLUE_H);
+		int16_t text_y = TOP_BLUE_Y + (blue_h - height) / 2;
 
-			if (type == NoticeType::YESNO && alignment == Text::Alignment::LEFT)
-				question.draw(position + Point<int16_t>(31, 14));
-			else
-				question.draw(position + Point<int16_t>(131, 14));
-		}
+		if (text_y < TOP_BLUE_Y + 2)
+			text_y = TOP_BLUE_Y + 2;
 
-		bottombox.draw(start);
+		bool left = (type == NoticeType::ENTERNUMBER) || (type == NoticeType::YESNO && alignment == Text::Alignment::LEFT);
+		int16_t text_x = left ? TEXT_LEFT_X : TEXT_CENTER_X;
+
+		question.draw(position + Point<int16_t>(text_x, text_y));
 	}
 
 	int16_t UINotice::box2offset(bool textfield) const
 	{
-		int16_t offset = top.height() + centerbox.height() + box.height() + height - (textfield ? 0 : 16);
+		return textfield ? textfield_y() : button_row_y();
+	}
 
-		if (type == NoticeType::OK)
-			if (height < 34)
-				offset += 15;
+	int16_t UINotice::button_row_y() const
+	{
+		int16_t bottom_y = top.height() + body_rows * center.height();
 
-		return offset;
+		if (type == NoticeType::ENTERNUMBER)
+			return bottom_y + FIELD_STRIP_Y + (FIELD_STRIP_H - BUTTON_H) / 2;
+
+		return bottom_y + STRIP_Y + (STRIP_H - BUTTON_H) / 2;
+	}
+
+	int16_t UINotice::textfield_y() const
+	{
+		return top.height() + body_rows * center.height() + FIELD_Y;
 	}
 
 	UIYesNo::UIYesNo(std::string message, std::function<void(bool yes)> yh, Text::Alignment alignment,
@@ -129,12 +133,13 @@ namespace ms
 	{
 		yesnohandler = yh;
 
-		int16_t belowtext = box2offset(false) + button_y_offset;
+		int16_t belowtext = button_row_y() + button_y_offset;
 
+		// v83 has no BtOK4 / BtCancel4; BtOK2 / BtCancel2 are the 47x18 pair
 		nl::node src = nl::nx::ui["Basic.img"];
 
-		buttons[Buttons::YES] = std::make_unique<MapleButton>(src["BtOK4"], Point<int16_t>(156 + button_x_offset, belowtext));
-		buttons[Buttons::NO] = std::make_unique<MapleButton>(src["BtCancel4"], Point<int16_t>(198 + button_x_offset, belowtext));
+		buttons[Buttons::YES] = std::make_unique<MapleButton>(src["BtOK2"], Point<int16_t>(BTN_YES_X + button_x_offset, belowtext));
+		buttons[Buttons::NO] = std::make_unique<MapleButton>(src["BtCancel2"], Point<int16_t>(BTN_NO_X + button_x_offset, belowtext));
 	}
 
 	UIYesNo::UIYesNo(std::string message, std::function<void(bool yes)> yesnohandler) : UIYesNo(message, yesnohandler, Text::Alignment::CENTER) {}
@@ -190,15 +195,16 @@ namespace ms
 		numhandler = nh;
 		max = m;
 
-		int16_t belowtext = box2offset(true) + field_y_offset;
-		int16_t pos_y = belowtext + 35 + button_y_offset;
+		int16_t field_top = textfield_y() + field_y_offset;
+		int16_t pos_y = button_row_y() + button_y_offset;
 
 		nl::node src = nl::nx::ui["Basic.img"];
 
-		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK4"], 156 + button_x_offset, pos_y);
-		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel4"], 198 + button_x_offset, pos_y);
+		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK2"], BTN_YES_X + button_x_offset, pos_y);
+		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel2"], BTN_NO_X + button_x_offset, pos_y);
 
-		numfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::LIGHTGREY, Rectangle<int16_t>(24, 232, belowtext, belowtext + 20), 10);
+		// Black text on the white field baked into Notice4/s
+		numfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), 10);
 		numfield.change_text(std::to_string(quantity));
 
 		numfield.set_enter_callback(
@@ -325,15 +331,15 @@ namespace ms
 	{
 		texthandler = th;
 
-		int16_t belowtext = box2offset(true) - 21 + field_y_offset;
-		int16_t pos_y = belowtext + 35 + button_y_offset;
+		int16_t field_top = textfield_y() + field_y_offset;
+		int16_t pos_y = button_row_y() + button_y_offset;
 
 		nl::node src = nl::nx::ui["Basic.img"];
 
-		buttons[Buttons::OK]     = std::make_unique<MapleButton>(src["BtOK4"],     156 + button_x_offset, pos_y);
-		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel4"], 198 + button_x_offset, pos_y);
+		buttons[Buttons::OK]     = std::make_unique<MapleButton>(src["BtOK2"],     BTN_YES_X + button_x_offset, pos_y);
+		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel2"], BTN_NO_X + button_x_offset, pos_y);
 
-		textfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::LIGHTGREY, Rectangle<int16_t>(24, 232, belowtext, belowtext + 20), maxlength);
+		textfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), maxlength);
 
 		textfield.set_enter_callback(
 			[&](std::string str)
@@ -441,7 +447,7 @@ namespace ms
 
 		nl::node src = nl::nx::ui["Basic.img"];
 
-		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK4"], 197, box2offset(false));
+		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK2"], BTN_OK_X, button_row_y());
 	}
 
 	void UIOk::draw(float alpha) const
@@ -627,12 +633,12 @@ namespace ms
 		question = Text(Text::Font::A12M, Text::Alignment::CENTER,
 			Color::Name::WHITE, message, dimension.x() - 30);
 
-		// OK button — reuse the Basic.img/BtOK4 sprite. Place it centered
-		// near the bottom of the 286x146 frame.
+		// OK button — reuse the 47x18 Basic.img/BtOK2 sprite. Place it
+		// centered near the bottom of the 286x146 frame.
 		nl::node basic = nl::nx::ui["Basic.img"];
 		buttons[Buttons::OK] = std::make_unique<MapleButton>(
-			basic["BtOK4"],
-			Point<int16_t>(dimension.x() / 2 - 30, dimension.y() - 32));
+			basic["BtOK2"],
+			Point<int16_t>(dimension.x() / 2 - 23, dimension.y() - 30));
 
 		Sound(Sound::Name::DLGNOTICE).play();
 	}

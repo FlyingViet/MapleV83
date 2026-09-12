@@ -17,10 +17,10 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
-#include "MapleFrame.h"
 #include "Tooltip.h"
 
 #include "../../Graphics/Geometry.h"
+#include "../../Graphics/Text.h"
 
 namespace ms
 {
@@ -41,13 +41,15 @@ namespace ms
 		static constexpr uint8_t MAX_LIFE = 10u;
 		static constexpr uint8_t MIN_WIDTH = 166u;
 		static constexpr uint8_t BOTTOM_PADDING = 8u;
+		// Panel padding around the labels (v83 has no frame art, see TooltipFrame)
+		static constexpr int16_t PANEL_PAD_X = 6;
+		static constexpr int16_t PANEL_PAD_Y = 4;
 		static constexpr Point<int16_t> SEPARATOR_ADJ = Point<int16_t>(5, 0);
 		static constexpr Point<int16_t> LIFE_LABEL_ADJ = Point<int16_t>(20, 3);
 		static constexpr Point<int16_t> LIFE_ICON_ADJ = Point<int16_t>(5, 9);
 
-		MapleFrame frame;
-
-		Texture cover;
+		// v83 has no WorldMap tooltip icons (UIWindow2.img/ToolTip/WorldMap);
+		// these stay invalid and draw nothing.
 		Texture Mob;
 		Texture Npc;
 		Texture Party;

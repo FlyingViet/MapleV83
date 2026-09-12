@@ -17,6 +17,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SkillTooltip.h"
 
+#include "TooltipFrame.h"
+
+#include "../../Constants.h"
 #include "../../Data/SkillData.h"
 
 #ifdef USE_NX
@@ -27,11 +30,7 @@ namespace ms
 {
 	SkillTooltip::SkillTooltip()
 	{
-		nl::node Frame = nl::nx::ui["UIToolTip.img"]["Item"]["Frame2"];
-
-		frame = Frame;
-		cover = Frame["cover"];
-
+		// v83 has no UIToolTip.img frame art; the panel is drawn by TooltipFrame.
 		skill_id = 0;
 	}
 
@@ -156,9 +155,9 @@ namespace ms
 		if (adj_y > 0)
 			pos.shift_y(adj_y * -1);
 
-		frame.draw(pos + Point<int16_t>(176, height + 11), width, height - 1);
+		// Panel: content spans x 22..(102 + desc width) and y 3..(height + 11)
+		TooltipFrame::draw(pos + Point<int16_t>(16, -2), width + 24, height + 18);
 		name.draw(pos + Point<int16_t>(33, 3));
-		cover.draw(pos + Point<int16_t>(16, -1));
 
 		pos.shift_y(icon_offset);
 

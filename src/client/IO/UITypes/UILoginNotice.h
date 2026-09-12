@@ -19,6 +19,9 @@
 
 #include "../UIElement.h"
 
+#include "../../Graphics/Geometry.h"
+#include "../../Graphics/Text.h"
+
 namespace ms
 {
 	class UIKeyConfirm : public UIElement
@@ -30,6 +33,7 @@ namespace ms
 
 		UIKeyConfirm(bool alternate, std::function<void()> oh, bool login);
 
+		void draw(float inter) const override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
 		UIElement::Type get_type() const override;
@@ -47,6 +51,7 @@ namespace ms
 
 		std::function<void()> okhandler;
 		bool login;
+		Text message;
 	};
 
 	class UIKeySelect : public UIElement
@@ -58,6 +63,7 @@ namespace ms
 
 		UIKeySelect(std::function<void(bool)> okhandler, bool login);
 
+		void draw(float inter) const override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
 		UIElement::Type get_type() const override;
@@ -73,8 +79,21 @@ namespace ms
 			TYPEB
 		};
 
+		// The two layout choices are text-labelled areas on the blue panel
+		static constexpr int16_t CHOICE_W = 90;
+		static constexpr int16_t CHOICE_H = 20;
+		static constexpr int16_t CHOICE_Y = 70;
+		static constexpr int16_t CHOICE_A_X = 40;
+		static constexpr int16_t CHOICE_B_X = 136;
+
 		std::function<void(bool)> okhandler;
 		bool login;
+		Text title;
+		Text hint;
+		Text label_a;
+		Text label_b;
+		ColorBox choice_box;
+		ColorBox choice_box_hover;
 	};
 
 	class UIClassConfirm : public UIElement
@@ -86,6 +105,7 @@ namespace ms
 
 		UIClassConfirm(uint16_t selected_class, bool unavailable, std::function<void()> okhandler);
 
+		void draw(float inter) const override;
 		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
@@ -102,6 +122,7 @@ namespace ms
 		};
 
 		std::function<void()> okhandler;
+		Text message;
 	};
 
 	class UIQuitConfirm : public UIElement

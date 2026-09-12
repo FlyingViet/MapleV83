@@ -40,63 +40,47 @@ namespace ms
 {
 	UIMiniMap::UIMiniMap(const CharStats& stats) : UIDragElement<PosMINIMAP>(Point<int16_t>(128, 20)), stats(stats)
 	{
-		big_map = true;
 		scroll_locked = false;
 		has_map = false;
-		listNpc_enabled = false;
 		drag_resize = false;
 		drag_resize_side = false;
 		zoom_scale = 1.5f;
 		drag_start_y = 0;
 		drag_start_x = 0;
 		drag_start_zoom = 1.0f;
-		listNpc_dimensions = Point<int16_t>(150, 170);
-		listNpc_offset = 0;
-		selected = -1;
+		quest_npc_id = 0;
+		window_width = MIN_WINDOW_W;
+		combined_text_width = 0;
+		bt_min_width = 0;
+		bt_max_width = 0;
+		bt_map_width = 0;
+		map_draw_origin_x = FRAME_SIDE_W + CANVAS_PAD;
+		map_draw_origin_y = NORMAL_TOP_H + CANVAS_PAD;
 
 		type = Setting<MiniMapType>::get().load();
 		user_type = type;
-		simpleMode = Setting<MiniMapSimpleMode>::get().load();
 
-		std::string node = simpleMode ? "MiniMapSimpleMode" : "MiniMap";
-		MiniMap = nl::nx::ui["UIWindow2.img"][node];
-		listNpc = nl::nx::ui["UIWindow2.img"]["MiniMap"]["ListNpc"];
+		// v83: frame pieces and the world-map button live in UIWindow.img/MiniMap,
+		// the min/max toggles are the generic Basic.img window buttons.
+		MiniMap = nl::nx::ui["UIWindow.img"]["MiniMap"];
+		nl::node basic = nl::nx::ui["Basic.img"];
 
-		buttons[Buttons::BT_MIN] = std::make_unique<MapleButton>(MiniMap["BtMin"], Point<int16_t>(195, -6));
-		buttons[Buttons::BT_MAX] = std::make_unique<MapleButton>(MiniMap["BtMax"], Point<int16_t>(209, -6));
-		buttons[Buttons::BT_SMALL] = std::make_unique<MapleButton>(MiniMap["BtSmall"], Point<int16_t>(223, -6));
-		buttons[Buttons::BT_BIG] = std::make_unique<MapleButton>(MiniMap["BtBig"], Point<int16_t>(223, -6));
-		buttons[Buttons::BT_MAP] = std::make_unique<MapleButton>(MiniMap["BtMap"], Point<int16_t>(237, -6));
-		buttons[Buttons::BT_NPC] = std::make_unique<MapleButton>(MiniMap["BtNpc"], Point<int16_t>(276, -6));
+		buttons[Buttons::BT_MIN] = std::make_unique<MapleButton>(basic["BtMin"], Point<int16_t>(0, BTN_Y));
+		buttons[Buttons::BT_MAX] = std::make_unique<MapleButton>(basic["BtMax"], Point<int16_t>(0, BTN_Y));
+		buttons[Buttons::BT_MAP] = std::make_unique<MapleButton>(MiniMap["BtMap"], Point<int16_t>(0, BTN_Y));
 
-		// Scroll lock toggle reuses BtBig/BtSmall sprites as a toggle indicator
-		// BtBig = unlocked (map scrolls to follow player), BtSmall = locked (map stays fixed)
-		buttons[Buttons::BT_SCROLL_LOCK] = std::make_unique<MapleButton>(MiniMap["BtBig"], Point<int16_t>(260, -6));
-		buttons[Buttons::BT_SCROLL_LOCK]->set_active(false);
+		// Title box is white, the MAX header band is blue-grey: dark text on both
+		region_text = Text(Text::Font::A12B, Text::Alignment::LEFT, Color::Name::BLACK);
+		town_text = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::BLACK);
+		combined_text = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::BLACK);
 
-		region_text = Text(Text::Font::A12B, Text::Alignment::LEFT, Color::Name::WHITE);
-		town_text = Text(Text::Font::A12B, Text::Alignment::LEFT, Color::Name::WHITE);
-		combined_text = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::WHITE);
-
-		marker = Setting<MiniMapDefaultHelpers>::get().load() ? nl::nx::ui["UIWindow2.img"]["MiniMapSimpleMode"]["DefaultHelper"] : nl::nx::map["MapHelper.img"]["minimap"];
+		// v83 has no UI-side DefaultHelper set; markers always come from Map.wz
+		marker = nl::nx::map["MapHelper.img"]["minimap"];
 
 		player_marker = Animation(marker["user"]);
-		selected_marker = Animation(MiniMap["iconNpc"]);
 		portal_marker_anim = Animation(marker["portal"]);
 		npc_marker_anim = Animation(marker["npc"]);
-		npc_highlight = ColorBox(LISTNPC_ITEM_WIDTH, LISTNPC_ITEM_HEIGHT, Color::Name::YELLOW, 1.0f);
-
-		// Load additional mark textures from MiniMap.img
-		nl::node minimap_marks = nl::nx::ui["MiniMap.img"];
-		if (minimap_marks.size() > 0)
-		{
-			for (auto mark_node : minimap_marks)
-			{
-				std::string name = mark_node.name();
-				if (mark_node.data_type() == nl::node::type::bitmap)
-					mark_textures[name] = Texture(mark_node);
-			}
-		}
+		quest_npc_marker = Animation(marker["startnpc"]);
 	}
 
 	void UIMiniMap::draw(float alpha) const
@@ -106,12 +90,14 @@ namespace ms
 			for (auto sprite : min_sprites)
 				sprite.draw(position, alpha);
 
-			combined_text.draw(position + Point<int16_t>(7, -3));
+			combined_text.draw(position + Point<int16_t>(MIN_STRIP_W_W, 2));
 		}
 		else if (type == Type::NORMAL)
 		{
 			for (auto sprite : normal_sprites)
 				sprite.draw(position, alpha);
+
+			combined_text.draw(position + TITLE_TEXT_POS);
 
 			draw_canvas_hd(0);
 
@@ -123,9 +109,6 @@ namespace ms
 					portal_marker_anim.draw(position + sprite.second + scroll_off, alpha);
 
 				draw_movable_markers(position + scroll_off, alpha);
-
-				if (listNpc_enabled)
-					draw_npclist(normal_dimensions, alpha);
 			}
 		}
 		else
@@ -133,10 +116,12 @@ namespace ms
 			for (auto sprite : max_sprites)
 				sprite.draw(position, alpha);
 
+			combined_text.draw(position + TITLE_TEXT_POS);
+
 			draw_canvas_hd(MAX_ADJ);
 
-			region_text.draw(position + Point<int16_t>(48, 14));
-			town_text.draw(position + Point<int16_t>(48, 28));
+			region_text.draw(position + Point<int16_t>(MAX_TEXT_X, MAX_REGION_Y));
+			town_text.draw(position + Point<int16_t>(MAX_TEXT_X, MAX_TOWN_Y));
 
 			if (has_map)
 			{
@@ -146,9 +131,6 @@ namespace ms
 					portal_marker_anim.draw(position + sprite.second + Point<int16_t>(0, MAX_ADJ) + scroll_off, alpha);
 
 				draw_movable_markers(position + Point<int16_t>(0, MAX_ADJ) + scroll_off, alpha);
-
-				if (listNpc_enabled)
-					draw_npclist(max_dimensions, alpha);
 			}
 		}
 
@@ -163,6 +145,7 @@ namespace ms
 		{
 			mapid = mid;
 			Map = NxHelper::Map::get_map_node_name(mapid);
+			quest_npc_id = 0;
 
 			nl::node town = Map["info"]["town"];
 			nl::node miniMap = Map["miniMap"];
@@ -190,7 +173,6 @@ namespace ms
 			update_canvas();
 			update_static_markers();
 			toggle_buttons();
-			update_npclist();
 		}
 
 		if (type == Type::MIN)
@@ -209,12 +191,8 @@ namespace ms
 				sprite.update();
 		}
 
-		if (listNpc_enabled)
-			for (Sprite sprite : listNpc_sprites)
-				sprite.update();
-
-		if (selected >= 0)
-			selected_marker.update();
+		if (quest_npc_id > 0)
+			quest_npc_marker.update();
 
 		UIElement::update();
 	}
@@ -222,8 +200,6 @@ namespace ms
 	void UIMiniMap::remove_cursor()
 	{
 		UIDragElement::remove_cursor();
-
-		listNpc_slider.remove_cursor();
 
 		UI::get().clear_tooltip(Tooltip::Parent::MINIMAP);
 	}
@@ -241,9 +217,9 @@ namespace ms
 			bool on_bottom = cursor_relative.y() >= bottom_y - 8 && cursor_relative.y() <= bottom_y + 4
 				&& cursor_relative.x() >= 0 && cursor_relative.x() <= right_x;
 			bool on_right = cursor_relative.x() >= right_x - 8 && cursor_relative.x() <= right_x + 4
-				&& cursor_relative.y() >= 20 && cursor_relative.y() <= bottom_y;
+				&& cursor_relative.y() >= NORMAL_TOP_H && cursor_relative.y() <= bottom_y;
 			bool on_left = cursor_relative.x() >= -4 && cursor_relative.x() <= 8
-				&& cursor_relative.y() >= 20 && cursor_relative.y() <= bottom_y;
+				&& cursor_relative.y() >= NORMAL_TOP_H && cursor_relative.y() <= bottom_y;
 
 			if (drag_resize)
 			{
@@ -313,29 +289,6 @@ namespace ms
 
 		Point<int16_t> cursor_relative = cursorpos - position;
 
-		if (listNpc_slider.isenabled())
-			if (Cursor::State new_state = listNpc_slider.send_cursor(cursor_relative, clicked))
-				return new_state;
-
-		if (listNpc_enabled)
-		{
-			Point<int16_t> relative_point = cursor_relative - Point<int16_t>(10 + (type == Type::MAX ? max_dimensions : normal_dimensions).x(), 23);
-			Rectangle<int16_t> list_bounds = Rectangle<int16_t>(0, LISTNPC_ITEM_WIDTH, 0, LISTNPC_ITEM_HEIGHT * 8);
-
-			if (list_bounds.contains(relative_point))
-			{
-				int16_t list_index = listNpc_offset + relative_point.y() / LISTNPC_ITEM_HEIGHT;
-				bool in_list = list_index < listNpc_names.size();
-
-				if (clicked)
-					select_npclist(in_list ? list_index : -1);
-				else if (in_list)
-					UI::get().show_text(Tooltip::Parent::MINIMAP, listNpc_full_names[list_index]);
-
-				return Cursor::State::IDLE;
-			}
-		}
-
 		bool found = false;
 		auto npcs = Stage::get().get_npcs().get_npcs();
 
@@ -391,8 +344,7 @@ namespace ms
 
 	void UIMiniMap::send_scroll(double yoffset)
 	{
-		if (listNpc_enabled && listNpc_slider.isenabled())
-			listNpc_slider.send_scroll(yoffset);
+		// Nothing scrollable in the v83 minimap (the NPC list is gone)
 	}
 
 	void UIMiniMap::send_key(int32_t keycode, bool pressed, bool escape)
@@ -427,20 +379,8 @@ namespace ms
 			user_type = type;
 			toggle_buttons();
 			return type == Type::MAX ? Button::State::DISABLED : Button::State::NORMAL;
-		case BT_SMALL:
-		case BT_BIG:
-			big_map = !big_map;
-			toggle_buttons();
-			break;
-		case BT_SCROLL_LOCK:
-			scroll_locked = !scroll_locked;
-			toggle_buttons();
-			break;
 		case BT_MAP:
 			UI::get().emplace<UIWorldMap>();
-			break;
-		case BT_NPC:
-			set_npclist_active(!listNpc_enabled);
 			break;
 		}
 
@@ -464,18 +404,12 @@ namespace ms
 
 	void UIMiniMap::toggle_buttons()
 	{
-		int16_t bt_min_x;
+		buttons[Buttons::BT_MAP]->set_active(true);
+		buttons[Buttons::BT_MAX]->set_active(true);
+		buttons[Buttons::BT_MIN]->set_active(true);
 
 		if (type == Type::MIN)
 		{
-			buttons[Buttons::BT_MAP]->set_active(true);
-			buttons[Buttons::BT_MAX]->set_active(true);
-			buttons[Buttons::BT_MIN]->set_active(true);
-			buttons[Buttons::BT_NPC]->set_active(false);
-			buttons[Buttons::BT_SMALL]->set_active(false);
-			buttons[Buttons::BT_BIG]->set_active(false);
-			buttons[Buttons::BT_SCROLL_LOCK]->set_active(false);
-
 			buttons[Buttons::BT_MIN]->set_state(Button::State::DISABLED);
 
 			if (has_map)
@@ -483,86 +417,41 @@ namespace ms
 			else
 				buttons[Buttons::BT_MAX]->set_state(Button::State::DISABLED);
 
-			bt_min_x = combined_text_width + 11;
+			// Min strip: [8 px cap][name][4 px gap][min][max][map][4 px cap]
+			int16_t bt_x = MIN_STRIP_W_W + combined_text_width + 4;
 
-			buttons[Buttons::BT_MIN]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_min_width;
-
-			buttons[Buttons::BT_MAX]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_max_width;
-
-			buttons[Buttons::BT_MAP]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			min_dimensions = Point<int16_t>(bt_min_x + bt_map_width + 7, 20);
+			buttons[Buttons::BT_MIN]->set_position(Point<int16_t>(bt_x, BTN_MIN_Y));
+			bt_x += bt_min_width;
+			buttons[Buttons::BT_MAX]->set_position(Point<int16_t>(bt_x, BTN_MIN_Y));
+			bt_x += bt_max_width;
+			buttons[Buttons::BT_MAP]->set_position(Point<int16_t>(bt_x, BTN_MIN_Y));
 
 			update_dimensions();
 
 			dragarea = dimension;
-
-			set_npclist_active(false);
 		}
 		else
 		{
-			bool has_npcs = Stage::get().get_npcs().get_npcs()->size() > 0;
-
-			buttons[Buttons::BT_MAP]->set_active(true);
-			buttons[Buttons::BT_MAX]->set_active(true);
-			buttons[Buttons::BT_MIN]->set_active(true);
-			buttons[Buttons::BT_NPC]->set_active(has_npcs);
-			buttons[Buttons::BT_SCROLL_LOCK]->set_active(true);
-
-			if (big_map)
-			{
-				buttons[Buttons::BT_BIG]->set_active(false);
-				buttons[Buttons::BT_SMALL]->set_active(true);
-			}
-			else
-			{
-				buttons[Buttons::BT_BIG]->set_active(true);
-				buttons[Buttons::BT_SMALL]->set_active(false);
-			}
-
-			// Show scroll lock state: PRESSED = locked (fixed), NORMAL = unlocked (follows player)
-			buttons[Buttons::BT_SCROLL_LOCK]->set_state(scroll_locked ? Button::State::PRESSED : Button::State::NORMAL);
-
 			buttons[Buttons::BT_MIN]->set_state(Button::State::NORMAL);
-
-			int16_t scroll_btn_width = buttons[Buttons::BT_SCROLL_LOCK]->width() + 1;
-			bt_min_x = middle_right_x - (bt_min_width + buttons[Buttons::BT_SMALL]->width() + 1 + bt_max_width + bt_map_width + scroll_btn_width + (has_npcs ? buttons[Buttons::BT_NPC]->width() : 0));
-
-			buttons[Buttons::BT_MIN]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_max_width;
-
-			buttons[Buttons::BT_MAX]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_max_width;
-
-			buttons[Buttons::BT_SMALL]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-			buttons[Buttons::BT_BIG]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_max_width;
-
-			buttons[Buttons::BT_SCROLL_LOCK]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += scroll_btn_width;
-
-			buttons[Buttons::BT_MAP]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
-
-			bt_min_x += bt_map_width;
-
-			buttons[Buttons::BT_NPC]->set_position(Point<int16_t>(bt_min_x, BTN_MIN_Y));
 
 			if (type == Type::MAX)
 				buttons[Buttons::BT_MAX]->set_state(Button::State::DISABLED);
 			else
 				buttons[Buttons::BT_MAX]->set_state(Button::State::NORMAL);
 
-			set_npclist_active(listNpc_enabled && has_npcs);
+			// Right-aligned inside the title box: 6 px frame + 4 px inset
+			int16_t bt_x = window_width - FRAME_SIDE_W - 4 - (bt_map_width - 1);
 
-			dragarea = Point<int16_t>(dimension.x(), 20);
+			buttons[Buttons::BT_MAP]->set_position(Point<int16_t>(bt_x, BTN_Y));
+			bt_x -= bt_max_width;
+			buttons[Buttons::BT_MAX]->set_position(Point<int16_t>(bt_x, BTN_Y));
+			bt_x -= bt_min_width;
+			buttons[Buttons::BT_MIN]->set_position(Point<int16_t>(bt_x, BTN_Y));
+
+			update_dimensions();
+
+			// Only the title bar drags the window; the canvas edges resize it
+			dragarea = Point<int16_t>(dimension.x(), NORMAL_TOP_H);
 		}
 	}
 
@@ -580,20 +469,9 @@ namespace ms
 		normal_sprites.clear();
 		max_sprites.clear();
 
-		nl::node Min, Normal, Max;
-
-		if (simpleMode)
-		{
-			Min = MiniMap["Window"]["Min"];
-			Normal = MiniMap["Window"]["Normal"];
-			Max = MiniMap["Window"]["Max"];
-		}
-		else
-		{
-			Min = MiniMap["Min"];
-			Normal = MiniMap["MinMap"];
-			Max = MiniMap["MaxMap"];
-		}
+		nl::node Min = MiniMap["Min"];
+		nl::node Normal = MiniMap["MinMap"];
+		nl::node Max = MiniMap["MaxMap"];
 
 		map_sprite = Texture(Map["miniMap"]["canvas"]);
 		Point<int16_t> map_dimensions = map_sprite.get_dimensions();
@@ -689,91 +567,61 @@ namespace ms
 		int16_t zoomed_w = static_cast<int16_t>(map_dimensions.x() * zoom_scale);
 		int16_t zoomed_h = static_cast<int16_t>(map_dimensions.y() * zoom_scale);
 
-		// 48 (offset for text) + longer text's width + 10 (space for right side border)
-		int16_t mark_text_width = 48 + std::max(region_text.width(), town_text.width()) + 10;
-		int16_t c_stretch, ur_x_offset, m_stretch, down_y_offset;
-		int16_t window_width = std::max(178, std::max((int)mark_text_width, zoomed_w + 20));
+		// Frame width: whichever is widest of the canvas (+ side padding),
+		// the title row (name + 3 buttons) and the MAX header texts.
+		int16_t title_w = TITLE_TEXT_POS.x() + combined_text_width + 4
+			+ bt_min_width + bt_max_width + bt_map_width + FRAME_SIDE_W + 4;
+		int16_t mark_text_w = MAX_TEXT_X + std::max(region_text.width(), town_text.width()) + FRAME_SIDE_W + 4;
+		int16_t canvas_w = zoomed_w + 2 * (FRAME_SIDE_W + CANVAS_PAD);
 
-		c_stretch = std::max(0, window_width - 128);
-		ur_x_offset = CENTER_START_X + c_stretch;
-		map_draw_origin_x = std::max(10, window_width / 2 - zoomed_w / 2);
+		window_width = std::max({ (int)MIN_WINDOW_W, (int)title_w, (int)mark_text_w, (int)canvas_w });
 
-		if (zoomed_h <= 20)
-		{
-			m_stretch = 5;
-			down_y_offset = 17 + m_stretch;
-			map_draw_origin_y = 10 + m_stretch - zoomed_h;
-		}
-		else
-		{
-			m_stretch = zoomed_h - 17;
-			down_y_offset = 17 + m_stretch;
-			map_draw_origin_y = 20;
-		}
+		// Height of the stretched side pieces (the map area between header and foot)
+		int16_t middle_h = std::max<int16_t>(zoomed_h + 2 * CANVAS_PAD, 20);
 
-		middle_right_x = ur_x_offset + 55;
-
-		std::string Left = simpleMode ? "Left" : "w";
-		std::string Center = simpleMode ? "Center" : "c";
-		std::string Right = simpleMode ? "Right" : "e";
-
-		std::string DownCenter = simpleMode ? "DownCenter" : "s";
-		std::string DownLeft = simpleMode ? "DownLeft" : "sw";
-		std::string DownRight = simpleMode ? "DownRight" : "se";
-		std::string MiddleLeft = simpleMode ? "MiddleLeft" : "w";
-		std::string MiddleRight = simpleMode ? "MiddleRight" : "e";
-		std::string UpCenter = simpleMode ? "UpCenter" : "n";
-		std::string UpLeft = simpleMode ? "UpLeft" : "nw";
-		std::string UpRight = simpleMode ? "UpRight" : "ne";
-
-		// SimpleMode's backdrop is opaque, the other is transparent but lightly colored
-		// UI.wz v208 has normal center sprite in-linked to bottom right window frame, not sure why.
-		nl::node MiddleCenter = simpleMode ? MiniMap["Window"]["Max"]["MiddleCenter"] : MiniMap["MaxMap"]["c"];
-
-		int16_t dl_dr_y = std::max(map_dimensions.y(), (int16_t)10);
-
-		// combined_text_width + 14 (7px buffer on both sides) + 4 (buffer between name and buttons) + 3 buttons' widths - 128 (length of left and right window borders)
-		int16_t min_c_stretch = combined_text_width + 18 + bt_min_width + bt_max_width + bt_map_width - 128;
-
-		// Min sprites queue
-		min_sprites.emplace_back(Min[Center], DrawArgument(WINDOW_UL_POS + Point<int16_t>(CENTER_START_X, 0), Point<int16_t>(min_c_stretch, 0)));
-		min_sprites.emplace_back(Min[Left], DrawArgument(WINDOW_UL_POS));
-		min_sprites.emplace_back(Min[Right], DrawArgument(WINDOW_UL_POS + Point<int16_t>(min_c_stretch + CENTER_START_X, 0)));
-
-		// Normal sprites queue
-		// (7, 10) is the top left corner of the inner window
-		// 114 = 128 (width of left and right borders) - 14 (width of middle borders * 2).
-		// 27 = height of inner frame drawn on up and down borders
-		normal_sprites.emplace_back(MiddleCenter, DrawArgument(Point<int16_t>(7, 10), Point<int16_t>(c_stretch + 114, m_stretch + 27)));
-
+		map_draw_origin_x = std::max<int16_t>(FRAME_SIDE_W + CANVAS_PAD, window_width / 2 - zoomed_w / 2);
+		map_draw_origin_y = NORMAL_TOP_H + CANVAS_PAD;
 		canvas_pos = Point<int16_t>(map_draw_origin_x, map_draw_origin_y);
 
-		normal_sprites.emplace_back(Normal[MiddleLeft], DrawArgument(Point<int16_t>(0, ML_MR_Y), Point<int16_t>(0, m_stretch)));
-		normal_sprites.emplace_back(Normal[MiddleRight], DrawArgument(Point<int16_t>(middle_right_x, ML_MR_Y), Point<int16_t>(0, m_stretch)));
-		normal_sprites.emplace_back(Normal[UpCenter], DrawArgument(Point<int16_t>(CENTER_START_X, 0) + WINDOW_UL_POS, Point<int16_t>(c_stretch, 0)));
-		normal_sprites.emplace_back(Normal[UpLeft], WINDOW_UL_POS);
-		normal_sprites.emplace_back(Normal[UpRight], DrawArgument(Point<int16_t>(ur_x_offset, 0) + WINDOW_UL_POS));
-		normal_sprites.emplace_back(Normal[DownCenter], DrawArgument(Point<int16_t>(CENTER_START_X, down_y_offset + 18), Point<int16_t>(c_stretch, 0)));
-		normal_sprites.emplace_back(Normal[DownLeft], Point<int16_t>(0, down_y_offset));
-		normal_sprites.emplace_back(Normal[DownRight], Point<int16_t>(ur_x_offset, down_y_offset));
+		int16_t inner_w = window_width - 2 * FRAME_SIDE_W;
+		int16_t right_x = window_width - FRAME_SIDE_W;
 
-		normal_dimensions = Point<int16_t>(ur_x_offset + 64, down_y_offset + 27);
+		// Min strip queue: [w 8px][c stretched][e 4px]
+		int16_t min_w = MIN_STRIP_W_W + combined_text_width + 4 + bt_min_width + bt_max_width + bt_map_width + MIN_STRIP_E_W;
+		min_dimensions = Point<int16_t>(min_w, MIN_STRIP_H);
 
-		// Max sprites queue
-		max_sprites.emplace_back(MiddleCenter, DrawArgument(Point<int16_t>(7, 50), Point<int16_t>(c_stretch + 114, m_stretch + 27)));
+		min_sprites.emplace_back(Min["c"], DrawArgument(Point<int16_t>(MIN_STRIP_W_W, 0), Point<int16_t>(min_w - MIN_STRIP_W_W - MIN_STRIP_E_W, 0)));
+		min_sprites.emplace_back(Min["w"], DrawArgument(Point<int16_t>(0, 0)));
+		min_sprites.emplace_back(Min["e"], DrawArgument(Point<int16_t>(min_w - MIN_STRIP_E_W, 0)));
 
+		// Normal frame (MinMap 9-slice): 29 px header, stretched middle, 14 px foot
+		auto build_frame = [&](std::vector<Sprite>& out, nl::node frame, int16_t top_h)
+		{
+			int16_t foot_y = top_h + middle_h;
 
-		max_sprites.emplace_back(Max[MiddleLeft], DrawArgument(Point<int16_t>(0, ML_MR_Y + MAX_ADJ), Point<int16_t>(0, m_stretch)));
-		max_sprites.emplace_back(Max[MiddleRight], DrawArgument(Point<int16_t>(middle_right_x, ML_MR_Y + MAX_ADJ), Point<int16_t>(0, m_stretch)));
-		max_sprites.emplace_back(Max[UpCenter], DrawArgument(Point<int16_t>(CENTER_START_X, 0) + WINDOW_UL_POS, Point<int16_t>(c_stretch, 0)));
-		max_sprites.emplace_back(Max[UpLeft], WINDOW_UL_POS);
-		max_sprites.emplace_back(Max[UpRight], DrawArgument(Point<int16_t>(ur_x_offset, 0) + WINDOW_UL_POS));
-		max_sprites.emplace_back(Max[DownCenter], DrawArgument(Point<int16_t>(CENTER_START_X, down_y_offset + MAX_ADJ + 18), Point<int16_t>(c_stretch, 0)));
-		max_sprites.emplace_back(Max[DownLeft], Point<int16_t>(0, down_y_offset + MAX_ADJ));
-		max_sprites.emplace_back(Max[DownRight], Point<int16_t>(ur_x_offset, down_y_offset + MAX_ADJ));
-		max_sprites.emplace_back(nl::nx::map["MapHelper.img"]["mark"][Map["info"]["mapMark"]], DrawArgument(Point<int16_t>(7, 17)));
+			out.emplace_back(frame["c"], DrawArgument(Point<int16_t>(FRAME_SIDE_W, top_h), Point<int16_t>(inner_w, middle_h)));
+			out.emplace_back(frame["w"], DrawArgument(Point<int16_t>(0, top_h), Point<int16_t>(0, middle_h)));
+			out.emplace_back(frame["e"], DrawArgument(Point<int16_t>(right_x, top_h), Point<int16_t>(0, middle_h)));
+			out.emplace_back(frame["n"], DrawArgument(Point<int16_t>(FRAME_SIDE_W, 0), Point<int16_t>(inner_w, 0)));
+			out.emplace_back(frame["nw"], DrawArgument(Point<int16_t>(0, 0)));
+			out.emplace_back(frame["ne"], DrawArgument(Point<int16_t>(right_x, 0)));
+			out.emplace_back(frame["s"], DrawArgument(Point<int16_t>(FRAME_SIDE_W, foot_y), Point<int16_t>(inner_w, 0)));
+			out.emplace_back(frame["sw"], DrawArgument(Point<int16_t>(0, foot_y)));
+			out.emplace_back(frame["se"], DrawArgument(Point<int16_t>(right_x, foot_y)));
+		};
 
-		max_dimensions = normal_dimensions + Point<int16_t>(0, MAX_ADJ);
+		build_frame(normal_sprites, Normal, NORMAL_TOP_H);
+		normal_dimensions = Point<int16_t>(window_width, NORMAL_TOP_H + middle_h + NORMAL_BOTTOM_H);
+
+		// Max frame (MaxMap 9-slice): 72 px header with the map mark, 15 px foot
+		build_frame(max_sprites, Max, MAX_TOP_H);
+
+		nl::node mark = nl::nx::map["MapHelper.img"]["mark"][Map["info"]["mapMark"]];
+
+		if (mark)
+			max_sprites.emplace_back(mark, DrawArgument(MARK_POS));
+
+		max_dimensions = Point<int16_t>(window_width, MAX_TOP_H + middle_h + MAX_BOTTOM_H);
 	}
 
 	void UIMiniMap::draw_canvas_hd(int16_t yadj) const
@@ -858,7 +706,18 @@ namespace ms
 		{
 			auto* npc = static_cast<Npc*>(it->second.get());
 			if (npc && npc->is_active())
-				npc->draw_minimap(mm_point(npc->get_position()), MM_NPC_SCALE, alpha);
+			{
+				Point<int16_t> p = mm_point(npc->get_position());
+				npc->draw_minimap(p, MM_NPC_SCALE, alpha);
+
+				// Quest "Find NPC" highlight: the 4x13 startnpc flag from
+				// MapHelper, drawn so its foot sits on the NPC's spot.
+				if (quest_npc_id > 0 && npc->get_npcid() == quest_npc_id)
+				{
+					Point<int16_t> flag_dim = quest_npc_marker.get_dimensions();
+					quest_npc_marker.draw(DrawArgument(p - Point<int16_t>(flag_dim.x() / 2, flag_dim.y())), alpha);
+				}
+			}
 		}
 
 		/// Other characters
@@ -915,12 +774,9 @@ namespace ms
 		if (!has_map)
 			return;
 
-		Animation marker_sprite;
-
 		/// Portals
 		nl::node portals = Map["portal"];
-		marker_sprite = Animation(marker["portal"]);
-		Point<int16_t> marker_offset = marker_sprite.get_dimensions() / Point<int16_t>(2, 0);
+		Point<int16_t> marker_offset = portal_marker_anim.get_dimensions() / Point<int16_t>(2, 0);
 
 		for (nl::node portal = portals.begin(); portal != portals.end(); ++portal)
 		{
@@ -934,163 +790,14 @@ namespace ms
 		}
 	}
 
-	void UIMiniMap::set_npclist_active(bool active)
-	{
-		listNpc_enabled = active;
-
-		if (!active)
-			select_npclist(-1);
-
-		update_dimensions();
-	}
-
 	void UIMiniMap::update_dimensions()
 	{
 		if (type == Type::MIN)
-		{
 			dimension = min_dimensions;
-		}
+		else if (type == Type::MAX)
+			dimension = max_dimensions;
 		else
-		{
-			Point<int16_t> base_dims = type == Type::MAX ? max_dimensions : normal_dimensions;
-			dimension = base_dims;
-
-			if (listNpc_enabled)
-			{
-				dimension += listNpc_dimensions;
-				dimension.set_y(std::max(base_dims.y(), listNpc_dimensions.y()));
-			}
-		}
-	}
-
-	void UIMiniMap::update_npclist()
-	{
-		listNpc_sprites.clear();
-		listNpc_names.clear();
-		listNpc_full_names.clear();
-		listNpc_list.clear();
-		selected = -1;
-		listNpc_offset = 0;
-
-		if (simpleMode)
-			return;
-
-		auto npcs = Stage::get().get_npcs().get_npcs();
-
-		for (auto npc = npcs->begin(); npc != npcs->end(); ++npc)
-		{
-			listNpc_list.emplace_back(npc->second.get());
-
-			auto n = static_cast<Npc*>(npc->second.get());
-			std::string name = n->get_name();
-			std::string func = n->get_func();
-
-			if (func != "")
-				name += " (" + func + ")";
-
-			Text name_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::WHITE, name);
-
-			listNpc_names.emplace_back(name_text);
-			listNpc_full_names.emplace_back(name);
-		}
-
-		for (size_t i = 0; i < listNpc_names.size(); i++)
-			string_format::format_with_ellipsis(listNpc_names[i], LISTNPC_TEXT_WIDTH - (listNpc_names.size() > 8 ? 0 : 20));
-
-		const Point<int16_t> listNpc_pos = Point<int16_t>(type == Type::MAX ? max_dimensions.x() : normal_dimensions.x(), 0);
-		int16_t c_stretch = 20;
-		int16_t m_stretch = 102;
-
-		if (listNpc_names.size() > 8)
-		{
-			listNpc_slider = Slider(
-				Slider::DEFAULT_SILVER, Range<int16_t>(23, 11 + LISTNPC_ITEM_HEIGHT * 8), listNpc_pos.x() + LISTNPC_ITEM_WIDTH + 1, 8, listNpc_names.size(),
-				[&](bool upwards)
-				{
-					int16_t shift = upwards ? -1 : 1;
-					bool above = listNpc_offset + shift >= 0;
-					bool below = listNpc_offset + 8 + shift <= listNpc_names.size();
-
-					if (above && below)
-						listNpc_offset += shift;
-				}
-			);
-
-			c_stretch += 12;
-		}
-		else
-		{
-			listNpc_slider.setenabled(false);
-			m_stretch = LISTNPC_ITEM_HEIGHT * listNpc_names.size() - 34;
-			c_stretch -= 17;
-		}
-
-		listNpc_sprites.emplace_back(listNpc["c"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X, M_START), Point<int16_t>(c_stretch, m_stretch)));
-		listNpc_sprites.emplace_back(listNpc["w"], DrawArgument(listNpc_pos + Point<int16_t>(0, M_START), Point<int16_t>(0, m_stretch)));
-		listNpc_sprites.emplace_back(listNpc["e"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X + c_stretch, M_START), Point<int16_t>(0, m_stretch)));
-		listNpc_sprites.emplace_back(listNpc["n"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X, 0), Point<int16_t>(c_stretch, 0)));
-		listNpc_sprites.emplace_back(listNpc["s"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X, M_START + m_stretch), Point<int16_t>(c_stretch, 0)));
-		listNpc_sprites.emplace_back(listNpc["nw"], DrawArgument(listNpc_pos + Point<int16_t>(0, 0)));
-		listNpc_sprites.emplace_back(listNpc["ne"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X + c_stretch, 0)));
-		listNpc_sprites.emplace_back(listNpc["sw"], DrawArgument(listNpc_pos + Point<int16_t>(0, M_START + m_stretch)));
-		listNpc_sprites.emplace_back(listNpc["se"], DrawArgument(listNpc_pos + Point<int16_t>(CENTER_START_X + c_stretch, M_START + m_stretch)));
-
-		listNpc_dimensions = Point<int16_t>(CENTER_START_X * 2 + c_stretch, M_START + m_stretch + 30);
-
-		update_dimensions();
-	}
-
-	void UIMiniMap::draw_npclist(Point<int16_t> minimap_dims, float alpha) const
-	{
-
-		for (Sprite sprite : listNpc_sprites)
-			sprite.draw(position, alpha);
-
-		Point<int16_t> listNpc_pos = position + Point<int16_t>(minimap_dims.x() + 10, 23);
-
-		for (int8_t i = 0; i + listNpc_offset < listNpc_list.size() && i < 8; i++)
-		{
-			if (selected - listNpc_offset == i)
-				npc_highlight.draw(listNpc_pos);
-
-			npc_marker_anim.draw(DrawArgument(listNpc_pos + Point<int16_t>(0, 2), false, npc_marker_anim.get_dimensions() / 2), alpha);
-			listNpc_names[listNpc_offset + i].draw(DrawArgument(listNpc_pos + Point<int16_t>(14, -2)));
-
-			listNpc_pos.shift_y(LISTNPC_ITEM_HEIGHT);
-		}
-
-		if (listNpc_slider.isenabled())
-			listNpc_slider.draw(position);
-
-		if (selected >= 0)
-		{
-			Point<int16_t> npc_pos =
-				scale_map_pos(listNpc_list[selected]->get_position()) +
-				Point<int16_t>(map_draw_origin_x, map_draw_origin_y - npc_marker_anim.get_dimensions().y() + (type == Type::MAX ? MAX_ADJ : 0));
-
-			selected_marker.draw(position + npc_pos, 0.5f);
-		}
-	}
-
-	void UIMiniMap::select_npclist(int16_t choice)
-	{
-		if (selected == choice)
-			return;
-
-		if (selected >= 0 && selected < listNpc_names.size())
-			listNpc_names[selected].change_color(Color::Name::WHITE);
-
-		if (choice > listNpc_names.size() || choice < 0)
-		{
-			selected = -1;
-		}
-		else
-		{
-			selected = choice != selected ? choice : -1;
-
-			if (selected >= 0)
-				listNpc_names[selected].change_color(Color::Name::BLACK);
-		}
+			dimension = normal_dimensions;
 	}
 
 	void UIMiniMap::set_quest_npc(int32_t npcid)
@@ -1098,18 +805,26 @@ namespace ms
 		if (npcid <= 0)
 			return;
 
-		// Enable NPC list if not already showing
-		if (!listNpc_enabled)
-			set_npclist_active(true);
+		// v83 has no NPC list panel; the NPC is flagged on the map itself.
+		// Only flag NPCs that are actually on this map so a stale id from
+		// another map never draws a marker at a bogus spot.
+		auto npcs = Stage::get().get_npcs().get_npcs();
 
-		// Find the NPC in the list by its data ID
-		for (size_t i = 0; i < listNpc_list.size(); i++)
+		for (auto it = npcs->begin(); it != npcs->end(); ++it)
 		{
-			auto npc = static_cast<Npc*>(listNpc_list[i]);
+			auto* npc = static_cast<Npc*>(it->second.get());
 
 			if (npc && npc->get_npcid() == npcid)
 			{
-				select_npclist(static_cast<int16_t>(i));
+				quest_npc_id = npcid;
+
+				// Pop the window open so the highlight is visible
+				if (has_map && type == Type::MIN)
+				{
+					type = user_type > Type::MIN ? user_type : Type::NORMAL;
+					toggle_buttons();
+				}
+
 				return;
 			}
 		}

@@ -25,6 +25,7 @@
 #include "../Components/AreaButton.h"
 #include "../Components/Charset.h"
 #include "../Components/MapleButton.h"
+#include "../Components/TwoSpriteButton.h"
 
 #include "../../Graphics/Geometry.h"
 
@@ -41,9 +42,10 @@
 
 namespace ms
 {
-	UIShop::UIShop(const CharLook& in_charlook, const Inventory& in_inventory) : UIDragElement<PosSHOP>(Point<int16_t>(400, 20)), charlook(in_charlook), inventory(in_inventory)
+	UIShop::UIShop(const CharLook& in_charlook, const Inventory& in_inventory) : UIDragElement<PosSHOP>(Point<int16_t>(463, 20)), charlook(in_charlook), inventory(in_inventory)
 	{
-		nl::node src = nl::nx::ui["UIWindow2.img"]["Shop2"];
+		// v83: everything lives flat under UIWindow.img/Shop
+		nl::node src = nl::nx::ui["UIWindow.img"]["Shop"];
 
 		nl::node background = src["backgrnd"];
 		Texture bg = background;
@@ -51,85 +53,85 @@ namespace ms
 		auto bg_dimensions = bg.get_dimensions();
 
 		sprites.emplace_back(background);
-		sprites.emplace_back(src["backgrnd2"]);
-		sprites.emplace_back(src["backgrnd3"]);
-		sprites.emplace_back(src["backgrnd4"]);
 
-		buttons[Buttons::BUY_ITEM] = std::make_unique<MapleButton>(src["BtBuy"]);
-		buttons[Buttons::SELL_ITEM] = std::make_unique<MapleButton>(src["BtSell"]);
-		buttons[Buttons::EXIT] = std::make_unique<MapleButton>(src["BtExit"]);
+		// Header buttons. Each header box (y 7..82) has a portrait on the
+		// left of a faint divider (x 105 / 335) and free space to its right:
+		//   left  : BtBuy (80x18) + BtRecharge (30x16) side by side
+		//   right : BtSell / BtExit stacked above the meso box (y 63..80)
+		buttons[Buttons::BUY_ITEM] = std::make_unique<MapleButton>(src["BtBuy"], Point<int16_t>(112, 32));
+		buttons[Buttons::RECHARGE] = std::make_unique<MapleButton>(src["BtRecharge"], Point<int16_t>(194, 33));
+		buttons[Buttons::SELL_ITEM] = std::make_unique<MapleButton>(src["BtSell"], Point<int16_t>(342, 24));
+		buttons[Buttons::EXIT] = std::make_unique<MapleButton>(src["BtExit"], Point<int16_t>(342, 43));
 
-		Texture cben = src["checkBox"][0];
-		Texture cbdis = src["checkBox"][1];
+		buttons[Buttons::RECHARGE]->set_state(Button::State::DISABLED);
 
-		Point<int16_t> cb_origin = cben.get_origin();
-		int16_t cb_x = cb_origin.x();
-		int16_t cb_y = cb_origin.y();
-
-		checkBox[0] = cbdis;
-		checkBox[1] = cben;
-
-		buttons[Buttons::CHECKBOX] = std::make_unique<AreaButton>(Point<int16_t>(std::abs(cb_x), std::abs(cb_y)), cben.get_dimensions());
-
+		// Buy-side "All" tab (TabBuy/0). The per-category buy tabs are created
+		// lazily in finalize_buy_tabs() once the shop's item list is known,
+		// so only categories that actually appear in the shop get a tab.
 		nl::node buyen = src["TabBuy"]["enabled"];
 		nl::node buydis = src["TabBuy"]["disabled"];
 
-		buttons[Buttons::OVERALL] = std::make_unique<TwoSpriteButton>(buydis[0], buyen[0]);
+		buttons[Buttons::OVERALL] = std::make_unique<TwoSpriteButton>(buydis["0"], buyen["0"], Point<int16_t>(BUY_TAB_X, TAB_Y));
 
+		// Inventory tabs on the right panel (TabSell: Equip, Use, Set-up, Etc, Cash)
 		nl::node sellen = src["TabSell"]["enabled"];
 		nl::node selldis = src["TabSell"]["disabled"];
 
-		for (uint16_t i = Buttons::EQUIP; i <= Buttons::CASH; i++)
 		{
-			std::string tabnum = std::to_string(i - Buttons::EQUIP);
-			buttons[i] = std::make_unique<TwoSpriteButton>(selldis[tabnum], sellen[tabnum]);
+			int16_t tab_x = SELL_X + 8;
+			const InventoryType::Id order[5] = {
+				InventoryType::Id::EQUIP,
+				InventoryType::Id::USE,
+				InventoryType::Id::SETUP,
+				InventoryType::Id::ETC,
+				InventoryType::Id::CASH
+			};
+
+			for (InventoryType::Id t : order)
+			{
+				std::string tabnum = std::to_string(tab_art_index(t));
+				buttons[tabbyinventory(t)] = std::make_unique<TwoSpriteButton>(selldis[tabnum], sellen[tabnum], Point<int16_t>(tab_x, TAB_Y));
+				tab_x += Texture(selldis[tabnum]).get_dimensions().x() + TAB_GAP;
+			}
 		}
 
-		// Buy-side category tabs are created lazily in finalize_buy_tabs()
-		// once the shop's item list is known, so only categories that
-		// actually appear in the shop get a tab.
+		buy_x = BUY_X;
+		buy_width = ROW_W;
 
-		int16_t item_y = 124;
-		int16_t item_height = 36;
-
-		buy_x = 8;
-		buy_width = 257;
-
-		for (uint16_t i = Buttons::BUY0; i <= Buttons::BUY8; i++)
+		for (uint16_t i = Buttons::BUY0; i <= Buttons::BUY4; i++)
 		{
-			Point<int16_t> pos(buy_x, item_y + 42 * (i - Buttons::BUY0));
-			Point<int16_t> dim(buy_width, item_height);
+			Point<int16_t> pos(BUY_X, ROW_Y + ROW_PITCH * (i - Buttons::BUY0) + ROW_ART_Y);
+			Point<int16_t> dim(ROW_W, ROW_ART_H);
 			buttons[i] = std::make_unique<AreaButton>(pos, dim);
 		}
 
-		sell_x = 284;
-		sell_width = 200;
+		sell_x = SELL_X;
+		sell_width = ROW_W;
 
-		for (uint16_t i = Buttons::SELL0; i <= Buttons::SELL8; i++)
+		for (uint16_t i = Buttons::SELL0; i <= Buttons::SELL4; i++)
 		{
-			Point<int16_t> pos(sell_x, item_y + 42 * (i - Buttons::SELL0));
-			Point<int16_t> dim(sell_width, item_height);
+			Point<int16_t> pos(SELL_X, ROW_Y + ROW_PITCH * (i - Buttons::SELL0) + ROW_ART_Y);
+			Point<int16_t> dim(ROW_W, ROW_ART_H);
 			buttons[i] = std::make_unique<AreaButton>(pos, dim);
 		}
 
+		// One 162x35 highlight serves both panels (it matches the name strip)
 		buy_selection = src["select"];
-		sell_selection = src["select2"];
+		sell_selection = src["select"];
 		meso = src["meso"];
-		// v83 NX only ships a single-frame meso bitmap (UIWindow[2]/Shop[2]/meso
-		// are both 12x12 plain sprites); there is no animation source to load.
 
 		mesolabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::MINESHAFT);
 
-		// 9 item rows are rendered (see BuyState / SellState draw loops),
-		// so the slider's visible-row count and the clamp below must use
-		// 9 — not 5 — or the offset overruns the list by 4 rows.
+		// v83 Basic.img only ships the plain "VScr" scrollbar, which is
+		// Slider::Type::LINE_CYAN; every other type would resolve to a
+		// missing "VScrN" node.
 		buyslider = Slider(
-			Slider::Type::DEFAULT_SILVER, Range<int16_t>(123, 484), 257, 9, 1,
+			Slider::Type::LINE_CYAN, Range<int16_t>(SLIDER_TOP, SLIDER_BOTTOM), BUY_SLIDER_X, ROWS, 1,
 			[&](bool upwards)
 			{
 				int16_t shift = upwards ? -1 : 1;
 				bool above = buystate.offset + shift >= 0;
-				bool below = buystate.offset + shift <= buystate.lastslot - 9;
+				bool below = buystate.offset + shift <= buystate.lastslot - ROWS;
 
 				if (above && below)
 					buystate.offset += shift;
@@ -137,17 +139,19 @@ namespace ms
 		);
 
 		sellslider = Slider(
-			Slider::Type::DEFAULT_SILVER, Range<int16_t>(123, 484), 488, 9, 1,
+			Slider::Type::LINE_CYAN, Range<int16_t>(SLIDER_TOP, SLIDER_BOTTOM), SELL_SLIDER_X, ROWS, 1,
 			[&](bool upwards)
 			{
 				int16_t shift = upwards ? -1 : 1;
 				bool above = sellstate.offset + shift >= 0;
-				bool below = sellstate.offset + shift <= sellstate.lastslot - 9;
+				bool below = sellstate.offset + shift <= sellstate.lastslot - ROWS;
 
 				if (above && below)
 					sellstate.offset += shift;
 			}
 		);
+
+		rightclicksell = Configuration::get().get_rightclicksell();
 
 		active = false;
 		dimension = bg_dimensions;
@@ -158,62 +162,20 @@ namespace ms
 	{
 		UIElement::draw(alpha);
 
-		npc.draw(DrawArgument(position + Point<int16_t>(58, 85), true), alpha);
-
-		// Buy-side category tab row — only categories present in the
-		// shop have AreaButtons, so draw in creation order and pack
-		// sequentially from slot 1 (slot 0 is OVERALL).
-		{
-			nl::node tabs = nl::nx::ui["UIWindow2.img"]["Item"]["Tab"];
-			nl::node tab_en = tabs["enabled"];
-			nl::node tab_dis = tabs["disabled"];
-			int16_t tab_y = 100;
-			int16_t ox = 24;
-			int16_t step = 31;
-
-			int16_t slot = 1;
-			for (size_t k = 0; k < 5; k++)
-			{
-				std::string tabnum = std::to_string(k);
-				uint16_t btn_id = static_cast<uint16_t>(Buttons::BUY_TAB_EQUIP + k);
-				auto bit = buttons.find(btn_id);
-				if (bit == buttons.end() || !bit->second) continue;
-
-				Button::State st = bit->second->get_state();
-				bool selected = (st == Button::State::PRESSED
-					|| st == Button::State::MOUSEOVER);
-
-				// Enabled tab sprite is 2 px taller — shift it up so its
-				// bottom edge matches the disabled sprite, otherwise the
-				// hover highlight overlaps the thin separator line just
-				// below the tab row.
-				Texture dis_tex(tab_dis[tabnum]);
-				Texture tab_tex(selected ? tab_en[tabnum] : tab_dis[tabnum]);
-				int16_t height_diff =
-					tab_tex.get_dimensions().y() - dis_tex.get_dimensions().y();
-				Point<int16_t> orig = tab_tex.get_origin();
-				Point<int16_t> p = position
-					+ Point<int16_t>(ox + step * slot, tab_y - height_diff) + orig;
-				tab_tex.draw(DrawArgument(p));
-				slot++;
-			}
-		}
+		npc.draw(DrawArgument(position + NPC_POS, true), alpha);
 
 		// Flipped=false → faces the NPC on the left (the default
 		// CharLook facing is right, so false mirrors it leftward).
-		charlook.draw(position + Point<int16_t>(338, 85), /*flipped*/ false,
+		charlook.draw(position + CHAR_POS, /*flipped*/ false,
 			Stance::Id::STAND1, Expression::Id::DEFAULT);
 
-		mesolabel.draw(position + Point<int16_t>(493, 51));
+		mesolabel.draw(position + MESO_TEXT_POS);
 
 		buystate.draw(position, buy_selection);
 		sellstate.draw(position, sell_selection);
 
-
 		buyslider.draw(position);
 		sellslider.draw(position);
-
-		checkBox[rightclicksell].draw(position);
 	}
 
 	void UIShop::update()
@@ -240,14 +202,32 @@ namespace ms
 			string_format::split_number(mesostr);
 			mesolabel.change_text(mesostr);
 		}
+
+		// Recharge is only meaningful for a selected throwing star / bullet
+		// stack on the USE tab; grey the button otherwise.
+		bool can_recharge = false;
+
+		if (sellstate.tab == InventoryType::Id::USE
+			&& sellstate.selection >= 0 && sellstate.selection < sellstate.lastslot)
+		{
+			int32_t prefix = sellstate.items[sellstate.selection].get_id() / 10000;
+			can_recharge = (prefix == 207 || prefix == 233);
+		}
+
+		Button::State rstate = buttons[Buttons::RECHARGE]->get_state();
+
+		if (!can_recharge && rstate != Button::State::DISABLED)
+			buttons[Buttons::RECHARGE]->set_state(Button::State::DISABLED);
+		else if (can_recharge && rstate == Button::State::DISABLED)
+			buttons[Buttons::RECHARGE]->set_state(Button::State::NORMAL);
 	}
 
 	Button::State UIShop::button_pressed(uint16_t buttonid)
 	{
 		clear_tooltip();
 
-		constexpr Range<uint16_t> buy(Buttons::BUY0, Buttons::BUY8);
-		constexpr Range<uint16_t> sell(Buttons::SELL0, Buttons::SELL8);
+		constexpr Range<uint16_t> buy(Buttons::BUY0, Buttons::BUY4);
+		constexpr Range<uint16_t> sell(Buttons::SELL0, Buttons::SELL4);
 
 		if (buy.contains(buttonid))
 		{
@@ -277,15 +257,14 @@ namespace ms
 				sellstate.sell(false);
 
 				return Button::State::NORMAL;
+			case Buttons::RECHARGE:
+				sellstate.recharge();
+
+				return Button::State::NORMAL;
 			case Buttons::EXIT:
 				exit_shop();
 
 				return Button::State::PRESSED;
-			case Buttons::CHECKBOX:
-				rightclicksell = !rightclicksell;
-				Configuration::get().set_rightclicksell(rightclicksell);
-
-				return Button::State::NORMAL;
 			case Buttons::EQUIP:
 				changeselltab(InventoryType::Id::EQUIP);
 
@@ -378,9 +357,9 @@ namespace ms
 		int16_t yoff = cursoroffset.y();
 		int16_t slot = slot_by_position(yoff);
 
-		if (slot >= 0 && slot <= 8)
+		if (slot >= 0 && slot < ROWS)
 		{
-			if (xoff >= buy_x && xoff <= buy_width)
+			if (xoff >= buy_x && xoff <= buy_x + buy_width)
 				show_item(slot, true);
 			else if (xoff >= sell_x && xoff <= sell_x + sell_width)
 				show_item(slot, false);
@@ -401,11 +380,15 @@ namespace ms
 			auto bit = buttons.find(static_cast<uint16_t>(i));
 			if (bit == buttons.end() || !bit->second)
 				continue;
+
+			bool is_action = i <= Buttons::RECHARGE;
+			bool is_tab = i >= Buttons::OVERALL && i <= Buttons::BUY_TAB_CASH;
+
 			if (buttons[i]->is_active() && buttons[i]->bounds(position).contains(cursorpos))
 			{
 				if (buttons[i]->get_state() == Button::State::NORMAL)
 				{
-					if (i >= Buttons::BUY_ITEM && i <= Buttons::EXIT)
+					if (is_action)
 					{
 						Sound(Sound::Name::BUTTONOVER).play();
 
@@ -422,32 +405,18 @@ namespace ms
 				{
 					if (clicked)
 					{
-						if (i >= Buttons::BUY_ITEM && i <= Buttons::CASH)
-						{
-							if (i >= Buttons::OVERALL && i <= Buttons::CASH)
-							{
-								Sound(Sound::Name::TAB).play();
-							}
-							else
-							{
-								if (i != Buttons::CHECKBOX)
-									Sound(Sound::Name::BUTTONCLICK).play();
-							}
+						if (is_tab)
+							Sound(Sound::Name::TAB).play();
+						else if (is_action)
+							Sound(Sound::Name::BUTTONCLICK).play();
 
-							buttons[i]->set_state(button_pressed(i));
+						buttons[i]->set_state(button_pressed(i));
 
-							ret = Cursor::State::IDLE;
-						}
-						else
-						{
-							buttons[i]->set_state(button_pressed(i));
-
-							ret = Cursor::State::IDLE;
-						}
+						ret = Cursor::State::IDLE;
 					}
 					else
 					{
-						if (i >= Buttons::BUY_ITEM && i <= Buttons::EXIT)
+						if (is_action)
 							ret = Cursor::State::CANCLICK;
 						else
 							ret = Cursor::State::IDLE;
@@ -457,7 +426,7 @@ namespace ms
 				{
 					if (clicked)
 					{
-						if (i >= Buttons::OVERALL && i <= Buttons::CASH)
+						if (is_tab)
 						{
 							Sound(Sound::Name::TAB).play();
 
@@ -478,10 +447,11 @@ namespace ms
 	void UIShop::send_scroll(double yoffset)
 	{
 		int16_t xoff = lastcursorpos.x();
-		int16_t slider_width = 10;
+		// Rows plus the scrollbar track to their right
+		int16_t slider_width = 24;
 
 		if (buyslider.isenabled())
-			if (xoff >= buy_x && xoff <= buy_width + slider_width)
+			if (xoff >= buy_x && xoff <= buy_x + buy_width + slider_width)
 				buyslider.send_scroll(yoffset);
 
 		if (sellslider.isenabled())
@@ -499,13 +469,13 @@ namespace ms
 			int16_t yoff = cursoroffset.y();
 			int16_t slot = slot_by_position(yoff);
 
-			if (slot >= 0 && slot <= 8)
+			if (slot >= 0 && slot < ROWS)
 			{
 				if (xoff >= sell_x && xoff <= sell_x + sell_width)
 				{
 					clear_tooltip();
 
-					sellstate.selection = slot;
+					sellstate.selection = slot + sellstate.offset;
 					sellstate.sell(true);
 					buystate.selection = -1;
 				}
@@ -554,49 +524,32 @@ namespace ms
 				present[static_cast<size_t>(t)] = true;
 		}
 
+		// v83 has no dedicated buy-side category art, so the buy tabs reuse
+		// the TabSell text bitmaps (same Equip / Use / Set-up / Etc / Cash
+		// labels the right panel shows), packed right of the "All" tab.
 		nl::node src = nl::nx::ui["UIWindow.img"]["Shop"];
 		nl::node sellen = src["TabSell"]["enabled"];
 		nl::node selldis = src["TabSell"]["disabled"];
 
-		// Absolute target row (inside the shop window) for the buy-side
-		// tabs. Must match the row drawn in UIShop::draw (same ox / step
-		// as the inventory UI's 31-px tab spacing).
-		int16_t overall_x = 24;
-		int16_t overall_y = 100;
-		int16_t step = 31;
+		int16_t tab_x = BUY_TAB_X + Texture(src["TabBuy"]["disabled"]["0"]).get_dimensions().x() + TAB_GAP;
 
-		// Place each present category tab sequentially right of OVERALL.
-		// TwoSpriteButton draws at (parent + npos - sprite_origin), so
-		// we set npos = target + sprite_origin to land on `target`.
-		int16_t next_slot = 1;
 		const InventoryType::Id order[5] = {
 			InventoryType::Id::EQUIP,
 			InventoryType::Id::USE,
-			InventoryType::Id::ETC,
 			InventoryType::Id::SETUP,
+			InventoryType::Id::ETC,
 			InventoryType::Id::CASH
 		};
-		// Use the same tab sprite the draw path uses so the hit-box
-		// dimension matches the visible tab.
-		nl::node tabs = nl::nx::ui["UIWindow2.img"]["Item"]["Tab"];
-		nl::node tab_dis = tabs["disabled"];
 
-		for (size_t k = 0; k < 5; k++)
+		for (InventoryType::Id t : order)
 		{
-			InventoryType::Id t = order[k];
 			if (!present[static_cast<size_t>(t)]) continue;
 
+			std::string tabnum = std::to_string(tab_art_index(t));
 			uint16_t btn_id = buy_tab_by_inventory(t);
-			std::string tabnum = std::to_string(k);
 
-			Texture tab_tex(tab_dis[tabnum]);
-			Point<int16_t> dim = tab_tex.get_dimensions();
-			Point<int16_t> target(overall_x + step * next_slot, overall_y);
-
-			// AreaButton for hit-detection; the sprite itself is rendered
-			// in UIShop::draw so we control the position directly.
-			buttons[btn_id] = std::make_unique<AreaButton>(target, dim);
-			next_slot++;
+			buttons[btn_id] = std::make_unique<TwoSpriteButton>(selldis[tabnum], sellen[tabnum], Point<int16_t>(tab_x, TAB_Y));
+			tab_x += Texture(selldis[tabnum]).get_dimensions().x() + TAB_GAP;
 		}
 	}
 
@@ -614,10 +567,10 @@ namespace ms
 
 		sellstate.change_tab(inventory, type, meso);
 
-		sellslider.setrows(9, sellstate.lastslot);
-		sellslider.setenabled(sellstate.lastslot > 9);
+		sellslider.setrows(ROWS, sellstate.lastslot);
+		sellslider.setenabled(sellstate.lastslot > ROWS);
 
-		for (size_t i = Buttons::SELL0; i < Buttons::SELL8; i++)
+		for (size_t i = Buttons::SELL0; i <= Buttons::SELL4; i++)
 		{
 			if (i - Buttons::SELL0 < sellstate.lastslot)
 				buttons[i]->set_state(Button::State::NORMAL);
@@ -669,6 +622,8 @@ namespace ms
 		if (buttons[Buttons::EQUIP])
 			buttons[Buttons::EQUIP]->set_state(Button::State::PRESSED);
 
+		buttons[Buttons::RECHARGE]->set_state(Button::State::DISABLED);
+
 		buystate.reset();
 		sellstate.reset();
 
@@ -711,34 +666,24 @@ namespace ms
 
 		// lastslot reflects the filtered view only; enable slider if
 		// the visible list already overflows.
-		buyslider.setrows(9, buystate.lastslot);
-		buyslider.setenabled(buystate.lastslot > 9);
+		buyslider.setrows(ROWS, buystate.lastslot);
+		buyslider.setenabled(buystate.lastslot > ROWS);
 	}
 
 	int16_t UIShop::slot_by_position(int16_t y)
 	{
-		int16_t yoff = y - 123;
+		int16_t yoff = y - ROW_Y;
 
-		if (yoff > 0 && yoff < 38)
-			return 0;
-		else if (yoff > 42 && yoff < 80)
-			return 1;
-		else if (yoff > 84 && yoff < 122)
-			return 2;
-		else if (yoff > 126 && yoff < 164)
-			return 3;
-		else if (yoff > 168 && yoff < 206)
-			return 4;
-		else if (yoff > 210 && yoff < 248)
-			return 5;
-		else if (yoff > 252 && yoff < 290)
-			return 6;
-		else if (yoff > 294 && yoff < 332)
-			return 7;
-		else if (yoff > 336 && yoff < 374)
-			return 8;
-		else
+		if (yoff < 0 || yoff >= ROWS * ROW_PITCH)
 			return -1;
+
+		// Only the 35 px of row art count, not the separator below it
+		int16_t in_row = yoff % ROW_PITCH;
+
+		if (in_row < ROW_ART_Y || in_row >= ROW_ART_Y + ROW_ART_H)
+			return -1;
+
+		return yoff / ROW_PITCH;
 	}
 
 	uint16_t UIShop::tabbyinventory(InventoryType::Id type)
@@ -755,6 +700,26 @@ namespace ms
 			return Buttons::SETUP;
 		case InventoryType::Id::CASH:
 			return Buttons::CASH;
+		default:
+			return 0;
+		}
+	}
+
+	int16_t UIShop::tab_art_index(InventoryType::Id type)
+	{
+		// UIWindow.img/Shop/TabSell bitmap order: Equip, Use, Set-up, Etc, Cash
+		switch (type)
+		{
+		case InventoryType::Id::EQUIP:
+			return 0;
+		case InventoryType::Id::USE:
+			return 1;
+		case InventoryType::Id::SETUP:
+			return 2;
+		case InventoryType::Id::ETC:
+			return 3;
+		case InventoryType::Id::CASH:
+			return 4;
 		default:
 			return 0;
 		}
@@ -791,8 +756,8 @@ namespace ms
 		if (buttons[new_btn]) buttons[new_btn]->set_state(Button::State::PRESSED);
 
 		buystate.set_filter(type);
-		buyslider.setrows(9, buystate.lastslot);
-		buyslider.setenabled(buystate.lastslot > 9);
+		buyslider.setrows(ROWS, buystate.lastslot);
+		buyslider.setenabled(buystate.lastslot > ROWS);
 	}
 
 	void UIShop::exit_shop()
@@ -822,18 +787,22 @@ namespace ms
 		pricelabel.change_text(mesostr + suffix);
 	}
 
+	// Row drawing. `pos` is the row's top-left (icon box edge, ROW_Y line).
+	// Item icons are bottom-left anchored (Item.wz origin = (x, height)),
+	// so they're placed at the icon box's floor; text goes on the name
+	// strip that starts 36 px to the right.
 	void UIShop::BuyItem::draw(Point<int16_t> pos) const
 	{
-		icon.draw(pos + Point<int16_t>(0, 42));
-		namelabel.draw(pos + Point<int16_t>(40, 6));
+		icon.draw(pos + Point<int16_t>(1, 37));
+		namelabel.draw(pos + Point<int16_t>(40, 4));
 
 		// 32px item icon at half scale where the meso coin sits
 		if (item_currency)
-			currency.draw(DrawArgument(pos + Point<int16_t>(38, 43), 0.5f, 0.5f));
+			currency.draw(DrawArgument(pos + Point<int16_t>(40, 34), 0.5f, 0.5f));
 		else
-			currency.draw(pos + Point<int16_t>(38, 29));
+			currency.draw(pos + Point<int16_t>(40, 21));
 
-		pricelabel.draw(pos + Point<int16_t>(55, 24));
+		pricelabel.draw(pos + Point<int16_t>(55, 19));
 	}
 
 	int32_t UIShop::BuyItem::get_id() const
@@ -884,16 +853,16 @@ namespace ms
 
 	void UIShop::SellItem::draw(Point<int16_t> pos) const
 	{
-		icon.draw(pos + Point<int16_t>(43, 42));
+		icon.draw(pos + Point<int16_t>(1, 37));
 
 		if (showcount)
 		{
 			static const Charset countset = Charset(nl::nx::ui["Basic.img"]["ItemNo"], Charset::Alignment::LEFT);
-			countset.draw(std::to_string(sellable), pos + Point<int16_t>(41, 28));
+			countset.draw(std::to_string(sellable), pos + Point<int16_t>(0, 23));
 		}
 
-		namelabel.draw(pos + Point<int16_t>(84, 6));
-		pricelabel.draw(pos + Point<int16_t>(84, 24));
+		namelabel.draw(pos + Point<int16_t>(40, 4));
+		pricelabel.draw(pos + Point<int16_t>(40, 19));
 	}
 
 	int32_t UIShop::SellItem::get_id() const
@@ -946,17 +915,17 @@ namespace ms
 
 	void UIShop::BuyState::draw(Point<int16_t> parentpos, const Texture& selected) const
 	{
-		for (int16_t i = 0; i < 9; i++)
+		for (int16_t i = 0; i < ROWS; i++)
 		{
 			int16_t slot = i + offset;
 
 			if (slot >= lastslot)
 				break;
 
-			auto itempos = Point<int16_t>(12, 116 + 42 * i);
+			auto itempos = Point<int16_t>(BUY_X, ROW_Y + ROW_PITCH * i);
 
 			if (slot == selection)
-				selected.draw(parentpos + itempos + Point<int16_t>(35, 8));
+				selected.draw(parentpos + itempos + Point<int16_t>(NAME_STRIP_DX, ROW_ART_Y));
 
 			items[slot].draw(parentpos + itempos);
 		}
@@ -1068,6 +1037,7 @@ namespace ms
 		tab = newtab;
 
 		offset = 0;
+		selection = -1;
 
 		items.clear();
 
@@ -1087,17 +1057,17 @@ namespace ms
 
 	void UIShop::SellState::draw(Point<int16_t> parentpos, const Texture& selected) const
 	{
-		for (int16_t i = 0; i <= 8; i++)
+		for (int16_t i = 0; i < ROWS; i++)
 		{
 			int16_t slot = i + offset;
 
 			if (slot >= lastslot)
 				break;
 
-			Point<int16_t> itempos(243, 116 + 42 * i);
+			Point<int16_t> itempos(SELL_X, ROW_Y + ROW_PITCH * i);
 
 			if (slot == selection)
-				selected.draw(parentpos + itempos + Point<int16_t>(78, 8));
+				selected.draw(parentpos + itempos + Point<int16_t>(NAME_STRIP_DX, ROW_ART_Y));
 
 			items[slot].draw(parentpos + itempos);
 		}
@@ -1164,6 +1134,15 @@ namespace ms
 
 			UI::get().emplace<UIYesNo>(question, ondecide, Text::Alignment::CENTER, -60, 14);
 		}
+	}
+
+	void UIShop::SellState::recharge() const
+	{
+		if (selection < 0 || selection >= lastslot)
+			return;
+
+		// The server prices the recharge itself; it only needs the slot
+		NpcShopActionPacket(items[selection].get_slot()).dispatch();
 	}
 
 	void UIShop::SellState::select(int16_t selected)

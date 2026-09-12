@@ -18,7 +18,6 @@
 #pragma once
 
 #include "Tooltip.h"
-#include "MapleFrame.h"
 
 #include "../../Graphics/Text.h"
 
@@ -34,8 +33,10 @@ namespace ms
 		bool set_text(std::string text, uint16_t maxwidth = 340, bool formatted = true, int16_t line_adj = 2);
 
 	private:
-		MapleFrame frame;
-		Texture cover;
+		// Panel padding around the label (v83 has no frame art, see TooltipFrame)
+		static constexpr int16_t PAD_X = 6;
+		static constexpr int16_t PAD_Y = 3;
+
 		std::string text;
 		Text text_label;
 	};

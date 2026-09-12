@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "TextTooltip.h"
 
+#include "TooltipFrame.h"
+
 #include "../../Constants.h"
 
 #ifdef USE_NX
@@ -27,11 +29,7 @@ namespace ms
 {
 	TextTooltip::TextTooltip()
 	{
-		nl::node Frame = nl::nx::ui["UIToolTip.img"]["Item"]["Frame2"];
-
-		frame = Frame;
-		cover = Frame["cover"];
-
+		// v83 has no UIToolTip.img frame art; the panel is drawn by TooltipFrame.
 		text = "";
 	}
 
@@ -60,23 +58,8 @@ namespace ms
 		if (adj_y > 0)
 			pos.shift_y(adj_y * -1);
 
-		if (fillheight > 18)
-		{
-			frame.draw(pos + Point<int16_t>(fillwidth / 2, fillheight - 6), fillwidth - 19, fillheight - 17);
-
-			if (fillheight > cover.height())
-				cover.draw(pos + Point<int16_t>(-5, -2));
-			else
-				cover.draw(pos + Point<int16_t>(-5, -2), Range<int16_t>(0, fillheight / 2 - 14 + 2));
-
-			text_label.draw(pos + Point<int16_t>(0, 1));
-		}
-		else
-		{
-			frame.draw(pos + Point<int16_t>(fillwidth / 2, fillheight - 7), fillwidth - 19, fillheight - 18);
-			cover.draw(pos + Point<int16_t>(-5, -2), Range<int16_t>(0, fillheight + 2));
-			text_label.draw(pos + Point<int16_t>(-1, -2));
-		}
+		TooltipFrame::draw(pos + Point<int16_t>(-PAD_X, -PAD_Y), fillwidth + PAD_X * 2, fillheight + PAD_Y * 2);
+		text_label.draw(pos + Point<int16_t>(0, 1));
 	}
 
 	bool TextTooltip::set_text(std::string t, uint16_t maxwidth, bool formatted, int16_t line_adj)

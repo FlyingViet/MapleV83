@@ -44,10 +44,12 @@ namespace ms
 			typestr = std::to_string(type);
 		}
 
-		nl::node src = nl::nx::ui["ChatBalloon.img"][typestr];
+		// Every v83 balloon style (ChatBalloon.img/<type>) is a MapleFrame set
+		// (n/ne/e/se/s/sw/w/nw/c) plus its own arrow
+		nl::node balloons = nl::nx::ui["ChatBalloon.img"];
 
-		arrow = src["arrow"];
-		frame = src;
+		arrow = balloons[typestr]["arrow"];
+		frame = balloons[typestr];
 
 		textlabel = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::BLACK, "", 80);
 

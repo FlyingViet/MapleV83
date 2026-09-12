@@ -20,9 +20,12 @@
 #include "../../Graphics/Texture.h"
 #include "../../Graphics/Text.h"
 
+#include <nlnx/node.hpp>
+
 namespace ms
 {
-	// Boss HP gauge overlay loaded from MobGage.img (via UI.nx)
+	// Boss HP gauge overlay built from the v83 UIWindow.img/MobGage pieces:
+	// a portrait frame on the left and a capped bar filled by a 1px strip.
 	class MobGage
 	{
 	public:
@@ -32,14 +35,34 @@ namespace ms
 		void set_mob(int32_t mobid, const std::string& name, int8_t boss_type);
 		bool is_active() const;
 		void clear();
-		// Width of the gauge backdrop, for centering on screen.
+		// Total width of the gauge (portrait frame + bar), for centering on screen.
 		int16_t width() const;
 
 	private:
-		Texture backgrnd;
-		Texture bar_bg;
-		Texture bar_fill;
-		Texture frame;
+		// Bar interior width in pixels (backgrnd3 is tiled this wide)
+		static constexpr int16_t BAR_WIDTH = 300;
+		// Gap between the portrait frame and the bar's left cap
+		static constexpr int16_t BAR_GAP = 4;
+		// Bar top relative to the gauge top: the 20px bar centred on the 37px frame
+		static constexpr int16_t BAR_Y = 8;
+		// The 10px fill strip sits inside the bar's 12px interior (rows 4..15)
+		static constexpr int16_t FILL_Y = 5;
+		// The 12px leading-edge strip spans the whole interior
+		static constexpr int16_t FILL_EDGE_Y = 4;
+		// 25x25 mob portrait inside the 35x37 frame
+		static constexpr int16_t PORTRAIT_X = 5;
+		static constexpr int16_t PORTRAIT_Y = 6;
+		// Boss name, centred on the bar
+		static constexpr int16_t NAME_Y = 2;
+
+		Texture portrait_frame;
+		Texture portrait;
+		Texture bar_left;
+		Texture bar_mid;
+		Texture bar_right;
+		Texture fill;
+		Texture fill_edge;
+		nl::node mob_icons;
 		Text name_label;
 		int32_t current_mob;
 		float hp_percent;

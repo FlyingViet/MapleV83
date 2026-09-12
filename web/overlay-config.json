@@ -1,23 +1,106 @@
 {
   "version": 1,
-  "notes": "Default touch layout. Keys use KeyboardEvent.code names. x/y are percent of the viewport (control centre); size is px at a 900px-wide viewport and scales with the screen. Defaults follow x10Knockout's in-game keymap: jump=Alt, attack=V, pick up=Z, NPC=N, HP potion=PageUp, MP potion=PageDown, sit=X. Players can move/resize/remap everything from the gear menu; the result is stored in the browser.",
+  "notes": "Default touch layout. Keys use KeyboardEvent.code names. x/y are percent of the viewport (control centre); size is px at a 900px-wide viewport and scales with the screen. Bottom row kept above the v83 status bar (bottom ~10% of the view). Defaults follow x10Knockout's in-game keymap: jump=Alt, attack=V, pick up=Z, NPC=N, HP potion=PageUp, MP potion=PageDown, sit=X. Players can move/resize/remap everything from the gear menu; the result is stored in the browser.",
   "joystick": {
-    "x": 14, "y": 70, "size": 150, "opacity": 0.55,
+    "x": 14,
+    "y": 60,
+    "size": 150,
+    "opacity": 0.55,
     "deadzone": 0.28,
     "upAlsoJumps": true,
     "jumpKey": "AltLeft"
   },
   "buttons": [
-    { "id": "jump",    "label": "JUMP", "key": "AltLeft",     "x": 90, "y": 80, "size": 72, "color": "#3fa9f5" },
-    { "id": "attack",  "label": "ATK",  "key": "KeyV",        "x": 78, "y": 86, "size": 80, "color": "#f55c3f" },
-    { "id": "pickup",  "label": "LOOT", "key": "KeyZ",        "x": 82, "y": 62, "size": 56, "color": "#f5c83f" },
-    { "id": "npc",     "label": "NPC",  "key": "KeyN",        "x": 68, "y": 66, "size": 52, "color": "#9be07a" },
-    { "id": "hp",      "label": "HP",   "key": "PageUp",      "x": 94, "y": 38, "size": 50, "color": "#ff4d6d" },
-    { "id": "mp",      "label": "MP",   "key": "PageDown",    "x": 94, "y": 56, "size": 50, "color": "#4d8dff" },
-    { "id": "skill1",  "label": "A",    "key": "KeyA",        "x": 62, "y": 84, "size": 52, "color": "#c98bff" },
-    { "id": "skill2",  "label": "D",    "key": "KeyD",        "x": 54, "y": 74, "size": 52, "color": "#c98bff" },
-    { "id": "enter",   "label": "⏎",    "key": "Enter",       "x": 40, "y": 8,  "size": 40, "color": "#dddddd" },
-    { "id": "esc",     "label": "ESC",  "key": "Escape",      "x": 48, "y": 8,  "size": 40, "color": "#dddddd" }
+    {
+      "id": "jump",
+      "label": "JUMP",
+      "key": "AltLeft",
+      "x": 90,
+      "y": 70,
+      "size": 72,
+      "color": "#3fa9f5"
+    },
+    {
+      "id": "attack",
+      "label": "ATK",
+      "key": "KeyV",
+      "x": 78,
+      "y": 78,
+      "size": 80,
+      "color": "#f55c3f"
+    },
+    {
+      "id": "pickup",
+      "label": "LOOT",
+      "key": "KeyZ",
+      "x": 82,
+      "y": 52,
+      "size": 56,
+      "color": "#f5c83f"
+    },
+    {
+      "id": "npc",
+      "label": "NPC",
+      "key": "KeyN",
+      "x": 68,
+      "y": 56,
+      "size": 52,
+      "color": "#9be07a"
+    },
+    {
+      "id": "hp",
+      "label": "HP",
+      "key": "PageUp",
+      "x": 94,
+      "y": 30,
+      "size": 50,
+      "color": "#ff4d6d"
+    },
+    {
+      "id": "mp",
+      "label": "MP",
+      "key": "PageDown",
+      "x": 94,
+      "y": 46,
+      "size": 50,
+      "color": "#4d8dff"
+    },
+    {
+      "id": "skill1",
+      "label": "A",
+      "key": "KeyA",
+      "x": 62,
+      "y": 76,
+      "size": 52,
+      "color": "#c98bff"
+    },
+    {
+      "id": "skill2",
+      "label": "D",
+      "key": "KeyD",
+      "x": 54,
+      "y": 64,
+      "size": 52,
+      "color": "#c98bff"
+    },
+    {
+      "id": "enter",
+      "label": "\u23ce",
+      "key": "Enter",
+      "x": 40,
+      "y": 8,
+      "size": 40,
+      "color": "#dddddd"
+    },
+    {
+      "id": "esc",
+      "label": "ESC",
+      "key": "Escape",
+      "x": 48,
+      "y": 8,
+      "size": 40,
+      "color": "#dddddd"
+    }
   ],
   "system": {
     "showOnCoarsePointerOnly": true

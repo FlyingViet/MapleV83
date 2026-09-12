@@ -20,10 +20,11 @@
 #include "../UIDragElement.h"
 
 #include "../../Character/CharStats.h"
-#include "../../Template/BoolPair.h"
 
 namespace ms
 {
+	// v83 character stat window: UIWindow.img/Stat/backgrnd (175x347) with the
+	// detail pane (backgrnd2, 177x203) docked at its bottom-right corner.
 	class UIStatsInfo : public UIDragElement<PosSTATS>
 	{
 	public:
@@ -49,38 +50,31 @@ namespace ms
 	private:
 		enum StatLabel
 		{
-			// Normal
+			// Main window, top to bottom (v83 row order)
 			NAME,
 			JOB,
+			LEVEL,
 			GUILD,
-			FAME,
-			DAMAGE,
 			HP,
 			MP,
+			EXP,
+			FAME,
 			AP,
 			STR,
 			DEX,
 			INT,
 			LUK,
 			NUM_NORMAL,
-			// Detailed
-			DAMAGE_DETAILED,
-			DAMAGE_BONUS,
-			BOSS_DAMAGE,
-			FINAL_DAMAGE,
-			IGNORE_DEFENSE,
-			CRITICAL_RATE,
-			CRITICAL_DAMAGE,
-			STATUS_RESISTANCE,
-			KNOCKBACK_RESISTANCE,
-			DEFENSE,
+			// Detail pane, top to bottom (v83 row order)
+			ATTACK,
+			WEAPON_DEF,
+			MAGIC,
+			MAGIC_DEF,
+			ACCURACY,
+			AVOIDABILITY,
+			HANDS,
 			SPEED,
 			JUMP,
-			HONOR,
-			// v83-only extra slots so we can stack weapon/magic pairs
-			MAGIC_ACC_V83,
-			MAGIC_AVOID_V83,
-			STANCE_V83,
 			// Total
 			NUM_LABELS
 		};
@@ -95,6 +89,7 @@ namespace ms
 		enum Buttons
 		{
 			BT_CLOSE,
+			// BT_HP..BT_AUTO must stay contiguous: update_ap() toggles them as a range
 			BT_HP,
 			BT_MP,
 			BT_STR,
@@ -102,30 +97,12 @@ namespace ms
 			BT_INT,
 			BT_LUK,
 			BT_AUTO,
-			BT_HYPERSTATOPEN,
-			BT_HYPERSTATCLOSE,
-			BT_DETAILOPEN,
-			BT_DETAILCLOSE,
-			BT_ABILITY,
-			BT_DETAIL_DETAILCLOSE
+			BT_DETAIL
 		};
 
 		const CharStats& stats;
 
-		enum Ability
-		{
-			RARE,
-			EPIC,
-			UNIQUE,
-			LEGENDARY,
-			NONE,
-			NUM_ABILITIES
-		};
-
-		std::array<Texture, Ability::NUM_ABILITIES> abilities;
-		BoolPair<Texture> inner_ability;
-
-		std::vector<Texture> textures_detail;
+		Texture detail_backgrnd;
 		bool showdetail;
 
 		bool hasap;

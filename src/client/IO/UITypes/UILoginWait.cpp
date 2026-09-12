@@ -32,13 +32,17 @@ namespace ms
 
 	UILoginWait::UILoginWait(std::function<void()> okhandler) : okhandler(okhandler)
 	{
+		// v83 Login.img/Notice/Loading: a 282x144 scroll with a "LOADING"
+		// label whose slot (x 129..250, y 96..108) takes the 109x8 animated
+		// bar (frames bar/0..10) instead of the newer spinning circle; the
+		// 65x23 Cancel button sits centred under it.
 		nl::node Loading = nl::nx::ui["Login.img"]["Notice"]["Loading"];
 		nl::node backgrnd = Loading["backgrnd"];
 
 		sprites.emplace_back(backgrnd);
-		sprites.emplace_back(Loading["circle"], Point<int16_t>(127, 70));
+		sprites.emplace_back(Loading["bar"], Point<int16_t>(135, 98));
 
-		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(Loading["BtCancel"], Point<int16_t>(101, 106));
+		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(Loading["BtCancel"], Point<int16_t>(108, 112));
 
 		position = UIScale::at(276, 229);
 		dimension = Texture(backgrnd).get_dimensions();
