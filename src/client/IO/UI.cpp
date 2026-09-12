@@ -114,6 +114,7 @@ namespace ms
 
 	void UI::change_state(State id)
 	{
+		current_state = id;
 		switch (id)
 		{
 			case State::LOGIN:

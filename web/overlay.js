@@ -668,10 +668,20 @@
 
     // ---------------------------------------------------------------- boot
 
+    let inGame = false;
+    function pollGameState() {
+        try {
+            const now = (typeof Module !== 'undefined' && typeof Module._mw_in_game === 'function') ? Module._mw_in_game() === 1 : false;
+            if (now !== inGame) { inGame = now; applyVisibility(); if (!now) releaseAll(); }
+        } catch (e) { /* runtime not ready */ }
+    }
+    setInterval(pollGameState, 500);
+
     function applyVisibility() {
         const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
         const auto = !(defaults.system && defaults.system.showOnCoarsePointerOnly) || coarse;
-        const show = prefs.hideOverlay !== undefined ? !prefs.hideOverlay : auto;
+        // Game controls only make sense in-game; login/world/character screens stay clear.
+        const show = (prefs.hideOverlay !== undefined ? !prefs.hideOverlay : auto) && (inGame || editing);
         // The system bar (gear) is always available so desktop users can enable the overlay.
         for (const el of ctlEls.values()) el.style.display = show ? '' : 'none';
         root.hidden = false;

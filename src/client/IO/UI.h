@@ -43,6 +43,8 @@ namespace ms
 		void enable();
 		void disable();
 		void change_state(State state);
+		// Which top-level state is active (login / game / cash shop); used by the web overlay.
+		State get_state_id() const { return current_state; }
 
 		void quit();
 		bool not_quitted() const;
@@ -109,6 +111,7 @@ namespace ms
 
 	private:
 		std::unique_ptr<UIState> state;
+		State current_state = State::LOGIN;
 		Keyboard keyboard;
 		Cursor cursor;
 		ScrollingNotice scrollingnotice;

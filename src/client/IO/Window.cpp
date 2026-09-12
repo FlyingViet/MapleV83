@@ -644,6 +644,12 @@ namespace ms
 // Touch overlay hook (web/overlay.js): feed a GLFW key code straight into the
 // UI, bypassing DOM keyboard events so on-screen buttons behave exactly like
 // keys. Exported through -sEXPORTED_FUNCTIONS=..._mw_key in CMakeLists.txt.
+// Touch overlay: 1 while the in-game UI state is active, else 0 (login, cash shop).
+extern "C" EMSCRIPTEN_KEEPALIVE int mw_in_game()
+{
+	return ms::UI::get().get_state_id() == ms::UI::State::GAME ? 1 : 0;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void mw_key(int key, int down)
 {
 	ms::UI::get().send_key(key, down != 0);

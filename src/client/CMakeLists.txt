@@ -129,7 +129,7 @@ target_link_options(JourneyClient PRIVATE
     -sSTACK_SIZE=16777216
     -sINITIAL_MEMORY=268435456
     -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,setCanvasSize
-    -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_mw_key
+    -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_mw_key,_mw_in_game
     "--pre-js=${CLIENT_DIR}/LazyFS/lazyfs.js"
     -sASSERTIONS=1
 )
