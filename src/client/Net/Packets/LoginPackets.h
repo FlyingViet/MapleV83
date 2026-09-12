@@ -32,6 +32,10 @@ namespace ms
 		{
 			std::string volumeSerialNumber = Configuration::get().get_vol_serial_num();
 
+			// Platforms without a real volume serial (web) report an empty string; pad so
+			// the fixed-width slices below cannot throw.
+			if (volumeSerialNumber.size() < 8)
+				volumeSerialNumber.append(8 - volumeSerialNumber.size(), '0');
 			std::string part1 = volumeSerialNumber.substr(0, 2);
 			std::string part2 = volumeSerialNumber.substr(2, 2);
 			std::string part3 = volumeSerialNumber.substr(4, 2);
