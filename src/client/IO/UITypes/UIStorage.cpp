@@ -219,6 +219,7 @@ namespace ms
 		}
 
 		// Storage rows (left panel)
+		static const Text empty_name;
 		{
 			const auto& items = get_storage_tab(current_tab);
 
@@ -242,7 +243,7 @@ namespace ms
 
 				bool dragged = drag_source == DRAG_STORAGE && drag_source_slot == s;
 				int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : items[idx].count;
-				const Text& name = (idx < static_cast<int16_t>(storage_names.size())) ? storage_names[idx] : Text();
+				const Text& name = (idx < static_cast<int16_t>(storage_names.size())) ? storage_names[idx] : empty_name;
 
 				draw_row(rowpos, items[idx].itemid, count, name, dragged, alpha);
 			}
@@ -269,7 +270,7 @@ namespace ms
 
 			bool dragged = drag_source == DRAG_INVENTORY && drag_source_slot == s;
 			int16_t count = (current_tab == InventoryType::Id::EQUIP) ? -1 : inventory_items[idx].count;
-			const Text& name = (idx < static_cast<int16_t>(inventory_names.size())) ? inventory_names[idx] : Text();
+			const Text& name = (idx < static_cast<int16_t>(inventory_names.size())) ? inventory_names[idx] : empty_name;
 
 			draw_row(rowpos, inventory_items[idx].itemid, count, name, dragged, alpha);
 		}
@@ -743,10 +744,10 @@ namespace ms
 			if (strid.size() < 7)
 				strid.insert(0, 7 - strid.size(), '0');
 			strid.append(".img");
-			nl::node src = nl::nx::npc[strid];
-			std::string link = (std::string)src["info"]["link"];
+			nl::node npc_src = nl::nx::npc[strid];
+			std::string link = (std::string)npc_src["info"]["link"];
 			if (!link.empty())
-				src = nl::nx::npc[link + ".img"];
+				npc_src = nl::nx::npc[link + ".img"];
 
 			// Pick the state with the MOST frames so the portrait actually
 			// animates when the NPC has a multi-frame pose (breath / blink).
@@ -754,7 +755,7 @@ namespace ms
 			// the first non-info state).
 			nl::node chosen;
 			size_t best_frames = 0;
-			for (auto sub : src)
+			for (auto sub : npc_src)
 			{
 				if (sub.name() == "info") continue;
 				size_t n = 0;
@@ -767,7 +768,7 @@ namespace ms
 				}
 			}
 			if (!chosen || chosen.size() == 0)
-				chosen = src["stand"];
+				chosen = npc_src["stand"];
 			if (chosen.size() > 0)
 				npc_anim = Animation(chosen);
 		}

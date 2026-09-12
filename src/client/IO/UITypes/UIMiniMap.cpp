@@ -36,6 +36,9 @@
 #include <nlnx/nx.hpp>
 #endif
 
+#include <algorithm>
+#include <cmath>
+
 namespace ms
 {
 	UIMiniMap::UIMiniMap(const CharStats& stats) : UIDragElement<PosMINIMAP>(Point<int16_t>(128, 20)), stats(stats)

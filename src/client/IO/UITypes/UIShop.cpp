@@ -589,14 +589,14 @@ namespace ms
 		// blinks instead of being a still frame. Follow an "info/link"
 		// redirect (some NPCs point to a base NPC for art) and fall back
 		// to the first state with frames if "stand" is empty.
-		nl::node src = nl::nx::npc[strid + ".img"];
-		std::string link = (std::string)src["info"]["link"];
+		nl::node npc_src = nl::nx::npc[strid + ".img"];
+		std::string link = (std::string)npc_src["info"]["link"];
 		if (!link.empty())
-			src = nl::nx::npc[link + ".img"];
+			npc_src = nl::nx::npc[link + ".img"];
 
 		nl::node chosen;
 		size_t best_frames = 0;
-		for (auto sub : src)
+		for (auto sub : npc_src)
 		{
 			if (sub.name() == "info") continue;
 			size_t n = 0;
@@ -609,7 +609,7 @@ namespace ms
 			}
 		}
 		if (!chosen || chosen.size() == 0)
-			chosen = src["stand"];
+			chosen = npc_src["stand"];
 		if (chosen.size() > 0)
 			npc = Animation(chosen);
 

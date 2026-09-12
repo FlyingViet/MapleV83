@@ -96,23 +96,60 @@ namespace ms
 			TAB3
 		};
 
+		/// v83 list panel layout (UIWindow.img/Quest/backgrnd, 245x396)
 		static constexpr int16_t ROWS = 11;
 		static constexpr int16_t ROW_HEIGHT = 24;
-		static constexpr int16_t LIST_Y = 75;
+		// Rows start under the search box; the white list area is y 45..363
+		static constexpr int16_t LIST_Y = 70;
+		// Row hit-box right edge (inside the 3 px frame)
+		static constexpr int16_t LIST_RIGHT = 232;
+		// Basic.img VScr column hugging the list's right edge; its 12 px
+		// prev/next buttons cap the scroll range
+		static constexpr int16_t SLIDER_X = 226;
+		static constexpr int16_t SLIDER_BTN_H = 12;
+		// Tab band is y 24..41; text bitmaps are 45x11, 51x13, 45x13
+		static constexpr Point<int16_t> TAB0_POS = Point<int16_t>(8, 27);
+		static constexpr Point<int16_t> TAB1_POS = Point<int16_t>(57, 26);
+		static constexpr Point<int16_t> TAB2_POS = Point<int16_t>(112, 26);
+		// Hand-drawn 4th tab fills the rest of the band
+		static constexpr Point<int16_t> TAB3_POS = Point<int16_t>(162, 24);
+		static constexpr int16_t TAB3_W = 76;
+		static constexpr int16_t TAB3_H = 18;
+		// Basic.img BtClose (12x12) in the title box (y 5..18) right corner
+		static constexpr int16_t CLOSE_X = 227;
+		static constexpr int16_t CLOSE_Y = 6;
+		static constexpr int16_t CLOSE_INSET_X = 18;
+		// Search field box at the top of the white list area
+		static constexpr Point<int16_t> SEARCH_POS = Point<int16_t>(12, 49);
+		static constexpr Point<int16_t> SEARCH_DIM = Point<int16_t>(220, 17);
+		// Empty-list notice and the countdown clock (foot band y 364..391)
+		static constexpr int16_t NOTICE_Y = 130;
+		static constexpr int16_t CLOCK_Y = 366;
+
+		/// v83 detail panel layout (UIWindow.img/Quest/backgrnd2, 305x396)
+		// Blue summary box spans y 25..119 with a divider at x 189
+		static constexpr int16_t DETAIL_HEADER_H = 122;
+		static constexpr Point<int16_t> DETAIL_TITLE_POS = Point<int16_t>(16, 3);
+		static constexpr int16_t DETAIL_SUMMARY_X = 22;
+		static constexpr int16_t DETAIL_SUMMARY_Y = 32;
+		static constexpr Point<int16_t> DETAIL_NPC_FEET = Point<int16_t>(243, 98);
+		static constexpr Point<int16_t> DETAIL_NPC_NAME_POS = Point<int16_t>(243, 104);
+		// Foot band buttons (17 px tall): 57 | 57 | 81 | 86 wide with 4 px gaps
+		static constexpr int16_t DETAIL_BTN_Y = 368;
+		static constexpr int16_t DETAIL_BTN_X0 = 5;
+		static constexpr int16_t DETAIL_BTN_X1 = 66;
+		static constexpr int16_t DETAIL_BTN_X2 = 127;
+		static constexpr int16_t DETAIL_BTN_X3 = 212;
 
 		const QuestLog& questlog;
 
 		uint16_t tab;
 		uint16_t offset;
-		std::vector<Sprite> notice_sprites;
+		// Empty-list notices per tab (notice0..2)
+		std::vector<Texture> notice_textures;
 		Textfield search;
 		Text placeholder;
 		Slider slider;
-		Texture search_area;
-		Texture quest_state_started;
-		Texture quest_state_completed;
-		Texture select_texture;
-		Texture drop_texture;
 		Animation quest_icon_anim;
 
 		// Quest root icons
@@ -132,7 +169,6 @@ namespace ms
 		// Gauge2 - quest progress bar (root level)
 		Texture gauge2_frame;
 		Texture gauge2_bar;
-		Texture gauge2_spot;
 
 		// TimeQuest
 		Animation time_alarm_clock;
@@ -141,16 +177,8 @@ namespace ms
 		// icon_info panel
 		Texture icon_info_backgrnd;
 		Texture icon_info_backgrnd2;
-		Texture icon_info_sheet;      // legacy (container — invalid). Kept for back-compat.
-		Texture icon_info_sheet0;     // Sheet/0 (192x18)
-		Texture icon_info_sheet1;     // Sheet/1 (192x17)
-		Texture icon_info_sheet2;     // Sheet/2 (192x17, sourced from Sheet/1)
 		bool show_icon_info;
 
-		// List extras
-		Texture complete_count;
-		Texture recommend_title;
-		Texture recommend_focus;
 
 		struct QuestEntry
 		{
@@ -221,12 +249,6 @@ namespace ms
 		int16_t detail_scroll;
 		mutable int16_t detail_content_height;
 		Texture detail_backgrnd;
-		Texture detail_backgrnd2;
-		Texture detail_backgrnd3;
-		Texture detail_summary;
-		Texture detail_summary_pattern;
-		Texture detail_tip;
-		Texture detail_reward_icon;
 		Text detail_quest_name;
 		Text detail_quest_desc;
 		Text detail_quest_summary;
@@ -291,15 +313,9 @@ namespace ms
 		Texture summary_texture;
 		Texture obtain_select_texture;   // UIWindow.img/Quest/select: "Obtain selectively" banner
 
-		// Per-tab backgrounds (one per tab, never stacked)
+		// List panel background (UIWindow.img/Quest/backgrnd)
 		Texture list_backgrnd;
-		Texture list_backgrnd2;
-		Texture v83_backgrnd3;
-		Texture v83_backgrnd4;
-		Texture v83_backgrnd5;
 
-		// notice animated set (0,1,2) from UIWindow.img/Quest/notice
-		std::vector<Texture> notice_set;
 
 		// QuestAlarm (UIWindow.img/QuestAlarm)
 		Texture quest_alarm_bg_bottom;
@@ -322,6 +338,7 @@ namespace ms
 		ColorBox sel_bg_normal;
 		ColorBox sep_line_box;
 		ColorBox header_sep_box;
+		ColorBox search_box;
 		mutable Text say_preview_text;
 		mutable Text medal_text;
 		mutable Text time_text;

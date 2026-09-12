@@ -74,261 +74,131 @@ namespace ms
 	}
 
 	UIQuestLog::UIQuestLog(const QuestLog& ql) :
-		UIDragElement<PosQUEST>(Point<int16_t>(280, 20)), questlog(ql), offset(0),
+		UIDragElement<PosQUEST>(Point<int16_t>(245, 20)), questlog(ql), offset(0),
 		selected_entry(-1), hover_entry(-1), selected_from_recommended(false), show_detail(false),
 		detail_anim_t(0.0f),
 		detail_scroll(0), detail_content_height(0),
 		detail_progress(0.0f), show_icon_info(false), detail_npcid(0),
 		detail_area(0), detail_order(0), detail_auto_start(false),
 		// Default to "My Level" filter enabled so the Available tab only
-		// shows quests the player actually qualifies for. Users can toggle
-		// "All Level" to see everything.
+		// shows quests the player actually qualifies for. v83 ships no
+		// filter-button art, so this is currently the fixed behaviour.
 		detail_auto_complete(false), filter_my_level(true),
 		filter_my_location(false), show_recommended(true), show_quest_alarm(false),
 		drag_quest_id(-1), drag_started(false)
 	{
 		tab = Buttons::TAB0;
 
-		nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
-		nl::node quest = nl::nx::ui["UIWindow2.img"]["Quest"];
-		nl::node list = quest["list"];
-		nl::node quest_info_node = quest["quest_info"];
+		// v83: the whole quest window lives flat under UIWindow.img/Quest.
+		//   backgrnd  (245x396) list panel  : title box (y 5..18), tab band
+		//                                     (24..41), white list (45..363),
+		//                                     foot band (364..391)
+		//   backgrnd2 (305x396) detail panel: title box, blue summary box
+		//                                     (y 25..119, divider at x 189),
+		//                                     white body, foot band
+		nl::node quest_src = nl::nx::ui["UIWindow.img"]["Quest"];
+		nl::node close = nl::nx::ui["Basic.img"]["BtClose"];
 
-		// v83: button bitmaps are in UIWindow.img/Quest (flat), not UIWindow2.img sub-nodes
-		nl::node questBtns = nl::nx::ui["UIWindow.img"]["Quest"];
+		list_backgrnd = Texture(quest_src["backgrnd"]);
+		detail_backgrnd = Texture(quest_src["backgrnd2"]);
 
-		// === Backgrounds — stored per-tab, drawn one at a time in draw() ===
-		list_backgrnd = Texture(list["backgrnd"]);
-		list_backgrnd2 = Texture(list["backgrnd2"]);
+		// Empty-list notices ("There are no quests available / in progress /
+		// completed"), one per tab; draw() centres them in the list area.
+		for (int i = 0; i < 3; i++)
+			notice_textures.emplace_back(quest_src["notice" + std::to_string(i)]);
 
-		// v83 overlay backgrounds from UIWindow.img/Quest
-		v83_backgrnd3 = Texture(questBtns["backgrnd3"]);
-		v83_backgrnd4 = Texture(questBtns["backgrnd4"]);
-		v83_backgrnd5 = Texture(questBtns["backgrnd5"]);
+		// Tabs (Available / In Progress / Complete) in the band at y 24..41
+		nl::node taben = quest_src["Tab"]["enabled"];
+		nl::node tabdis = quest_src["Tab"]["disabled"];
 
-		// === Notice sprites from UIWindow2.img ===
-		for (int i = 0; i < 4; i++)
-		{
-			std::string nname = "notice" + std::to_string(i);
-			notice_sprites.emplace_back(list[nname]);
-		}
+		buttons[Buttons::TAB0] = std::make_unique<TwoSpriteButton>(tabdis["0"], taben["0"], TAB0_POS);
+		buttons[Buttons::TAB1] = std::make_unique<TwoSpriteButton>(tabdis["1"], taben["1"], TAB1_POS);
+		buttons[Buttons::TAB2] = std::make_unique<TwoSpriteButton>(tabdis["2"], taben["2"], TAB2_POS);
 
-		// === Tabs — UIWindow2.img/Quest/list/Tab has backgrnd bitmaps, use as TwoSpriteButton ===
-		// The Tab node under list has sub-nodes for tab states
-		nl::node list_tab = list["Tab"];
-		nl::node taben, tabdis;
-		if (list_tab["enabled"] && list_tab["enabled"].size() > 0)
-		{
-			taben = list_tab["enabled"];
-			tabdis = list_tab["disabled"];
-		}
-		else
-		{
-			// Fall back to UIWindow.img tabs
-			taben = questBtns["Tab"]["enabled"];
-			tabdis = questBtns["Tab"]["disabled"];
-		}
+		// "Unavailable" tab — custom AreaButton drawn by hand since v83 has
+		// no 4th tab bitmap; it takes the rest of the tab band.
+		buttons[Buttons::TAB3] = std::make_unique<AreaButton>(TAB3_POS, Point<int16_t>(TAB3_W, TAB3_H));
 
-		buttons[Buttons::TAB0] = std::make_unique<TwoSpriteButton>(tabdis["0"], taben["0"]);
-		buttons[Buttons::TAB1] = std::make_unique<TwoSpriteButton>(tabdis["1"], taben["1"]);
-		buttons[Buttons::TAB2] = std::make_unique<TwoSpriteButton>(tabdis["2"], taben["2"]);
+		// Close button in the title box's right corner
+		buttons[Buttons::CLOSE] = std::make_unique<MapleButton>(close, Point<int16_t>(CLOSE_X, CLOSE_Y));
 
-		// Weekly Quest tab — custom AreaButton since NX doesn't have a 4th tab
-		// Position it below the existing tabs or to the right
-		// Get tab 2's bounds to position tab 3 after it
-		auto tab2_bounds = buttons[Buttons::TAB2]->bounds(Point<int16_t>(0, 0));
-		int16_t tab3_x = tab2_bounds.get_right_bottom().x() + 2;
-		int16_t tab3_y = tab2_bounds.get_left_top().y();
-		// Wider than the other tabs to fit the "Not Available" label.
-		int16_t tab3_w = 90;
-		int16_t tab3_h = tab2_bounds.get_right_bottom().y() - tab2_bounds.get_left_top().y();
-		buttons[Buttons::TAB3] = std::make_unique<AreaButton>(Point<int16_t>(tab3_x, tab3_y), Point<int16_t>(tab3_w, tab3_h));
-
-		// Close button — position relative to background dimensions
-		Point<int16_t> bg_dim = Texture(list["backgrnd"]).get_dimensions();
-		buttons[Buttons::CLOSE] = std::make_unique<MapleButton>(close, Point<int16_t>(bg_dim.x() - 19, 6));
-
-		// Only create buttons if their NX nodes exist (many are post-BB)
+		// Only create buttons whose NX nodes exist
 		auto add_button = [&](uint16_t id, nl::node src) {
 			if (src.size() > 0)
 				buttons[id] = std::make_unique<MapleButton>(src);
 		};
 
-		// === All list buttons from UIWindow2.img/Quest/list (matching background) ===
-		add_button(Buttons::ALL_LEVEL, list["BtAllLevel"]);
-		add_button(Buttons::MY_LEVEL, list["BtMyLevel"]);
-		add_button(Buttons::BT_SEARCH, list["BtSearch"]);
-		add_button(Buttons::BT_ICONINFO, list["BtIconInfo"]);
-		// BT_NEXT / BT_PREV arrows removed from left panel
-		add_button(Buttons::BT_ALLLOCN, list["BtAllLocation"]);
-		add_button(Buttons::BT_MYLOCATION, list["BtMyLocation"]);
-
-		// === Detail panel buttons from UIWindow2.img/Quest/quest_info ===
-		add_button(Buttons::BT_ACCEPT, quest_info_node["BtAccept"]);
-		add_button(Buttons::BT_FINISH, quest_info_node["BtFinish"]);
-		add_button(Buttons::BT_DETAIL_CLOSE, quest_info_node["BtClose"]);
-		add_button(Buttons::BT_ARLIM, quest_info_node["BtArlim"]);
-		add_button(Buttons::BT_DELIVERY_ACCEPT, quest_info_node["BtQuestDeliveryAccept"]);
-		add_button(Buttons::BT_DELIVERY_COMPLETE, quest_info_node["BtQuestDeliveryComplete"]);
-		add_button(Buttons::MARK_NPC, quest_info_node["BtNPC"]);
-		if (!buttons.count(Buttons::MARK_NPC) || !buttons[Buttons::MARK_NPC])
-			add_button(Buttons::MARK_NPC, quest_info_node["BtNavi"]);
-		add_button(Buttons::GIVEUP, quest_info_node["BtGiveup"]);
-
-		// Fallback to v83 buttons if UIWindow2 didn't have them
-		if (!buttons.count(Buttons::BT_ACCEPT) || !buttons[Buttons::BT_ACCEPT])
-			add_button(Buttons::BT_ACCEPT, questBtns["BtOK"]);
-		if (!buttons.count(Buttons::GIVEUP) || !buttons[Buttons::GIVEUP])
-			add_button(Buttons::GIVEUP, questBtns["BtGiveup"]);
-		if (!buttons.count(Buttons::MARK_NPC) || !buttons[Buttons::MARK_NPC])
-			add_button(Buttons::MARK_NPC, questBtns["BtMarkNpc"]);
-		if (!buttons.count(Buttons::BT_FINISH) || !buttons[Buttons::BT_FINISH])
-			add_button(Buttons::BT_FINISH, questBtns["BtOK"]);
-		if (!buttons.count(Buttons::BT_DETAIL_CLOSE) || !buttons[Buttons::BT_DETAIL_CLOSE])
-			add_button(Buttons::BT_DETAIL_CLOSE, close);
-		if (!buttons.count(Buttons::BT_ARLIM) || !buttons[Buttons::BT_ARLIM])
-			add_button(Buttons::BT_ARLIM, questBtns["BtDetail"]); // reuse Detail texture as fallback
-		add_button(Buttons::DETAIL, questBtns["BtDetail"]);
-		add_button(Buttons::BT_NO, questBtns["BtNo"]);
-		add_button(Buttons::BT_ALERT, questBtns["BtAlert"]);
+		// Detail-panel buttons (v83 art); positioned in select_quest().
+		//   BtOK      "ACCEPT"       - start the quest (also reused for finish:
+		//                              v83 has no "complete" button art)
+		//   BtGiveup  "FORFEIT"      - drop an in-progress quest
+		//   BtMarkNpc "FIND NPC"     - flag the quest NPC on the minimap
+		//   BtAlert   "QUEST HELPER" - track the quest in the helper widget
+		add_button(Buttons::BT_ACCEPT, quest_src["BtOK"]);
+		add_button(Buttons::BT_FINISH, quest_src["BtOK"]);
+		add_button(Buttons::GIVEUP, quest_src["BtGiveup"]);
+		add_button(Buttons::MARK_NPC, quest_src["BtMarkNpc"]);
+		add_button(Buttons::BT_ARLIM, quest_src["BtAlert"]);
+		add_button(Buttons::BT_DETAIL_CLOSE, close);
 
 		// Hide detail buttons until a quest is selected
 		set_btn_active(Buttons::GIVEUP, false);
-		set_btn_active(Buttons::DETAIL, false);
 		set_btn_active(Buttons::MARK_NPC, false);
 		set_btn_active(Buttons::BT_ACCEPT, false);
 		set_btn_active(Buttons::BT_FINISH, false);
 		set_btn_active(Buttons::BT_DETAIL_CLOSE, false);
 		set_btn_active(Buttons::BT_ARLIM, false);
-		set_btn_active(Buttons::BT_DELIVERY_ACCEPT, false);
-		set_btn_active(Buttons::BT_DELIVERY_COMPLETE, false);
-		set_btn_active(Buttons::BT_NO, false);
-		set_btn_active(Buttons::BT_ALERT, false);
 
-		// === Quest state icons ===
-		quest_state_started = Texture(list["questState"]["0"]);
-		quest_state_completed = Texture(list["questState"]["1"]);
+		// === Quest list icons (UIWindow.img/Quest/icon0..icon9) ===
+		// icon10 and iconQM0/1 don't exist in v83; draw_entry_icon falls
+		// back to the icon3 animation for those.
+		icon0 = Texture(quest_src["icon0"]);
+		icon1 = Texture(quest_src["icon1"]);
+		icon4 = Texture(quest_src["icon4"]);
 
-		// === Quest icon set (all icons from UIWindow.img/Quest — flat) ===
-		icon0 = Texture(questBtns["icon0"]);
-		icon1 = Texture(questBtns["icon1"]);
-		icon4 = Texture(questBtns["icon4"]);
+		quest_icon_anim = Animation(quest_src["icon3"]);
+		icon2_anim = Animation(quest_src["icon2"]);
+		icon5_anim = Animation(quest_src["icon5"]);
+		icon6_anim = Animation(quest_src["icon6"]);
+		icon7_anim = Animation(quest_src["icon7"]);
+		icon8_anim = Animation(quest_src["icon8"]);
+		icon9_anim = Animation(quest_src["icon9"]);
 
-		// Animated icons
-		quest_icon_anim = Animation(questBtns["icon3"]);
-		icon2_anim = Animation(questBtns["icon2"]);
-		icon5_anim = Animation(questBtns["icon5"]);
-		icon6_anim = Animation(questBtns["icon6"]);
-		icon7_anim = Animation(questBtns["icon7"]);
-		icon8_anim = Animation(questBtns["icon8"]);
-		icon9_anim = Animation(questBtns["icon9"]);
-
-		// These may not exist in v83 UIWindow.img — try UIWindow2.img as fallback
-		nl::node icon_node = quest["icon"];
-		icon10 = Texture(icon_node["icon10"]);
-		iconQM0_anim = Animation(icon_node["iconQM0"]);
-		iconQM1_anim = Animation(icon_node["iconQM1"]);
-
-		// === Gauge2 - quest progress bar ===
-		nl::node gauge2_node = quest["Gauge2"];
-		if (!gauge2_node)
-			gauge2_node = questBtns["Gauge2"];
+		// === Gauge2 - small quest progress bar (frame + gauge, no spot in v83) ===
+		nl::node gauge2_node = quest_src["Gauge2"];
 		gauge2_frame = Texture(gauge2_node["frame"]);
 		gauge2_bar = Texture(gauge2_node["gauge"]);
-		gauge2_spot = Texture(gauge2_node["spot"]);
 
 		// === TimeQuest (timed quest UI) ===
-		nl::node time_quest = quest["TimeQuest"];
-		if (!time_quest)
-			time_quest = questBtns["TimeQuest"];
-		time_alarm_clock = Animation(time_quest["AlarmClock"]);
-		time_bar = Animation(time_quest["TimeBar"]);
+		// AlarmClock/default/3 is the 16-frame ticking clock; TimeBar/backgrnd
+		// is the 52x12 bar frame (TimeGage holds the 2 px fill pieces).
+		nl::node time_quest = quest_src["TimeQuest"];
+		time_alarm_clock = Animation(time_quest["AlarmClock"]["default"]["3"]);
+		time_bar = Animation(time_quest["TimeBar"]["backgrnd"]);
 
-		// === icon_info panel ===
-		nl::node icon_info = quest["icon_info"];
-		icon_info_backgrnd = Texture(icon_info["backgrnd"]);
-		icon_info_backgrnd2 = Texture(icon_info["backgrnd2"]);
-		icon_info_sheet = Texture(icon_info["Sheet"]);
-		icon_info_sheet0 = Texture(icon_info["Sheet"]["0"]);
-		icon_info_sheet1 = Texture(icon_info["Sheet"]["1"]);
-		icon_info_sheet2 = Texture(icon_info["Sheet"]["2"]);
+		// === Detail body section headers (v83 label bitmaps) ===
+		basic_texture = Texture(quest_src["basic"]);            // "OBTAIN UNCONDITIONALLY"
+		prob_texture = Texture(quest_src["prob"]);              // "OBTAIN RANDOMLY"
+		reward_texture = Texture(quest_src["reward"]);          // "Reward!!"
+		summary_texture = Texture(quest_src["summary"]);        // "Quest Summary"
+		obtain_select_texture = Texture(quest_src["select"]);   // "OBTAIN SELECTIVELY"
 
-		// === v83 root textures from UIWindow.img/Quest ===
-		basic_texture = Texture(questBtns["basic"]);
-		prob_texture = Texture(questBtns["prob"]);
-		reward_texture = Texture(questBtns["reward"]);
+		// === Detail gauge (large progress bar) ===
+		nl::node detail_gauge = quest_src["Gauge"];
+		detail_gauge_frame = Texture(detail_gauge["frame"]);
+		detail_gauge_bar = Texture(detail_gauge["gauge"]);
+		detail_gauge_spot = Texture(detail_gauge["spot"]);
 
-		summary_texture = Texture(questBtns["summary"]);
-		obtain_select_texture = Texture(questBtns["select"]);
-
-		// Selection highlight — use UIWindow2.img only (v83 select contains "OBTAIN SELECTIVELY" text)
-		select_texture = Texture(list["recommend"]["select"]);
-
-		// === Recommend textures (from UIWindow2.img list) ===
-		nl::node recommend = list["recommend"];
-		drop_texture = Texture(recommend["drop"]);
-		recommend_focus = Texture(recommend["focus"]);
-		recommend_title = Texture(list["recommendTitle"]);
-
-		// === Complete count display ===
-		complete_count = Texture(list["completeCount"]);
-
-		// === Search area + textfield ===
-		search_area = list["searchArea"];
-		auto search_area_dim = search_area.get_dimensions();
-		auto search_area_origin = search_area.get_origin().abs();
-
-		auto search_pos_adj = Point<int16_t>(29, 0);
-		auto search_dim_adj = Point<int16_t>(-80, 0);
-
-		// Window-RELATIVE rect (drawn at `position`), so the field follows the
-		// window when dragged. It used to bake in `position` and draw at (0,0),
-		// which left the field stranded in the detail panel after any drag.
-		auto search_pos = search_area_origin + search_pos_adj;
-		auto search_dim = search_pos + search_area_dim + search_dim_adj;
-
-		search = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BOULDER, Rectangle<int16_t>(search_pos, search_dim), 19);
+		// === Search textfield ===
+		// v83 has no search-box art, so a plain white box is drawn under the
+		// field at the top of the white list area. Window-RELATIVE rect
+		// (drawn at `position`) so the field follows the window when dragged.
+		search = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BOULDER, Rectangle<int16_t>(SEARCH_POS, SEARCH_POS + SEARCH_DIM), 19);
 		search.set_enter_callback([this](std::string text) {
 			search_text = text;
 			load_quests();
 		});
 		placeholder = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BOULDER, "Enter the quest name.");
-
-		// === Detail panel textures from quest_info ===
-		if (quest_info_node)
-		{
-			detail_backgrnd = Texture(quest_info_node["backgrnd"]);
-			detail_backgrnd2 = Texture(quest_info_node["backgrnd2"]);
-			detail_backgrnd3 = Texture(quest_info_node["backgrnd3"]);
-			detail_summary = Texture(quest_info_node["summary"]);
-			detail_summary_pattern = Texture(quest_info_node["summary_pattern"]);
-			detail_tip = Texture(quest_info_node["tip"]);
-
-			// Detail gauge — try quest_info first, then UIWindow.img
-			nl::node detail_gauge = quest_info_node["Gauge"];
-			if (!detail_gauge)
-				detail_gauge = questBtns["Gauge"];
-			if (detail_gauge)
-			{
-				detail_gauge_frame = Texture(detail_gauge["frame"]);
-				detail_gauge_bar = Texture(detail_gauge["gauge"]);
-				detail_gauge_spot = Texture(detail_gauge["spot"]);
-			}
-
-			// Reward icon from summary_icon
-			nl::node summary_icon = quest_info_node["summary_icon"];
-			if (summary_icon && summary_icon["reward"])
-				detail_reward_icon = Texture(summary_icon["reward"]);
-		}
-
-		// v83 backgrnd extras from UIWindow.img/Quest
-		if (!detail_backgrnd.is_valid())
-		{
-			detail_backgrnd = Texture(questBtns["backgrnd3"]);
-			detail_backgrnd2 = Texture(questBtns["backgrnd4"]);
-			detail_backgrnd3 = Texture(questBtns["backgrnd5"]);
-			detail_summary = Texture(questBtns["summary"]);
-		}
 
 		// === QuestAlarm (UIWindow.img/QuestAlarm) ===
 		nl::node quest_alarm = nl::nx::ui["UIWindow.img"]["QuestAlarm"];
@@ -342,7 +212,7 @@ namespace ms
 		}
 		show_quest_alarm = false;
 
-		// === QuestIcon (UIWindow.img/QuestIcon) — animated status icons 0-11 ===
+		// === QuestIcon (UIWindow.img/QuestIcon) — animated status icons 0-9 in v83 ===
 		nl::node quest_icon_src = nl::nx::ui["UIWindow.img"]["QuestIcon"];
 		if (quest_icon_src)
 		{
@@ -363,23 +233,22 @@ namespace ms
 		dimension = list_backgrnd.get_dimensions();
 
 		if (dimension.x() == 0 || dimension.y() == 0)
-			dimension = v83_backgrnd3.get_dimensions();
-
-		if (dimension.x() == 0 || dimension.y() == 0)
-			dimension = Point<int16_t>(280, 400);
+			dimension = Point<int16_t>(245, 396);
 
 		dragarea = Point<int16_t>(dimension.x(), 20);
 
 		// Pre-allocate draw objects
-		tab_bg_active = ColorBox(90, 20, Color::Name::ENDEAVOUR, 1.0f);
-		tab_bg_inactive = ColorBox(90, 20, Color::Name::MINESHAFT, 0.6f);
-		tab_label_text = Text(Text::Font::A11B, Text::Alignment::CENTER, Color::Name::WHITE, "Not Available", 90, false);
-		hover_bg_recommend = ColorBox(dimension.x() - 30, ROW_HEIGHT, Color::Name::YELLOW, 0.12f);
-		sel_bg_recommend = ColorBox(dimension.x() - 30, ROW_HEIGHT, Color::Name::MALIBU, 0.2f);
-		hover_bg_normal = ColorBox(dimension.x() - 30, ROW_HEIGHT, Color::Name::WHITE, 0.15f);
-		sel_bg_normal = ColorBox(dimension.x() - 30, ROW_HEIGHT, Color::Name::MEDIUMBLUE, 0.15f);
-		sep_line_box = ColorBox(260, 1, Color::Name::DUSTYGRAY, 0.4f);
-		header_sep_box = ColorBox(260, 1, Color::Name::DUSTYGRAY, 0.4f);
+		tab_bg_active = ColorBox(TAB3_W, TAB3_H, Color::Name::ENDEAVOUR, 1.0f);
+		tab_bg_inactive = ColorBox(TAB3_W, TAB3_H, Color::Name::MINESHAFT, 0.6f);
+		tab_label_text = Text(Text::Font::A11B, Text::Alignment::CENTER, Color::Name::WHITE, "Unavailable", TAB3_W, false);
+		hover_bg_recommend = ColorBox(dimension.x() - 20, ROW_HEIGHT, Color::Name::YELLOW, 0.12f);
+		sel_bg_recommend = ColorBox(dimension.x() - 20, ROW_HEIGHT, Color::Name::MALIBU, 0.2f);
+		hover_bg_normal = ColorBox(dimension.x() - 20, ROW_HEIGHT, Color::Name::WHITE, 0.15f);
+		sel_bg_normal = ColorBox(dimension.x() - 20, ROW_HEIGHT, Color::Name::MEDIUMBLUE, 0.15f);
+		// Detail body is 305 wide with 15 px margins
+		sep_line_box = ColorBox(275, 1, Color::Name::DUSTYGRAY, 0.4f);
+		header_sep_box = ColorBox(275, 1, Color::Name::DUSTYGRAY, 0.4f);
+		search_box = ColorBox(SEARCH_DIM.x(), SEARCH_DIM.y(), Color::Name::WHITE, 1.0f);
 		say_preview_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::DUSTYGRAY, "", 250, true);
 		medal_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, "", 240, false);
 		time_text = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::ORANGE, "", 200, false);
@@ -885,6 +754,7 @@ namespace ms
 			count = static_cast<uint16_t>(completed_row_layout.size());
 
 		slider.setrows(ROWS, count);
+		slider.setenabled(count > ROWS);
 		offset = 0;
 		selected_entry = -1;
 		hover_entry = -1;
@@ -1136,6 +1006,7 @@ namespace ms
 			show_detail = false;
 			// Update slider with new row count
 			slider.setrows(ROWS, get_available_row_count());
+			slider.setenabled(get_available_row_count() > ROWS);
 			break;
 		case RowType::RECOMMEND_ENTRY:
 			if (entry_index >= 0)
@@ -1365,8 +1236,7 @@ namespace ms
 		// Detail button positions: drawn with detail_pos as parentpos.
 		// MapleButton::draw renders at (btn.position + parentpos - tex_origin),
 		// so to place at (detail_pos + offset) we set btn.position = offset + tex_origin.
-		int16_t panel_w = detail_backgrnd.is_valid() ? detail_backgrnd.get_dimensions().x() : 290;
-		int16_t panel_h = detail_backgrnd.is_valid() ? detail_backgrnd.get_dimensions().y() : dimension.y();
+		int16_t panel_w = detail_backgrnd.is_valid() ? detail_backgrnd.get_dimensions().x() : 305;
 
 		auto set_detail_btn_pos = [&](uint16_t id, Point<int16_t> offset) {
 			auto it = buttons.find(id);
@@ -1377,13 +1247,16 @@ namespace ms
 			}
 		};
 
-		set_detail_btn_pos(Buttons::BT_DETAIL_CLOSE, Point<int16_t>(panel_w - 25, 5));
-		set_detail_btn_pos(Buttons::BT_ACCEPT, Point<int16_t>(10, panel_h - 30));
-		set_detail_btn_pos(Buttons::BT_FINISH, Point<int16_t>(panel_w - 85, panel_h - 30));
-		set_detail_btn_pos(Buttons::GIVEUP, Point<int16_t>(10, panel_h - 30));
-		set_detail_btn_pos(Buttons::MARK_NPC, Point<int16_t>(panel_w / 2 - 35, panel_h - 30));
-		set_detail_btn_pos(Buttons::BT_DELIVERY_ACCEPT, Point<int16_t>(10, panel_h - 30));
-		set_detail_btn_pos(Buttons::BT_DELIVERY_COMPLETE, Point<int16_t>(panel_w - 85, panel_h - 30));
+		// Foot band (y 364..391) of the 305 px detail panel, left to right:
+		// [Accept | Forfeit] [Accept-as-finish] [Find NPC] [Quest Helper]
+		set_detail_btn_pos(Buttons::BT_DETAIL_CLOSE, Point<int16_t>(panel_w - CLOSE_INSET_X, CLOSE_Y));
+		set_detail_btn_pos(Buttons::BT_ACCEPT, Point<int16_t>(DETAIL_BTN_X0, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::GIVEUP, Point<int16_t>(DETAIL_BTN_X0, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::BT_FINISH, Point<int16_t>(DETAIL_BTN_X1, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::BT_DELIVERY_ACCEPT, Point<int16_t>(DETAIL_BTN_X1, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::BT_DELIVERY_COMPLETE, Point<int16_t>(DETAIL_BTN_X1, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::MARK_NPC, Point<int16_t>(DETAIL_BTN_X2, DETAIL_BTN_Y));
+		set_detail_btn_pos(Buttons::BT_ARLIM, Point<int16_t>(DETAIL_BTN_X3, DETAIL_BTN_Y));
 
 		// Show/hide detail buttons based on quest state
 		set_btn_active(Buttons::GIVEUP, false);
@@ -1434,7 +1307,7 @@ namespace ms
 
 		std::string clean_desc = strip_quest_codes(desc);
 
-		detail_quest_name = Text(Text::Font::A12B, Text::Alignment::LEFT, Color::Name::BLACK, name, 180, false);
+		detail_quest_name = Text(Text::Font::A12B, Text::Alignment::LEFT, Color::Name::BLACK, name, 250, false);
 		detail_quest_desc = Text(Text::Font::A12M, Text::Alignment::LEFT, Color::Name::BLACK, clean_desc, 260, true);
 
 		// Build summary with parent/area info
@@ -1447,7 +1320,7 @@ namespace ms
 			summary_str += "Area " + std::to_string(detail_area);
 		}
 		if (!summary_str.empty())
-			detail_quest_summary = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::DUSTYGRAY, summary_str, 200, false);
+			detail_quest_summary = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::WHITE, summary_str, 160, false);
 		else
 			detail_quest_summary = Text();
 
@@ -1526,7 +1399,7 @@ namespace ms
 				}
 
 				if (!ordered_names.empty() || any_zero)
-					detail_job_req = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, job_str, 200, false);
+					detail_job_req = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, job_str, 160, false);
 			}
 
 			// Prerequisite quests
@@ -1883,17 +1756,16 @@ namespace ms
 		set_btn_active(Buttons::BT_FINISH, is_in_progress);
 		set_btn_active(Buttons::GIVEUP, is_in_progress);
 		set_btn_active(Buttons::MARK_NPC, true);
+		set_btn_active(Buttons::BT_ARLIM, is_available || is_in_progress);
 	}
 
 	void UIQuestLog::draw(float alpha) const
 	{
 		UIElement::draw_sprites(alpha);
 
-		// Draw left panel backgrounds (from UIWindow2.img/Quest/list)
+		// List panel background (UIWindow.img/Quest/backgrnd)
 		if (list_backgrnd.is_valid())
 			list_backgrnd.draw(DrawArgument(position));
-		if (list_backgrnd2.is_valid())
-			list_backgrnd2.draw(DrawArgument(position));
 
 		// Weekly tab label — draw custom text since no NX art exists
 		{
@@ -1928,8 +1800,12 @@ namespace ms
 			else
 				list_empty = completed_entries.empty();
 
-			if (list_empty && tab != Buttons::TAB3 && tab < notice_sprites.size())
-				notice_sprites[tab].draw(position, alpha);
+			// v83 notice bitmaps have a (0,0) origin: centre them by hand
+			if (list_empty && tab != Buttons::TAB3 && tab < notice_textures.size())
+			{
+				int16_t notice_w = notice_textures[tab].get_dimensions().x();
+				notice_textures[tab].draw(position + Point<int16_t>((dimension.x() - notice_w) / 2, NOTICE_Y));
+			}
 
 			// Custom empty notice for weekly tab
 			if (list_empty && tab == Buttons::TAB3)
@@ -1940,19 +1816,18 @@ namespace ms
 			}
 		}
 
-		// Search area + textfield
+		// Search box + textfield (plain box: v83 has no search art)
 		if (tab != Buttons::TAB2)
 		{
-			search_area.draw(position);
+			search_box.draw(DrawArgument(position + SEARCH_POS));
 			search.draw(position);
 
 			if (search.get_state() == Textfield::State::NORMAL && search.empty())
-				placeholder.draw(position + Point<int16_t>(39, 51));
+				placeholder.draw(position + SEARCH_POS + Point<int16_t>(4, 1));
 		}
 
-		// Completed count on completed tab
-		if (tab == Buttons::TAB2 && complete_count.is_valid())
-			complete_count.draw(DrawArgument(position));
+		// List scrollbar (Basic.img VScr) along the list's right edge
+		slider.draw(position);
 
 		// Draw left-panel buttons only (detail buttons drawn separately in detail panel)
 		static const std::set<uint16_t> detail_btn_ids = {
@@ -2176,7 +2051,7 @@ namespace ms
 
 			std::string time_str = (mins < 10 ? "0" : "") + std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
 
-			Point<int16_t> clock_pos = position + Point<int16_t>(dimension.x() - 80, 38);
+			Point<int16_t> clock_pos = position + Point<int16_t>(dimension.x() - 80, CLOCK_Y);
 			time_alarm_clock.draw(DrawArgument(clock_pos), alpha);
 			time_text.change_text(time_str);
 			time_text.draw(clock_pos + Point<int16_t>(22, 4));
@@ -2210,26 +2085,14 @@ namespace ms
 				detail_pos = detail_anchor - detail_backgrnd.get_origin();
 				has_bg = true;
 			}
-			if (detail_backgrnd2.is_valid())
-				detail_backgrnd2.draw(detail_anchor);
-			if (detail_backgrnd3.is_valid())
-				detail_backgrnd3.draw(detail_anchor);
-
 			// Scroll offset — only applied to content below the header
 			int16_t ds = detail_scroll;
 			int16_t detail_w = detail_backgrnd.is_valid() ? detail_backgrnd.get_dimensions().x() : 290;
 			int16_t detail_h = detail_backgrnd.is_valid() ? detail_backgrnd.get_dimensions().y() : dimension.y();
 
-			// Header height calculation
-			int16_t text_bottom = 48;
-			if (!detail_quest_summary.get_text().empty())
-				text_bottom += 16;
-			if (!detail_level_req.get_text().empty())
-				text_bottom += 16;
-			if (!detail_job_req.get_text().empty())
-				text_bottom += 16;
-			int16_t npc_bottom = detail_npc_sprite.is_valid() ? (int16_t)112 : (int16_t)0;
-			int16_t header_h = std::max({text_bottom, npc_bottom, (int16_t)96}) + 8;
+			// The header is the blue summary box baked into backgrnd2
+			// (y 25..119); scrollable content starts below it.
+			int16_t header_h = DETAIL_HEADER_H;
 
 			// Scrollable content starts after header with padding
 			int16_t y_offset = header_h + 10;
@@ -2510,16 +2373,18 @@ namespace ms
 			#undef IN_VIEW
 			#undef IN_VIEW_H
 
-			detail_quest_name.draw(detail_pos + Point<int16_t>(18, 30));
+			// Quest name in the title box; summary / level / job lines in the
+			// left half of the blue box, NPC portrait + name in the right half
+			detail_quest_name.draw(detail_pos + DETAIL_TITLE_POS);
 
-			int16_t hy = 48;
-			detail_quest_summary.draw(detail_pos + Point<int16_t>(18, hy));
+			int16_t hy = DETAIL_SUMMARY_Y;
+			detail_quest_summary.draw(detail_pos + Point<int16_t>(DETAIL_SUMMARY_X, hy));
 			if (!detail_quest_summary.get_text().empty())
 				hy += 16;
-			detail_level_req.draw(detail_pos + Point<int16_t>(18, hy));
+			detail_level_req.draw(detail_pos + Point<int16_t>(DETAIL_SUMMARY_X, hy));
 			if (!detail_level_req.get_text().empty())
 				hy += 16;
-			detail_job_req.draw(detail_pos + Point<int16_t>(18, hy));
+			detail_job_req.draw(detail_pos + Point<int16_t>(DETAIL_SUMMARY_X, hy));
 			if (!detail_job_req.get_text().empty())
 				hy += 16;
 
@@ -2529,12 +2394,10 @@ namespace ms
 				float npc_scale = 1.0f;
 				if (npc_dim.x() > 60 || npc_dim.y() > 60)
 					npc_scale = std::min(60.0f / npc_dim.x(), 60.0f / npc_dim.y());
-				Point<int16_t> feet_pos = detail_pos + Point<int16_t>(230, 92);
+				Point<int16_t> feet_pos = detail_pos + DETAIL_NPC_FEET;
 				detail_npc_sprite.draw(DrawArgument(feet_pos, npc_scale, npc_scale));
 			}
-			detail_npc_name.draw(detail_pos + Point<int16_t>(230, 96));
-
-			header_sep_box.draw(DrawArgument(detail_pos + Point<int16_t>(15, header_h - 4)));
+			detail_npc_name.draw(detail_pos + DETAIL_NPC_NAME_POS);
 
 			// Draw detail panel buttons manually with detail_pos as parentpos
 			auto draw_detail_btn = [&](uint16_t id) {
@@ -2549,6 +2412,7 @@ namespace ms
 			draw_detail_btn(Buttons::MARK_NPC);
 			draw_detail_btn(Buttons::BT_DELIVERY_ACCEPT);
 			draw_detail_btn(Buttons::BT_DELIVERY_COMPLETE);
+			draw_detail_btn(Buttons::BT_ARLIM);
 		}
 
 		// === QuestAlarm popup ===
@@ -2655,6 +2519,13 @@ namespace ms
 				return new_state;
 		}
 
+		// List scrollbar
+		if (slider.isenabled())
+		{
+			if (Cursor::State new_state = slider.send_cursor(cursorpos - position, clicking))
+				return new_state;
+		}
+
 		// Track hover and click on quest entries
 		{
 			int16_t new_hover = -1;
@@ -2684,7 +2555,7 @@ namespace ms
 
 					Rectangle<int16_t> entry_bounds(
 						position + Point<int16_t>(10, entry_y),
-						position + Point<int16_t>(260, entry_y + row_h)
+						position + Point<int16_t>(LIST_RIGHT, entry_y + row_h)
 					);
 
 					if (entry_bounds.contains(cursorpos))
@@ -2735,7 +2606,7 @@ namespace ms
 
 					Rectangle<int16_t> entry_bounds(
 						position + Point<int16_t>(10, entry_y),
-						position + Point<int16_t>(260, entry_y + row_h)
+						position + Point<int16_t>(LIST_RIGHT, entry_y + row_h)
 					);
 
 					if (entry_bounds.contains(cursorpos))
@@ -2779,7 +2650,7 @@ namespace ms
 			static const uint16_t detail_btn_ids[] = {
 				Buttons::BT_DETAIL_CLOSE, Buttons::BT_ACCEPT, Buttons::BT_FINISH,
 				Buttons::GIVEUP, Buttons::MARK_NPC, Buttons::BT_DELIVERY_ACCEPT,
-				Buttons::BT_DELIVERY_COMPLETE
+				Buttons::BT_DELIVERY_COMPLETE, Buttons::BT_ARLIM
 			};
 
 			for (uint16_t id : detail_btn_ids)
@@ -2819,7 +2690,7 @@ namespace ms
 		static const uint16_t detail_btn_ids[] = {
 			Buttons::BT_DETAIL_CLOSE, Buttons::BT_ACCEPT, Buttons::BT_FINISH,
 			Buttons::GIVEUP, Buttons::MARK_NPC, Buttons::BT_DELIVERY_ACCEPT,
-			Buttons::BT_DELIVERY_COMPLETE
+			Buttons::BT_DELIVERY_COMPLETE, Buttons::BT_ARLIM
 		};
 		std::vector<uint16_t> reactivate;
 		for (uint16_t id : detail_btn_ids)
@@ -2947,24 +2818,24 @@ namespace ms
 			}
 		}
 
-		// Left panel scroll — adjust offset directly
+		// Left panel scroll — adjust offset directly, then re-seat the
+		// scrollbar thumb so it mirrors the wheel position
+		uint16_t total = 0;
+		if (tab == Buttons::TAB0)
+			total = get_available_row_count();
+		else if (tab == Buttons::TAB1)
+			total = static_cast<uint16_t>(active_row_layout.size());
+		else if (tab == Buttons::TAB2)
+			total = static_cast<uint16_t>(completed_row_layout.size());
+		else if (tab == Buttons::TAB3)
+			total = static_cast<uint16_t>(weekly_row_layout.size());
+
 		if (yoffset > 0 && offset > 0)
 			offset--;
-		else if (yoffset < 0)
-		{
-			uint16_t total = 0;
-			if (tab == Buttons::TAB0)
-				total = get_available_row_count();
-			else if (tab == Buttons::TAB1)
-				total = static_cast<uint16_t>(active_row_layout.size());
-			else if (tab == Buttons::TAB2)
-				total = static_cast<uint16_t>(completed_row_layout.size());
-			else if (tab == Buttons::TAB3)
-				total = static_cast<uint16_t>(weekly_row_layout.size());
+		else if (yoffset < 0 && total > ROWS && offset < total - ROWS)
+			offset++;
 
-			if (total > ROWS && offset < total - ROWS)
-				offset++;
-		}
+		slider.setrows(static_cast<int16_t>(offset), ROWS, static_cast<int16_t>(total));
 	}
 
 	void UIQuestLog::doubleclick(Point<int16_t> cursorpos)
@@ -2993,7 +2864,7 @@ namespace ms
 
 			Rectangle<int16_t> entry_bounds(
 				position + Point<int16_t>(10, entry_y),
-				position + Point<int16_t>(260, entry_y + row_h)
+				position + Point<int16_t>(LIST_RIGHT, entry_y + row_h)
 			);
 
 			if (entry_bounds.contains(cursorpos))
@@ -3272,7 +3143,7 @@ namespace ms
 			count = static_cast<uint16_t>(weekly_row_layout.size());
 
 		slider = Slider(
-			Slider::Type::DEFAULT_SILVER, Range<int16_t>(LIST_Y, LIST_Y + ROWS * ROW_HEIGHT), 262, ROWS, count,
+			Slider::Type::LINE_CYAN, Range<int16_t>(LIST_Y, LIST_Y + ROWS * ROW_HEIGHT - SLIDER_BTN_H), SLIDER_X, ROWS, count,
 			[&](bool upwards)
 			{
 				int16_t shift = upwards ? -1 : 1;
@@ -3293,5 +3164,6 @@ namespace ms
 					offset = new_offset;
 			}
 		);
+		slider.setenabled(count > ROWS);
 	}
 }
