@@ -33,8 +33,8 @@
 #include "IO/Window.h"
 #include "Net/Session.h"
 #include "Util/CrashLog.h"
-#ifndef MS_PLATFORM_WASM
 #include "Util/HardwareInfo.h"
+#ifndef MS_PLATFORM_WASM
 #include "Util/ScreenResolution.h"
 #endif
 
@@ -372,7 +372,9 @@ int main()
 {
 #ifndef MS_PLATFORM_WASM
 	ms::install_crash_logger();
+#endif
 	ms::HardwareInfo();
+#ifndef MS_PLATFORM_WASM
 	ms::ScreenResolution();
 #endif
 	ms::start();

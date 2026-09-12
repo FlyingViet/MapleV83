@@ -18,6 +18,11 @@
 #pragma once
 
 #include "../Configuration.h"
+#ifdef MS_PLATFORM_WASM
+#include <emscripten.h>
+#include <cstdlib>
+#include <string>
+#endif
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -29,10 +34,41 @@ namespace ms
 	class HardwareInfo
 	{
 	public:
-#ifndef _WIN32
-		// Volume serial and adapter MAC lookups are Win32 API calls. Off Windows
-		// (Emscripten, Linux, macOS) the HWID/MAC strings keep Configuration's
-		// defaults, which is all the login packet needs to be well-formed.
+#if defined(MS_PLATFORM_WASM)
+		// The browser has no MAC/volume serial. Cosmic validates the host string as
+		// "<12 hex mac>_<8 hex serial>", so synthesize a stable pseudo id per browser
+		// (kept in localStorage) — distinct per device, constant across sessions.
+		HardwareInfo()
+		{
+			char* raw = (char*)EM_ASM_PTR({
+				var key = 'mw.hwid';
+				var id = null;
+				try { id = localStorage.getItem(key); } catch (e) {}
+				if (!id || !/^[0-9A-F]{20}$/.test(id)) {
+					var hex = '0123456789ABCDEF';
+					id = '';
+					for (var i = 0; i < 20; i++) id += hex[Math.floor(Math.random() * 16)];
+					try { localStorage.setItem(key, id); } catch (e) {}
+				}
+				var len = lengthBytesUTF8(id) + 1;
+				var ptr = _malloc(len);
+				stringToUTF8(id, ptr, len);
+				return ptr;
+			});
+			std::string id = raw ? raw : "0123456789AB01234567";
+			if (raw)
+				std::free(raw);
+			std::string mac = id.substr(0, 12);
+			std::string serial = id.substr(12, 8);
+			std::string macs;
+			for (size_t i = 0; i < mac.size(); i += 2)
+				macs += (i ? "-" : "") + mac.substr(i, 2);
+			Configuration::get().set_macs(&macs[0]);
+			Configuration::get().set_hwid(&mac[0], &serial[0]);
+		}
+#elif !defined(_WIN32)
+		// Volume serial and adapter MAC lookups are Win32 API calls. On other
+		// non-Windows platforms the HWID/MAC strings keep Configuration's defaults.
 		HardwareInfo() {}
 #else
 		HardwareInfo()
