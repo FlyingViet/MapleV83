@@ -28,16 +28,21 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#ifndef MS_PLATFORM_WASM
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #include <Windows.h>
 #include <ShlObj.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <glfw3native.h>
+#include <filesystem>
+#else
+#include <emscripten.h>
+#include <cstdlib>
+#endif
 
 #include <chrono>
 #include <ctime>
-#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <vector>
@@ -135,6 +140,7 @@ namespace ms
 		UI::get().send_cursor(pos);
 	}
 
+#ifndef MS_PLATFORM_WASM
 	void clip_cursor_to_window(GLFWwindow* window)
 	{
 		HWND hwnd = glfwGetWin32Window(window);
@@ -150,13 +156,18 @@ namespace ms
 			ClipCursor(&screen_rect);
 		}
 	}
+#endif
 
 	void focus_callback(GLFWwindow* window, int focused)
 	{
+#ifndef MS_PLATFORM_WASM
 		if (focused)
 			clip_cursor_to_window(window);
 		else
 			ClipCursor(nullptr);
+#else
+		(void)window;
+#endif
 
 		UI::get().send_focus(focused);
 	}
@@ -180,12 +191,40 @@ namespace ms
 		if (!glfwInit())
 			return Error::Code::GLFW;
 
+#ifdef MS_PLATFORM_WASM
+		// Emscripten's GLFW port drives a single <canvas>: there is no hidden
+		// helper context and no second window. The real window (and with it the
+		// one WebGL2 context) therefore has to exist before GraphicsGL::init()
+		// compiles shaders; initwindow() only (re)configures it afterwards.
+		glfwSetErrorCallback(error_callback);
+		glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+		// Opaque canvas: with alpha the page background bleeds through every
+		// partially transparent sprite. No depth/stencil/MSAA for a 2D atlas.
+		glfwWindowHint(GLFW_ALPHA_BITS, 0);
+		glfwWindowHint(GLFW_DEPTH_BITS, 0);
+		glfwWindowHint(GLFW_STENCIL_BITS, 0);
+		glfwWindowHint(GLFW_SAMPLES, 0);
+
+		glwnd = glfwCreateWindow(
+			width,
+			height,
+			Configuration::get().get_title().c_str(),
+			nullptr,
+			nullptr
+		);
+
+		if (!glwnd)
+			return Error::Code::WINDOW;
+
+		glfwMakeContextCurrent(glwnd);
+#else
 		glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
 		context = glfwCreateWindow(1, 1, "", nullptr, nullptr);
 		glfwMakeContextCurrent(context);
 		glfwSetErrorCallback(error_callback);
 		glfwWindowHint(GLFW_VISIBLE, GL_TRUE);
 		glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+#endif
 
 		if (Error error = GraphicsGL::get().init())
 			return error;
@@ -195,11 +234,19 @@ namespace ms
 
 	Error Window::initwindow()
 	{
-		if (glwnd)
-			glfwDestroyWindow(glwnd);
-
 		int wnd_width = width;
 		int wnd_height = height;
+
+#ifdef MS_PLATFORM_WASM
+		// The canvas (and the single WebGL2 context) was created in init() and
+		// is never recreated: only resize it to the configured physical size,
+		// the page's MapleWasmUI.applyScale() then fits it with CSS. Fullscreen
+		// is the browser's job, see toggle_fullscreen(). There is no swap
+		// interval either: the browser paces frames with requestAnimationFrame.
+		glfwSetWindowSize(glwnd, wnd_width, wnd_height);
+#else
+		if (glwnd)
+			glfwDestroyWindow(glwnd);
 
 		if (fullscreen)
 		{
@@ -235,6 +282,7 @@ namespace ms
 
 		bool vsync = Setting<VSync>::get().load();
 		glfwSwapInterval(vsync ? 1 : 0);
+#endif
 
 		int fb_width, fb_height;
 		glfwGetFramebufferSize(glwnd, &fb_width, &fb_height);
@@ -245,9 +293,13 @@ namespace ms
 		s_vp_w = fb_width;
 		s_vp_h = fb_height;
 		glViewport(0, 0, fb_width, fb_height);
+#ifndef MS_PLATFORM_WASM
+		// Fixed-function matrix state does not exist in GL ES / WebGL2
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
+#endif
 
+		// (Emscripten: sets cursor:none on the canvas; the game draws its own)
 		glfwSetInputMode(glwnd, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
 		double xpos, ypos;
@@ -255,7 +307,9 @@ namespace ms
 		glfwGetCursorPos(glwnd, &xpos, &ypos);
 		cursor_callback(glwnd, xpos, ypos);
 
+#ifndef MS_PLATFORM_WASM
 		glfwSetInputMode(glwnd, GLFW_STICKY_KEYS, GL_TRUE);
+#endif
 		glfwSetKeyCallback(glwnd, key_callback);
 		glfwSetCharCallback(glwnd, char_callback);
 		glfwSetMouseButtonCallback(glwnd, mousekey_callback);
@@ -264,6 +318,7 @@ namespace ms
 		glfwSetScrollCallback(glwnd, scroll_callback);
 		glfwSetWindowCloseCallback(glwnd, close_callback);
 
+#ifndef MS_PLATFORM_WASM
 		// Confine cursor to window so it can't escape to desktop/taskbar
 		clip_cursor_to_window(glwnd);
 
@@ -285,8 +340,60 @@ namespace ms
 			glfwSetWindowIcon(glwnd, 1, images);
 			stbi_image_free(images[0].pixels);
 		}
+#endif
 
 		GraphicsGL::get().reinit();
+
+#ifdef MS_PLATFORM_WASM
+		// Keep browser default-prevention rules configurable from JS so the input
+		// list is easy to extend. Emscripten's GLFW only preventDefault()s
+		// Backspace and Tab itself; without this Tab/Alt/arrows/F11 scroll or
+		// move focus and the right mouse button opens the context menu.
+		// (No top-level commas inside EM_ASM blocks: the macro splits on them.)
+		EM_ASM({
+			window.MapleWasmInputGuard = window.MapleWasmInputGuard || {};
+			var guard = window.MapleWasmInputGuard;
+
+			if (!Array.isArray(guard.preventedKeys)) {
+				guard.preventedKeys =
+					"Tab|Alt|Escape|ArrowLeft|ArrowUp|ArrowRight|ArrowDown|F11".split("|");
+			}
+
+			if (!Array.isArray(guard.preventedMouseButtons)) {
+				// Right mouse button.
+				guard.preventedMouseButtons = [];
+				guard.preventedMouseButtons.push(2);
+			}
+
+			if (!guard.installed) {
+				var preventKeyDefaults = function(event) {
+					if (guard.preventedKeys.indexOf(event.key) !== -1) {
+						event.preventDefault();
+					}
+				};
+
+				var preventMouseDefaults = function(event) {
+					if (guard.preventedMouseButtons.indexOf(event.button) !== -1) {
+						event.preventDefault();
+					}
+				};
+
+				window.addEventListener("keydown", preventKeyDefaults, false);
+				window.addEventListener("keyup", preventKeyDefaults, false);
+				window.addEventListener("mousedown", preventMouseDefaults, false);
+				window.addEventListener("contextmenu", preventMouseDefaults, false);
+				guard.installed = true;
+			}
+		});
+
+		// Ask the page to sync the canvas CSS size with the current
+		// viewport/fullscreen state.
+		EM_ASM({
+			if (window.MapleWasmUI && window.MapleWasmUI.applyScale) {
+				window.MapleWasmUI.applyScale();
+			}
+		});
+#endif
 
 		return Error::Code::NONE;
 	}
@@ -364,18 +471,54 @@ namespace ms
 
 	void Window::setclipboard(const std::string& text) const
 	{
+#ifdef MS_PLATFORM_WASM
+		// Browsers only expose the clipboard asynchronously (and Emscripten's
+		// GLFW clipboard functions are stubs): write through the async API and
+		// keep a page-local copy so copy/paste inside the game always works.
+		EM_ASM({
+			var text = UTF8ToString($0);
+			window.MapleWasmClipboard = text;
+			if (navigator.clipboard && navigator.clipboard.writeText) {
+				navigator.clipboard.writeText(text).catch(function() {});
+			}
+		}, text.c_str());
+#else
 		glfwSetClipboardString(glwnd, text.c_str());
+#endif
 	}
 
 	std::string Window::getclipboard() const
 	{
+#ifdef MS_PLATFORM_WASM
+		// navigator.clipboard.readText() is async and permission-gated, so the
+		// synchronous read returns whatever the page last captured: our own
+		// setclipboard() text, or text the page stored from a DOM "paste" event
+		// into window.MapleWasmClipboard.
+		char* text = reinterpret_cast<char*>(static_cast<intptr_t>(EM_ASM_INT({
+			var text = window.MapleWasmClipboard || "";
+			var len = lengthBytesUTF8(text) + 1;
+			var buf = _malloc(len);
+			stringToUTF8(text, buf, len);
+			return buf;
+		})));
+
+		std::string result = text ? text : "";
+		std::free(text);
+
+		return result;
+#else
 		const char* text = glfwGetClipboardString(glwnd);
 
 		return text ? text : "";
+#endif
 	}
 
 	void Window::apply_mouse_speed(int slider_value)
 	{
+#ifdef MS_PLATFORM_WASM
+		// Browsers have no pointer-speed API: the setting is stored but inert.
+		(void)slider_value;
+#else
 		// Slider stored 0..100. Windows SPI_SETMOUSESPEED takes 1..20 (10 = default).
 		if (slider_value < 0)
 			slider_value = Setting<MouseSpeed>::get().load();
@@ -390,10 +533,20 @@ namespace ms
 
 		SystemParametersInfoA(SPI_SETMOUSESPEED, 0,
 			reinterpret_cast<PVOID>(static_cast<INT_PTR>(sys_speed)), 0);
+#endif
 	}
 
 	void Window::take_screenshot()
 	{
+#ifdef MS_PLATFORM_WASM
+		// No filesystem to write to and glReadBuffer(GL_FRONT) does not exist
+		// in WebGL. Hand off to the page (canvas.toBlob) when it offers a hook.
+		EM_ASM({
+			if (window.MapleWasmUI && window.MapleWasmUI.takeScreenshot) {
+				window.MapleWasmUI.takeScreenshot();
+			}
+		});
+#else
 		if (!glwnd)
 			return;
 
@@ -441,10 +594,37 @@ namespace ms
 		std::filesystem::path out = std::filesystem::path(folder) / name.str();
 		stbi_write_png(out.string().c_str(), fb_w, fb_h, 4, flipped.data(),
 			static_cast<int>(row_bytes));
+#endif
 	}
 
 	void Window::toggle_fullscreen()
 	{
+#ifdef MS_PLATFORM_WASM
+		// The browser owns fullscreen: toggle the canvas through the Fullscreen
+		// API and let the page rescale it. The saved setting is kept in sync so
+		// the option menu reflects the state.
+		fullscreen = !fullscreen;
+		Setting<Fullscreen>::get().save(fullscreen);
+
+		EM_ASM({
+			var canvas = Module && Module.canvas ? Module.canvas : null;
+			if (!canvas) {
+				return;
+			}
+
+			var wanted = $0 != 0;
+
+			if (wanted && !document.fullscreenElement) {
+				canvas.requestFullscreen({ navigationUI: "hide" }).catch(function() {});
+			} else if (!wanted && document.fullscreenElement) {
+				document.exitFullscreen().catch(function() {});
+			}
+
+			if (window.MapleWasmUI && window.MapleWasmUI.applyScale) {
+				setTimeout(window.MapleWasmUI.applyScale, 0);
+			}
+		}, fullscreen ? 1 : 0);
+#else
 		int16_t max_width = Configuration::get().get_max_width();
 		int16_t max_height = Configuration::get().get_max_height();
 
@@ -456,5 +636,16 @@ namespace ms
 			initwindow();
 			glfwPollEvents();
 		}
+#endif
 	}
 }
+
+#ifdef MS_PLATFORM_WASM
+// Touch overlay hook (web/overlay.js): feed a GLFW key code straight into the
+// UI, bypassing DOM keyboard events so on-screen buttons behave exactly like
+// keys. Exported through -sEXPORTED_FUNCTIONS=..._mw_key in CMakeLists.txt.
+extern "C" EMSCRIPTEN_KEEPALIVE void mw_key(int key, int down)
+{
+	ms::UI::get().send_key(key, down != 0);
+}
+#endif

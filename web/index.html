@@ -67,19 +67,15 @@
 
     <script>
         (function () {
-            const GAME_WIDTH = 800;
-            const GAME_HEIGHT = 600;
+            // The client picks its own render size (Width/Height in web/config.json,
+            // applied through GLFW); the page only scales that canvas to fit the screen.
+            let GAME_WIDTH = 800;
+            let GAME_HEIGHT = 600;
 
             function syncCanvasResolution(canvas) {
-                if (canvas.width === GAME_WIDTH && canvas.height === GAME_HEIGHT) {
-                    return;
-                }
-
-                if (typeof Module !== 'undefined' && typeof Module.setCanvasSize === 'function') {
-                    Module.setCanvasSize(GAME_WIDTH, GAME_HEIGHT);
-                } else {
-                    canvas.width = GAME_WIDTH;
-                    canvas.height = GAME_HEIGHT;
+                if (canvas.width > 0 && canvas.height > 0) {
+                    GAME_WIDTH = canvas.width;
+                    GAME_HEIGHT = canvas.height;
                 }
             }
 

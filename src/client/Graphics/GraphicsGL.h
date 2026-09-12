@@ -26,9 +26,18 @@
 
 #include <vector>
 
-#ifdef PLATFORM_IOS
+#if defined(PLATFORM_IOS)
 #include <OpenGLES/ES3/gl.h>
 #include <OpenGLES/ES3/glext.h>
+#elif defined(__EMSCRIPTEN__)
+// Emscripten/WebGL2 build (PLATFORM_GLES): core OpenGL ES 3.0 header, no GLEW.
+// WebGL2 has no BGRA upload format; the token only exists so shared code
+// compiles, GraphicsGL.cpp swaps BGRA pixels to RGBA before uploading.
+// See platform/shared/GLCompat.h for the platform macro overview.
+#include <GLES3/gl3.h>
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
 #else
 #define GLEW_STATIC
 #include <glew.h>
@@ -317,6 +326,14 @@ namespace ms
 
 		std::vector<Quad> quads;
 		GLuint VBO;
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// GL ES / WebGL2 have no GL_QUADS: flush() draws indexed triangles.
+		// The index list is rebuilt every frame (kept to avoid reallocating) and,
+		// on WebGL2, streamed through an element buffer since client-side index
+		// arrays do not exist there.
+		std::vector<GLuint> indices;
+		GLuint IBO = 0;
+#endif
 		GLuint atlas;
 
 		GLint shaderProgram;

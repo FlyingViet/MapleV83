@@ -69,6 +69,60 @@ namespace
 			|| (cp >= 0x2600  && cp <= 0x27BF)
 			|| (cp == 0x2764) || (cp == 0x2728);
 	}
+
+	// Uploads an 8-bit single-channel glyph bitmap into the font region of the
+	// (RGBA) atlas. The fragment shader only samples .r inside the font region,
+	// so desktop GL and iOS can hand FreeType's buffer over as GL_RED. WebGL2
+	// rejects a format that does not match the texture's RGBA base format
+	// (GL_INVALID_OPERATION), so the web build expands every byte to an RGBA
+	// texel first (value in all four channels, as the previous web client did).
+	inline void tex_upload_alpha8(GLint x, GLint y, GLsizei w, GLsizei h, const unsigned char* pixels)
+	{
+#ifdef PLATFORM_GLES
+		static std::vector<uint8_t> rgba;
+		size_t count = static_cast<size_t>(w) * static_cast<size_t>(h);
+		rgba.resize(count * 4);
+
+		for (size_t i = 0; i < count; i++)
+		{
+			uint8_t v = pixels[i];
+			rgba[i * 4 + 0] = v;
+			rgba[i * 4 + 1] = v;
+			rgba[i * 4 + 2] = v;
+			rgba[i * 4 + 3] = v;
+		}
+
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+#else
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RED, GL_UNSIGNED_BYTE, pixels);
+#endif
+	}
+
+	// Uploads 32-bit BGRA pixels (NX bitmaps, raw art, colour emoji) into the
+	// atlas. WebGL2 has no GL_BGRA, so the web build swaps the channels to RGBA
+	// on the way in; iOS uses the APPLE BGRA extension and desktop GL takes the
+	// format natively.
+	inline void tex_upload_bgra(GLint x, GLint y, GLsizei w, GLsizei h, const void* pixels)
+	{
+#ifdef PLATFORM_GLES
+		static std::vector<uint8_t> rgba;
+		const uint8_t* src = static_cast<const uint8_t*>(pixels);
+		size_t len = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+		rgba.resize(len);
+
+		for (size_t i = 0; i < len; i += 4)
+		{
+			rgba[i + 0] = src[i + 2]; // R <- B
+			rgba[i + 1] = src[i + 1]; // G
+			rgba[i + 2] = src[i + 0]; // B <- R
+			rgba[i + 3] = src[i + 3]; // A
+		}
+
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+#else
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+#endif
+	}
 }
 
 #ifdef PLATFORM_IOS
@@ -90,8 +144,8 @@ namespace ms
 
 	Error GraphicsGL::init()
 	{
-#ifdef PLATFORM_IOS
-		// OpenGL ES 3.0 shaders
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// OpenGL ES 3.0 / WebGL2 shaders (GLSL ES 3.00)
 		const char* vertexShaderSource =
 			"#version 300 es\n"
 			"in vec4 coord;\n"
@@ -112,7 +166,9 @@ namespace ms
 
 		const char* fragmentShaderSource =
 			"#version 300 es\n"
-			"precision mediump float;\n"
+			// highp: texpos addresses an 8192px atlas, an fp16 mediump would
+			// quantise texcoords above 2048 (ES 3.0 guarantees fragment highp)
+			"precision highp float;\n"
 			"in vec2 texpos;\n"
 			"in vec4 colormod;\n"
 			"out vec4 fragColor;\n"
@@ -188,7 +244,7 @@ namespace ms
 		GLint success;
 		GLchar infoLog[bufSize];
 
-#ifndef PLATFORM_IOS
+#if !defined(PLATFORM_IOS) && !defined(PLATFORM_GLES)
 		if (GLenum error = glewInit())
 			return Error(Error::Code::GLEW, (const char*)glewGetErrorString(error));
 #endif
@@ -266,8 +322,8 @@ namespace ms
 		if (attribute_coord == -1 || attribute_color == -1 || uniform_texture == -1 || uniform_atlassize == -1 || uniform_screensize == -1 || uniform_yoffset == -1)
 			return Error::Code::SHADER_VARS;
 
-#ifdef PLATFORM_IOS
-		// VAO required by OpenGL ES 3.0
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// VAO required by OpenGL ES 3.0 / WebGL2
 		GLuint VAO;
 		glGenVertexArrays(1, &VAO);
 		glBindVertexArray(VAO);
@@ -460,7 +516,7 @@ namespace ms
 			GLshort w = static_cast<GLshort>(g->bitmap.width);
 			GLshort h = static_cast<GLshort>(g->bitmap.rows);
 
-			glTexSubImage2D(GL_TEXTURE_2D, 0, ox, oy, w, h, GL_RED, GL_UNSIGNED_BYTE, g->bitmap.buffer);
+			tex_upload_alpha8(ox, oy, w, h, g->bitmap.buffer);
 
 			Offset offset = Offset(ox, oy, w, h);
 			Font::Char ch = { ax, ay, w, h, l, t, offset, false };
@@ -539,7 +595,7 @@ namespace ms
 		if (fontborder.y() + h > fontymax) fontymax = fontborder.y() + h;
 
 		if (w > 0 && h > 0)
-			glTexSubImage2D(GL_TEXTURE_2D, 0, ox, oy, w, h, GL_RED, GL_UNSIGNED_BYTE, g->bitmap.buffer);
+			tex_upload_alpha8(ox, oy, w, h, g->bitmap.buffer);
 
 		Font::Char ch;
 		ch.ax = static_cast<GLshort>(g->advance.x >> 6);
@@ -635,7 +691,7 @@ namespace ms
 				yrange = Range<int16_t>(gy + strike_h, strike_h);
 		}
 
-		glTexSubImage2D(GL_TEXTURE_2D, 0, gx, gy, strike_w, strike_h, GL_BGRA, GL_UNSIGNED_BYTE, src_pixels);
+		tex_upload_bgra(gx, gy, strike_w, strike_h, src_pixels);
 
 		Font::Char ch;
 		ch.ax = target;
@@ -930,7 +986,7 @@ namespace ms
 			}
 		}
 
-		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+		tex_upload_bgra(x, y, width, height, pixels);
 
 		return offsets.emplace(
 			std::piecewise_construct,
@@ -1505,8 +1561,10 @@ namespace ms
 		GLsizeiptr csize = quads.size() * sizeof(Quad);
 		GLsizeiptr fsize = quads.size() * Quad::LENGTH;
 
-#ifdef PLATFORM_IOS
-		// iOS/GLKit may reset GL state between frames — re-establish it
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// iOS/GLKit may reset GL state between frames — re-establish it. Cheap
+		// enough that the WebGL2 build does the same instead of trusting the
+		// state left behind by reinit().
 		glUseProgram(shaderProgram);
 		glUniform1i(uniform_fontregion, fontymax);
 		glUniform2f(uniform_atlassize, ATLASW, ATLASH);
@@ -1524,15 +1582,16 @@ namespace ms
 		glVertexAttribPointer(attribute_coord, 4, GL_SHORT, GL_FALSE, sizeof(Quad::Vertex), 0);
 		glVertexAttribPointer(attribute_color, 4, GL_FLOAT, GL_FALSE, sizeof(Quad::Vertex), (const void*)8);
 
-#ifdef PLATFORM_IOS
-		// OpenGL ES 3.0 does not support GL_QUADS — draw as indexed triangles
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// OpenGL ES 3.0 / WebGL2 do not support GL_QUADS — draw as indexed
+		// triangles. 32-bit indices so a busy frame is not capped at 16k quads.
 		size_t quad_count = quads.size();
-		std::vector<GLushort> indices;
+		indices.clear();
 		indices.reserve(quad_count * 6);
 
 		for (size_t i = 0; i < quad_count; i++)
 		{
-			GLushort base = static_cast<GLushort>(i * Quad::LENGTH);
+			GLuint base = static_cast<GLuint>(i * Quad::LENGTH);
 			indices.push_back(base + 0);
 			indices.push_back(base + 1);
 			indices.push_back(base + 2);
@@ -1541,7 +1600,63 @@ namespace ms
 			indices.push_back(base + 3);
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_SHORT, indices.data());
+#ifdef PLATFORM_GLES
+		// WebGL has no client-side index arrays: stream them through an element buffer
+		if (IBO == 0)
+			glGenBuffers(1, &IBO);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STREAM_DRAW);
+#endif
+
+		// Draws quads [first, first + count); mirrors the desktop GL_QUADS path
+		// below, including the additive (glow) segmentation
+		auto draw_quads = [&](size_t first, size_t count)
+		{
+			if (count == 0)
+				return;
+
+#ifdef PLATFORM_GLES
+			const void* offset = reinterpret_cast<const void*>(first * 6 * sizeof(GLuint));
+#else
+			const void* offset = indices.data() + first * 6;
+#endif
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count * 6), GL_UNSIGNED_INT, offset);
+		};
+
+		if (additive_ranges.empty() && !additive_active)
+		{
+			draw_quads(0, quad_count);
+		}
+		else
+		{
+			auto ranges = additive_ranges;
+
+			// Defensive: close a still-open range at the frame end
+			if (additive_active && quad_count > additive_from)
+				ranges.emplace_back(additive_from, quad_count);
+
+			size_t cursor = 0;
+
+			for (const auto& range : ranges)
+			{
+				if (range.first > cursor)
+					draw_quads(cursor, range.first - cursor);
+
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+				draw_quads(range.first, range.second - range.first);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+				cursor = range.second;
+			}
+
+			if (quad_count > cursor)
+				draw_quads(cursor, quad_count - cursor);
+		}
+
+#ifdef PLATFORM_GLES
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+#endif
 #else
 		// Segment the draw around additive ranges (glow effects); the common
 		// no-additive frame stays a single call

@@ -19,14 +19,22 @@
 
 #include "../Configuration.h"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <IPHlpApi.h>
+#endif
 
 namespace ms
 {
 	class HardwareInfo
 	{
 	public:
+#ifndef _WIN32
+		// Volume serial and adapter MAC lookups are Win32 API calls. Off Windows
+		// (Emscripten, Linux, macOS) the HWID/MAC strings keep Configuration's
+		// defaults, which is all the login packet needs to be well-formed.
+		HardwareInfo() {}
+#else
 		HardwareInfo()
 		{
 			size_t size = 18;
@@ -120,5 +128,6 @@ namespace ms
 			free(hwid);
 			free(macs);
 		}
+#endif
 	};
 }

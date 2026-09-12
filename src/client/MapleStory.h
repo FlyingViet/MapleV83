@@ -21,10 +21,21 @@
 //#define USE_ASIO
 
 // Use cryptography for communication with the server
+#ifndef USE_CRYPTO
 #define USE_CRYPTO
+#endif
 
 // If defined use NX, otherwise use WZ.
+#ifndef USE_NX
 #define USE_NX
+#endif
+
+// The Emscripten/WebGL build (MS_PLATFORM_WASM, see src/client/CMakeLists.txt)
+// talks to the server through Net/SocketWeb instead of Asio or Winsock. Make
+// sure a stray USE_ASIO can never pull SocketAsio into that build.
+#ifdef MS_PLATFORM_WASM
+#undef USE_ASIO
+#endif
 
 // Run in debug mode
 #define DEBUG

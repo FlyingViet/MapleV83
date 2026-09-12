@@ -82,6 +82,8 @@ namespace ms
 		loadConfigString("AssetsServerIP", Setting<AssetsServerIP>::get());
 		loadConfigString("AssetsServerPort", Setting<AssetsServerPort>::get());
 		loadConfigString("AssetsServerPath", Setting<AssetsServerPath>::get());
+		loadConfigString("Width", Setting<Width>::get());
+		loadConfigString("Height", Setting<Height>::get());
 #endif
 
 		std::cout << "[Init] Connecting to server..." << std::endl;

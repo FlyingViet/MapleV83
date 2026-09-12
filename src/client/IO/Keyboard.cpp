@@ -19,6 +19,11 @@
 
 #ifdef PLATFORM_IOS
 #include "KeyCodes.h"
+#elif defined(__EMSCRIPTEN__)
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
+#include <GLFW/glfw3.h>
 #else
 #include <glfw3.h>
 #endif

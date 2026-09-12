@@ -25,9 +25,18 @@
 #include <string>
 #include <cstdint>
 
+#ifdef __EMSCRIPTEN__
+// Emscripten: GL ES 3.0 header (no GLEW) and the GLFW port's header
+#include <GLES3/gl3.h>
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
+#include <GLFW/glfw3.h>
+#else
 #define GLEW_STATIC
 #include <glew.h>
 #include <glfw3.h>
+#endif
 
 namespace ms
 {

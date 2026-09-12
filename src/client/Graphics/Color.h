@@ -17,12 +17,16 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
-#ifdef PLATFORM_IOS
+#if defined(PLATFORM_IOS)
 	#include <OpenGLES/ES3/gl.h>
 	#include <OpenGLES/ES3/glext.h>
 	#ifndef GL_BGRA
 		#define GL_BGRA GL_BGRA_EXT
 	#endif
+#elif defined(__EMSCRIPTEN__)
+	// Emscripten/WebGL2 build (PLATFORM_GLES): core OpenGL ES 3.0 header, no GLEW.
+	// See platform/shared/GLCompat.h for the platform macro overview.
+	#include <GLES3/gl3.h>
 #else
 	#define GLEW_STATIC
 	#include <glew.h>

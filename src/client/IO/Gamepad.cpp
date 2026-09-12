@@ -90,7 +90,10 @@ namespace ms
 			name = jname ? jname : "Gamepad";
 		}
 
-		// Try gamepad API first (standardized button layout)
+#ifndef MS_PLATFORM_WASM
+		// Try gamepad API first (standardized button layout). Emscripten's GLFW
+		// port only implements the raw joystick API (navigator.getGamepads), so
+		// the web build goes straight to the fallback below.
 		GLFWgamepadstate state;
 
 		if (glfwJoystickIsGamepad(joystick_id) && glfwGetGamepadState(joystick_id, &state))
@@ -209,6 +212,7 @@ namespace ms
 			prev_axis_down = axis_down;
 		}
 		else
+#endif
 		{
 			// Fallback: raw joystick API
 			int button_count = 0;
