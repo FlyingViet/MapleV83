@@ -1091,7 +1091,9 @@ namespace ms
 	{
 		UIElement::draw(inter);
 
-		int16_t range_min = 80;
+		// The panel is centred by UIScale::at(); the clip range must follow it (the
+		// original constant assumed the panel at y = 10).
+		int16_t range_min = position.y() + 70;
 		text.draw(position + Point<int16_t>(226, 84 - offset * 300), Range<int16_t>(range_min, range_min + 316));
 		slider.draw(position);
 	}
