@@ -32,8 +32,10 @@
 #include "IO/Window.h"
 #include "Net/Session.h"
 #include "Util/CrashLog.h"
+#ifndef MS_PLATFORM_WASM
 #include "Util/HardwareInfo.h"
 #include "Util/ScreenResolution.h"
+#endif
 
 #ifdef USE_NX
 #include "Util/NxFiles.h"
@@ -305,6 +307,10 @@ namespace ms
 		{
 			std::cerr << "[Error] " << error.get_message() << error.get_args() << std::endl;
 
+#ifdef MS_PLATFORM_WASM
+			// No console in the browser: leave the error in the JS console and stop.
+			return;
+#else
 			bool can_retry = error.can_retry();
 
 			if (can_retry)
@@ -321,6 +327,7 @@ namespace ms
 				std::cout << "Press Enter to exit...";
 				std::cin.get();
 			}
+#endif
 		}
 		else
 		{
@@ -331,9 +338,11 @@ namespace ms
 
 int main()
 {
+#ifndef MS_PLATFORM_WASM
 	ms::install_crash_logger();
 	ms::HardwareInfo();
 	ms::ScreenResolution();
+#endif
 	ms::start();
 
 	return 0;
