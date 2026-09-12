@@ -94,10 +94,11 @@ for wz in "${wz_files[@]}"; do
 
 done
 
-# Move produced .nx files (tool writes next to input WZ)
+# Move produced .nx files (tool writes next to input WZ). A move, not a copy:
+# the NX set is several GB and a copy would double the disk footprint.
 for nx in "$WZ_DIR"/*.nx; do
   [ -f "$nx" ] || continue
-  cp -f "$nx" "$NX_DIR"/
+  mv -f "$nx" "$NX_DIR"/
 done
 
 echo "Done. NX files in $NX_DIR:"
