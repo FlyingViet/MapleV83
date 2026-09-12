@@ -26,6 +26,7 @@
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
+#include "../Components/TwoSpriteButton.h"
 #include "../UITypes/UIKeyConfig.h"
 
 #include "../../Data/EquipData.h"
@@ -38,6 +39,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #ifdef USE_NX
@@ -46,91 +48,94 @@
 
 namespace ms
 {
-	UIItemInventory::UIItemInventory(const Inventory& invent) : UIDragElement<PosINV>(Point<int16_t>(172, 20)), inventory(invent), ignore_tooltip(false), tab(InventoryType::Id::EQUIP), sort_enabled(false)
+	UIItemInventory::UIItemInventory(const Inventory& invent) : UIDragElement<PosINV>(Point<int16_t>(175, 20)), inventory(invent), ignore_tooltip(false), tab(InventoryType::Id::EQUIP), sort_enabled(false), full_enabled(false)
 	{
-		nl::node Item = nl::nx::ui["UIWindow2.img"]["Item"];
+		// v83 ships the item window in UIWindow.img/Item (there is no UIWindow2.img)
+		nl::node Item = nl::nx::ui["UIWindow.img"]["Item"];
 
-		backgrnd = Item["productionBackgrnd"];
-		backgrnd2 = Item["productionBackgrnd2"];
-		backgrnd3 = Item["productionBackgrnd3"];
-
+		// 175x289 regular window / 603x289 expanded window (4 slot blocks side by side)
+		backgrnd = Item["backgrnd"];
 		full_backgrnd = Item["FullBackgrnd"];
-		full_backgrnd2 = Item["FullBackgrnd2"];
-		full_backgrnd3 = Item["FullBackgrnd3"];
 
 		bg_dimensions = backgrnd.get_dimensions();
 		bg_full_dimensions = full_backgrnd.get_dimensions();
 
 		nl::node New = Item["New"];
+		// 36x36 frame (origin 2,2) pulsing on the slot that just received an item
 		newitemslot = New["inventory"];
+		// 34x18 grey tab cell pulsing on an unselected tab that holds a new item
 		newitemtab = New["Tab0"];
+		// 34x19 pink tab cell for the selected tab
+		newitemtab_active = New["Tab1"];
 
+		// 36x36 frame (origin 2,2) around the active projectile slot
 		projectile = Item["activeIcon"];
+		// 32x32 cross drawn over slots beyond the tab's slot limit
 		disabled = Item["disabled"];
 
 		nl::node Tab = Item["Tab"];
 		nl::node taben = Tab["enabled"];
 		nl::node tabdis = Tab["disabled"];
 
-		nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
+		// The tab strip itself is baked into backgrnd; Tab/enabled|disabled/0-4
+		// are only the label glyphs (origin 0,0) in the v83 strip order
+		// Equip, Use, Set-up, Etc, Cash. Centre each glyph in its 33px cell.
+		const uint16_t tab_buttons[NUM_TABS] = {
+			Buttons::BT_TAB_EQUIP,
+			Buttons::BT_TAB_USE,
+			Buttons::BT_TAB_SETUP,
+			Buttons::BT_TAB_ETC,
+			Buttons::BT_TAB_CASH
+		};
+
+		for (int16_t i = 0; i < NUM_TABS; i++)
+		{
+			std::string key = std::to_string(i);
+			Point<int16_t> cell = Point<int16_t>(TAB_X + TAB_PITCH * i, TAB_Y);
+			Point<int16_t> ndim = Texture(tabdis[key]).get_dimensions();
+			Point<int16_t> sdim = Texture(taben[key]).get_dimensions();
+			Point<int16_t> npos = cell + Point<int16_t>((TAB_PITCH - ndim.x()) / 2, (TAB_HEIGHT - ndim.y()) / 2);
+			Point<int16_t> spos = cell + Point<int16_t>((TAB_PITCH - sdim.x()) / 2, (TAB_HEIGHT - sdim.y()) / 2);
+
+			buttons[tab_buttons[i]] = std::make_unique<TwoSpriteButton>(tabdis[key], taben[key], npos, spos);
+		}
+
+		// v83 Basic.img only has BtClose (12x12) and BtClose2 (14x14)
+		nl::node close = nl::nx::ui["Basic.img"]["BtClose"];
 		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(close);
 
-		buttons[Buttons::BT_TAB_EQUIP] = std::make_unique<TwoSpriteButton>(tabdis["0"], taben["0"]);
-		buttons[Buttons::BT_TAB_USE] = std::make_unique<TwoSpriteButton>(tabdis["1"], taben["1"]);
-		buttons[Buttons::BT_TAB_ETC] = std::make_unique<TwoSpriteButton>(tabdis["2"], taben["2"]);
-		buttons[Buttons::BT_TAB_SETUP] = std::make_unique<TwoSpriteButton>(tabdis["3"], taben["3"]);
-		buttons[Buttons::BT_TAB_CASH] = std::make_unique<TwoSpriteButton>(tabdis["4"], taben["4"]);
+		// 14x14 coin (origin 0,0) drawn over the coin baked into the meso bar
+		buttons[Buttons::BT_COIN] = std::make_unique<MapleButton>(Item["BtCoin"], Point<int16_t>(8, 267));
 
-		buttons[Buttons::BT_COIN] = std::make_unique<MapleButton>(Item["BtCoin3"]);
-		buttons[Buttons::BT_POINT] = std::make_unique<MapleButton>(Item["BtPoint0"]);
-		buttons[Buttons::BT_GATHER] = std::make_unique<MapleButton>(Item["BtGather3"]);
-		buttons[Buttons::BT_SORT] = std::make_unique<MapleButton>(Item["BtSort3"]);
-		buttons[Buttons::BT_FULL] = std::make_unique<MapleButton>(Item["BtFull3"]);
-		buttons[Buttons::BT_SMALL] = std::make_unique<MapleButton>(Item["BtSmall3"]);
-		buttons[Buttons::BT_POT] = std::make_unique<MapleButton>(Item["BtPot3"]);
-		buttons[Buttons::BT_UPGRADE] = std::make_unique<MapleButton>(Item["BtUpgrade3"]);
-		buttons[Buttons::BT_APPRAISE] = std::make_unique<MapleButton>(Item["BtAppraise3"]);
-		buttons[Buttons::BT_EXTRACT] = std::make_unique<MapleButton>(Item["BtExtract3"]);
-		buttons[Buttons::BT_DISASSEMBLE] = std::make_unique<MapleButton>(Item["BtDisassemble3"]);
-		buttons[Buttons::BT_TOAD] = std::make_unique<MapleButton>(Item["BtToad3"]);
+		// 12x12 (origin 6,6) title-bar buttons; set_full() places them by
+		// the current window width
+		buttons[Buttons::BT_GATHER] = std::make_unique<MapleButton>(Item["BtGather"]);
+		buttons[Buttons::BT_SORT] = std::make_unique<MapleButton>(Item["BtSort"]);
+		buttons[Buttons::BT_FULL] = std::make_unique<MapleButton>(Item["BtFull"]);
+		buttons[Buttons::BT_SMALL] = std::make_unique<MapleButton>(Item["BtSmall"]);
 
-		buttons[Buttons::BT_COIN_SM] = std::make_unique<MapleButton>(Item["BtCoin4"]);
-		buttons[Buttons::BT_POINT_SM] = std::make_unique<MapleButton>(Item["BtPoint1"]);
-		buttons[Buttons::BT_GATHER_SM] = std::make_unique<MapleButton>(Item["BtGather4"]);
-		buttons[Buttons::BT_SORT_SM] = std::make_unique<MapleButton>(Item["BtSort4"]);
-		buttons[Buttons::BT_FULL_SM] = std::make_unique<MapleButton>(Item["BtFull4"]);
-		buttons[Buttons::BT_SMALL_SM] = std::make_unique<MapleButton>(Item["BtSmall4"]);
-		buttons[Buttons::BT_POT_SM] = std::make_unique<MapleButton>(Item["BtPot4"]);
-		buttons[Buttons::BT_UPGRADE_SM] = std::make_unique<MapleButton>(Item["BtUpgrade4"]);
-		buttons[Buttons::BT_APPRAISE_SM] = std::make_unique<MapleButton>(Item["BtAppraise4"]);
-		buttons[Buttons::BT_EXTRACT_SM] = std::make_unique<MapleButton>(Item["BtExtract4"]);
-		buttons[Buttons::BT_DISASSEMBLE_SM] = std::make_unique<MapleButton>(Item["BtDisassemble4"]);
-		buttons[Buttons::BT_TOAD_SM] = std::make_unique<MapleButton>(Item["BtToad4"]);
-		buttons[Buttons::BT_CASHSHOP] = std::make_unique<MapleButton>(Item["BtCashshop"]);
+		// "+ INVENTORY" (92x17, origin 46,8) sits in the empty right half of
+		// the expanded window's meso bar; only shown in the expanded view
+		buttons[Buttons::BT_CASHSHOP] = std::make_unique<MapleButton>(Item["BtCashshop"], Point<int16_t>(bg_full_dimensions.x() - 54, 273));
 
-		buttons[Buttons::BT_POT]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_POT_SM]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_EXTRACT]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_EXTRACT_SM]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_DISASSEMBLE]->set_state(Button::State::DISABLED);
-		buttons[Buttons::BT_DISASSEMBLE_SM]->set_state(Button::State::DISABLED);
 		buttons[button_by_tab(tab)]->set_state(Button::State::PRESSED);
 
 		mesolabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::BLACK);
-		maplepointslabel = Text(Text::Font::A11M, Text::Alignment::RIGHT, Color::Name::BLACK);
-		maplepointslabel.change_text("0");
 
-		slotrange[InventoryType::Id::EQUIPPED] = { 1, 24 };
-		slotrange[InventoryType::Id::EQUIP] = { 1, 24 };
-		slotrange[InventoryType::Id::USE] = { 1, 24 };
-		slotrange[InventoryType::Id::SETUP] = { 1, 24 };
-		slotrange[InventoryType::Id::ETC] = { 1, 24 };
-		slotrange[InventoryType::Id::CASH] = { 1, 24 };
+		slotrange[InventoryType::Id::EQUIPPED] = { 1, MAXSLOTS };
+		slotrange[InventoryType::Id::EQUIP] = { 1, MAXSLOTS };
+		slotrange[InventoryType::Id::USE] = { 1, MAXSLOTS };
+		slotrange[InventoryType::Id::SETUP] = { 1, MAXSLOTS };
+		slotrange[InventoryType::Id::ETC] = { 1, MAXSLOTS };
+		slotrange[InventoryType::Id::CASH] = { 1, MAXSLOTS };
 
-		scroll_rows = 6;
+		scroll_rows = ROWS;
 
+		// Basic.img/VScr5 (NORMAL_ROCKBLUE): the pale blue-grey bar that
+		// matches the v83 window palette. VScr9 (DEFAULT_SILVER) does not
+		// exist in v83.
 		slider = Slider(
-			Slider::Type::DEFAULT_SILVER, Range<int16_t>(50, 245), 152, 6, 6,
+			Slider::Type::NORMAL_ROCKBLUE, Range<int16_t>(SLIDER_TOP, SLIDER_BOTTOM), SLIDER_X, ROWS, ROWS,
 			[&](bool upwards)
 			{
 				int16_t shift = upwards ? -COLUMNS : COLUMNS;
@@ -147,7 +152,6 @@ namespace ms
 
 		set_full(false);
 		clear_new();
-		load_icons();
 		update_slider();
 	}
 
@@ -155,52 +159,35 @@ namespace ms
 	{
 		UIElement::draw_sprites(alpha);
 
-		Point<int16_t> mesolabel_pos = position + Point<int16_t>(127, 262);
-		Point<int16_t> maplepointslabel_pos = position + Point<int16_t>(159, 279);
-
 		if (full_enabled)
 		{
 			full_backgrnd.draw(position);
-			full_backgrnd2.draw(position);
-			full_backgrnd3.draw(position);
-
-			mesolabel.draw(mesolabel_pos + Point<int16_t>(3, 70));
-			maplepointslabel.draw(maplepointslabel_pos + Point<int16_t>(181, 53));
 		}
 		else
 		{
 			backgrnd.draw(position);
-			backgrnd2.draw(position);
-			backgrnd3.draw(position);
-
-			slider.draw(position + Point<int16_t>(0, 1));
-
-			mesolabel.draw(mesolabel_pos);
-			maplepointslabel.draw(maplepointslabel_pos);
+			slider.draw(position);
 		}
+
+		// Right-aligned inside the white meso field (x=25..137, y=267..280),
+		// which sits at the same spot on both backgrounds
+		mesolabel.draw(position + Point<int16_t>(134, 266));
 
 		auto range = slotrange.at(tab);
 
-		size_t numslots = inventory.get_slotmax(tab);
-		size_t firstslot = full_enabled ? 1 : range.first;
-		size_t lastslot = full_enabled ? MAXFULLSLOTS : range.second;
+		int16_t numslots = inventory.get_slotmax(tab);
+		int16_t firstslot = full_enabled ? 1 : range.first;
+		int16_t lastslot = full_enabled ? MAXFULLSLOTS : range.second;
 
-		for (size_t i = 0; i <= MAXFULLSLOTS; i++)
+		for (int16_t i = firstslot; i <= lastslot; i++)
 		{
-			Point<int16_t> slotpos = full_enabled ? get_full_slotpos(i) : get_slotpos(i);
+			Point<int16_t> slotpos = get_slotpos(i);
+			auto iter = icons.find(i);
 
-			if (icons.find(i) != icons.end())
-			{
-				auto& icon = icons.at(i);
-
-				if (icon && i >= firstslot && i <= lastslot)
-					icon->draw(position + slotpos);
-			}
-			else
-			{
-				if (i > numslots && i <= lastslot)
-					disabled.draw(position + slotpos);
-			}
+			if (iter != icons.end() && iter->second)
+				iter->second->draw(position + slotpos);
+			else if (i > numslots)
+				disabled.draw(position + slotpos);
 		}
 
 		int16_t bulletslot = inventory.get_bulletslot();
@@ -208,14 +195,23 @@ namespace ms
 		if (tab == InventoryType::Id::USE && is_visible(bulletslot))
 			projectile.draw(position + get_slotpos(bulletslot));
 
-		if (tab == newtab)
+		if (newtab != InventoryType::Id::NONE)
 		{
-			newitemtab.draw(position + get_tabpos(newtab), alpha);
+			if (newtab == tab)
+			{
+				// The pink cell is one pixel taller than the strip cell
+				newitemtab_active.draw(position + get_tabpos(newtab) - Point<int16_t>(0, 1), alpha);
 
-			if (is_visible(newslot))
-				newitemslot.draw(position + get_slotpos(newslot) + Point<int16_t>(1, 1), alpha);
+				if (is_visible(newslot))
+					newitemslot.draw(position + get_slotpos(newslot), alpha);
+			}
+			else
+			{
+				newitemtab.draw(position + get_tabpos(newtab), alpha);
+			}
 		}
 
+		// Tab labels draw over the highlight cells
 		UIElement::draw_buttons(alpha);
 	}
 
@@ -224,6 +220,7 @@ namespace ms
 		UIElement::update();
 
 		newitemtab.update(6);
+		newitemtab_active.update(6);
 		newitemslot.update(6);
 
 		std::string meso_str = std::to_string(inventory.get_meso());
@@ -274,9 +271,9 @@ namespace ms
 
 		icons.clear();
 
-		uint8_t numslots = inventory.get_slotmax(tab);
+		int16_t numslots = inventory.get_slotmax(tab);
 
-		for (size_t i = 0; i <= MAXFULLSLOTS; i++)
+		for (int16_t i = 1; i <= MAXFULLSLOTS; i++)
 			if (i <= numslots)
 				update_slot(i);
 	}
@@ -295,10 +292,10 @@ namespace ms
 	void UIItemInventory::update_slider()
 	{
 		int16_t rows = used_rows();
-		scroll_rows = rows > 6 ? rows : 6;
+		scroll_rows = rows > ROWS ? rows : ROWS;
 
 		// The current scroll offset may sit past the shrunken range
-		int16_t maxfirst = 1 + (scroll_rows - 6) * COLUMNS;
+		int16_t maxfirst = 1 + (scroll_rows - ROWS) * COLUMNS;
 
 		while (slotrange[tab].first > maxfirst)
 		{
@@ -306,8 +303,8 @@ namespace ms
 			slotrange[tab].second -= COLUMNS;
 		}
 
-		slider.setrows(slotrange[tab].first / COLUMNS, 6, scroll_rows);
-		slider.setenabled(scroll_rows > 6);
+		slider.setrows(slotrange[tab].first / COLUMNS, ROWS, scroll_rows);
+		slider.setenabled(scroll_rows > ROWS);
 	}
 
 	Button::State UIItemInventory::button_pressed(uint16_t buttonid)
@@ -348,48 +345,30 @@ namespace ms
 				break;
 			}
 			case Buttons::BT_GATHER:
-			case Buttons::BT_GATHER_SM:
 			{
 				GatherItemsPacket(tab).dispatch();
 				break;
 			}
 			case Buttons::BT_SORT:
-			case Buttons::BT_SORT_SM:
 			{
 				SortItemsPacket(tab).dispatch();
 				break;
 			}
 			case Buttons::BT_FULL:
-			case Buttons::BT_FULL_SM:
 			{
 				set_full(true);
 
 				return Button::State::NORMAL;
 			}
 			case Buttons::BT_SMALL:
-			case Buttons::BT_SMALL_SM:
 			{
 				set_full(false);
 
 				return Button::State::NORMAL;
 			}
 			case Buttons::BT_COIN:
-			case Buttons::BT_COIN_SM:
-			case Buttons::BT_POINT:
-			case Buttons::BT_POINT_SM:
-			case Buttons::BT_POT:
-			case Buttons::BT_POT_SM:
-			case Buttons::BT_UPGRADE:
-			case Buttons::BT_UPGRADE_SM:
-			case Buttons::BT_APPRAISE:
-			case Buttons::BT_APPRAISE_SM:
-			case Buttons::BT_EXTRACT:
-			case Buttons::BT_EXTRACT_SM:
-			case Buttons::BT_DISASSEMBLE:
-			case Buttons::BT_DISASSEMBLE_SM:
-			case Buttons::BT_TOAD:
-			case Buttons::BT_TOAD_SM:
 			{
+				// Meso drop has no packet in this client yet
 				return Button::State::NORMAL;
 			}
 			case Buttons::BT_CASHSHOP:
@@ -536,9 +515,8 @@ namespace ms
 
 							// Regular / Super / Triple megaphone (5070/5071/
 							// 5072/5077) — all share the Megaphone compose
-							// window from UIWindow2.img/Megaphone. Sub-type
-							// 7 reveals the 2 extra text rows; sub-type 2
-							// swaps the bg to backgrnd_super.
+							// window. Sub-type 7 reveals the 2 extra text rows;
+							// sub-type 2 swaps the bg to backgrnd_super.
 							if (subtype == 0 || subtype == 1 || subtype == 2 || subtype == 7)
 							{
 								UI::get().remove(UIElement::Type::MEGAPHONE);
@@ -549,8 +527,7 @@ namespace ms
 							}
 
 							// Item Megaphone (5076xxx) — opens the dedicated
-							// UIItemMegaphone window (UIWindow2.img/
-							// ItemMegaphone/backgrnd 236x182).
+							// UIItemMegaphone window.
 							if (subtype == 6)
 							{
 								UI::get().remove(UIElement::Type::ITEMMEGAPHONE);
@@ -689,28 +666,29 @@ namespace ms
 			{
 				clear_tooltip();
 
-				InventoryType::Id newtab;
+				// Cycle in the v83 strip order: Equip, Use, Set-up, Etc, Cash
+				InventoryType::Id nexttab;
 
 				switch (tab)
 				{
 					case InventoryType::Id::EQUIP:
-						newtab = InventoryType::Id::USE;
+						nexttab = InventoryType::Id::USE;
 						break;
 					case InventoryType::Id::USE:
-						newtab = InventoryType::Id::ETC;
-						break;
-					case InventoryType::Id::ETC:
-						newtab = InventoryType::Id::SETUP;
+						nexttab = InventoryType::Id::SETUP;
 						break;
 					case InventoryType::Id::SETUP:
-						newtab = InventoryType::Id::CASH;
+						nexttab = InventoryType::Id::ETC;
 						break;
-					case InventoryType::Id::CASH:
-						newtab = InventoryType::Id::EQUIP;
+					case InventoryType::Id::ETC:
+						nexttab = InventoryType::Id::CASH;
+						break;
+					default:
+						nexttab = InventoryType::Id::EQUIP;
 						break;
 				}
 
-				button_pressed(button_by_tab(newtab));
+				button_pressed(button_by_tab(nexttab));
 			}
 		}
 	}
@@ -788,42 +766,12 @@ namespace ms
 
 	void UIItemInventory::set_sort(bool enabled)
 	{
+		// v83 has a single Gather/Sort pair that shares one spot: Gather is
+		// offered until the server enables sorting for the tab
 		sort_enabled = enabled;
 
-		if (full_enabled)
-		{
-			if (sort_enabled)
-			{
-				buttons[Buttons::BT_SORT]->set_active(false);
-				buttons[Buttons::BT_SORT_SM]->set_active(true);
-				buttons[Buttons::BT_GATHER]->set_active(false);
-				buttons[Buttons::BT_GATHER_SM]->set_active(false);
-			}
-			else
-			{
-				buttons[Buttons::BT_SORT]->set_active(false);
-				buttons[Buttons::BT_SORT_SM]->set_active(false);
-				buttons[Buttons::BT_GATHER]->set_active(false);
-				buttons[Buttons::BT_GATHER_SM]->set_active(true);
-			}
-		}
-		else
-		{
-			if (sort_enabled)
-			{
-				buttons[Buttons::BT_SORT]->set_active(true);
-				buttons[Buttons::BT_SORT_SM]->set_active(false);
-				buttons[Buttons::BT_GATHER]->set_active(false);
-				buttons[Buttons::BT_GATHER_SM]->set_active(false);
-			}
-			else
-			{
-				buttons[Buttons::BT_SORT]->set_active(false);
-				buttons[Buttons::BT_SORT_SM]->set_active(false);
-				buttons[Buttons::BT_GATHER]->set_active(true);
-				buttons[Buttons::BT_GATHER_SM]->set_active(false);
-			}
-		}
+		buttons[Buttons::BT_SORT]->set_active(sort_enabled);
+		buttons[Buttons::BT_GATHER]->set_active(!sort_enabled);
 	}
 
 	void UIItemInventory::change_tab(InventoryType::Id type)
@@ -888,12 +836,12 @@ namespace ms
 
 	bool UIItemInventory::is_not_visible(int16_t slot) const
 	{
+		if (full_enabled)
+			return slot < 1 || slot > MAXFULLSLOTS;
+
 		auto range = slotrange.at(tab);
 
-		if (full_enabled)
-			return slot < 1 || slot > 24;
-		else
-			return slot < range.first || slot > range.second;
+		return slot < range.first || slot > range.second;
 	}
 
 	bool UIItemInventory::can_wear_equip(int16_t slot) const
@@ -988,55 +936,73 @@ namespace ms
 
 	int16_t UIItemInventory::slot_by_position(Point<int16_t> cursorpos) const
 	{
-		int16_t xoff = cursorpos.x() - 11;
-		int16_t yoff = cursorpos.y() - 51;
+		int16_t xoff = cursorpos.x() - (full_enabled ? FULL_SLOT_X : SLOT_X);
+		int16_t yoff = cursorpos.y() - SLOT_Y;
 
-		if (xoff < 1 || xoff > 143 || yoff < 1)
+		if (xoff < 0 || yoff < 0 || yoff >= ROWS * SLOT_PITCH_Y)
 			return 0;
 
-		int16_t slot = (full_enabled ? 1 : slotrange.at(tab).first) + (xoff / ICON_WIDTH) + COLUMNS * (yoff / ICON_HEIGHT);
+		int16_t page = 0;
+
+		if (full_enabled)
+		{
+			// The expanded view lays four 24-slot blocks side by side
+			page = xoff / FULL_PAGE_PITCH;
+			xoff = xoff % FULL_PAGE_PITCH;
+
+			if (page >= FULL_PAGES)
+				return 0;
+		}
+
+		if (xoff >= COLUMNS * SLOT_PITCH_X)
+			return 0;
+
+		// The gutters between cells belong to no slot
+		if (xoff % SLOT_PITCH_X >= SLOT_SIZE || yoff % SLOT_PITCH_Y >= SLOT_SIZE)
+			return 0;
+
+		int16_t col = xoff / SLOT_PITCH_X;
+		int16_t row = yoff / SLOT_PITCH_Y;
+		int16_t first = full_enabled ? 1 + page * MAXSLOTS : slotrange.at(tab).first;
+		int16_t slot = first + row * COLUMNS + col;
 
 		return is_visible(slot) ? slot : 0;
 	}
 
 	Point<int16_t> UIItemInventory::get_slotpos(int16_t slot) const
 	{
+		if (full_enabled)
+			return get_full_slotpos(slot);
+
 		int16_t absslot = slot - slotrange.at(tab).first;
 
 		return Point<int16_t>(
-			10 + (absslot % COLUMNS) * ICON_WIDTH,
-			51 + (absslot / COLUMNS) * ICON_HEIGHT
+			SLOT_X + (absslot % COLUMNS) * SLOT_PITCH_X,
+			SLOT_Y + (absslot / COLUMNS) * SLOT_PITCH_Y
 			);
 	}
 
 	Point<int16_t> UIItemInventory::get_full_slotpos(int16_t slot) const
 	{
 		int16_t absslot = slot - 1;
-		div_t div = std::div(absslot, MAXSLOTS);
-		int16_t new_slot = absslot - (div.quot * MAXSLOTS);
-		int16_t adj_x = div.quot * COLUMNS * ICON_WIDTH;
+		int16_t page = absslot / MAXSLOTS;
+		int16_t inpage = absslot % MAXSLOTS;
 
 		return Point<int16_t>(
-			10 + adj_x + (new_slot % COLUMNS) * ICON_WIDTH,
-			51 + (new_slot / COLUMNS) * ICON_HEIGHT
+			FULL_SLOT_X + page * FULL_PAGE_PITCH + (inpage % COLUMNS) * SLOT_PITCH_X,
+			SLOT_Y + (inpage / COLUMNS) * SLOT_PITCH_Y
 			);
 	}
 
 	Point<int16_t> UIItemInventory::get_tabpos(InventoryType::Id tb) const
 	{
-		int8_t fixed_tab = tb;
+		// InventoryType EQUIP..CASH (1..5) map straight onto strip cells 0..4
+		int16_t index = tb - InventoryType::Id::EQUIP;
 
-		switch (tb)
-		{
-			case InventoryType::Id::ETC:
-				fixed_tab = 3;
-				break;
-			case InventoryType::Id::SETUP:
-				fixed_tab = 4;
-				break;
-		}
+		if (index < 0 || index >= NUM_TABS)
+			index = 0;
 
-		return Point<int16_t>(10 + ((fixed_tab - 1) * 31), 29);
+		return Point<int16_t>(TAB_X + TAB_PITCH * index, TAB_Y);
 	}
 
 	uint16_t UIItemInventory::button_by_tab(InventoryType::Id tb) const
@@ -1070,49 +1036,21 @@ namespace ms
 	{
 		full_enabled = enabled;
 
-		if (full_enabled)
-		{
-			dimension = bg_full_dimensions;
-
-			buttons[Buttons::BT_FULL]->set_active(false);
-			buttons[Buttons::BT_FULL_SM]->set_active(false);
-			buttons[Buttons::BT_SMALL]->set_active(false);
-			buttons[Buttons::BT_SMALL_SM]->set_active(true);
-		}
-		else
-		{
-			dimension = bg_dimensions;
-
-			buttons[Buttons::BT_FULL]->set_active(true);
-			buttons[Buttons::BT_FULL_SM]->set_active(false);
-			buttons[Buttons::BT_SMALL]->set_active(false);
-			buttons[Buttons::BT_SMALL_SM]->set_active(false);
-		}
-
+		dimension = full_enabled ? bg_full_dimensions : bg_dimensions;
 		dragarea = Point<int16_t>(dimension.x(), 20);
 
-		int16_t adj_x = full_enabled ? 20 : 22;
-		buttons[Buttons::BT_CLOSE]->set_position(Point<int16_t>(dimension.x() - adj_x, 6));
+		// Title-bar buttons hug the right edge of whichever background is
+		// shown: BtClose (12x12, origin 0,0), then the expand/shrink and
+		// gather/sort pairs (origin 6,6, so placed by centre)
+		buttons[Buttons::BT_CLOSE]->set_position(Point<int16_t>(dimension.x() - CLOSE_RIGHT_INSET, 6));
+		buttons[Buttons::BT_FULL]->set_position(Point<int16_t>(dimension.x() - FULL_RIGHT_INSET, TITLE_BUTTON_Y));
+		buttons[Buttons::BT_SMALL]->set_position(Point<int16_t>(dimension.x() - FULL_RIGHT_INSET, TITLE_BUTTON_Y));
+		buttons[Buttons::BT_GATHER]->set_position(Point<int16_t>(dimension.x() - SORT_RIGHT_INSET, TITLE_BUTTON_Y));
+		buttons[Buttons::BT_SORT]->set_position(Point<int16_t>(dimension.x() - SORT_RIGHT_INSET, TITLE_BUTTON_Y));
 
-		buttons[Buttons::BT_COIN]->set_active(!enabled);
-		buttons[Buttons::BT_POINT]->set_active(!enabled);
-		buttons[Buttons::BT_POT]->set_active(!enabled);
-		buttons[Buttons::BT_UPGRADE]->set_active(!enabled);
-		buttons[Buttons::BT_APPRAISE]->set_active(!enabled);
-		buttons[Buttons::BT_EXTRACT]->set_active(!enabled);
-		buttons[Buttons::BT_DISASSEMBLE]->set_active(!enabled);
-		buttons[Buttons::BT_TOAD]->set_active(!enabled);
-		buttons[Buttons::BT_CASHSHOP]->set_active(!enabled);
-
-		buttons[Buttons::BT_COIN_SM]->set_active(enabled);
-		buttons[Buttons::BT_POINT_SM]->set_active(enabled);
-		buttons[Buttons::BT_POT_SM]->set_active(enabled);
-		buttons[Buttons::BT_UPGRADE_SM]->set_active(enabled);
-		buttons[Buttons::BT_APPRAISE_SM]->set_active(enabled);
-		buttons[Buttons::BT_EXTRACT_SM]->set_active(enabled);
-		buttons[Buttons::BT_DISASSEMBLE_SM]->set_active(enabled);
-		buttons[Buttons::BT_TOAD_SM]->set_active(enabled);
-		buttons[Buttons::BT_CASHSHOP]->set_active(enabled);
+		buttons[Buttons::BT_FULL]->set_active(!full_enabled);
+		buttons[Buttons::BT_SMALL]->set_active(full_enabled);
+		buttons[Buttons::BT_CASHSHOP]->set_active(full_enabled);
 
 		set_sort(sort_enabled);
 		load_icons();

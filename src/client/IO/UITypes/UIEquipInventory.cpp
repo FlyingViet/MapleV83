@@ -33,102 +33,133 @@
 
 namespace ms
 {
-	UIEquipInventory::UIEquipInventory(const Inventory& invent) : UIDragElement<PosEQINV>(Point<int16_t>(184, 20)), inventory(invent), tab(Buttons::BT_TAB1), hasPendantSlot(false), hasPocketSlot(false)
+	UIEquipInventory::UIEquipInventory(const Inventory& invent) : UIDragElement<PosEQINV>(Point<int16_t>(175, 20)), inventory(invent), pet_shown(false)
 	{
-		// UIWindow2 doll cells: cols x=10,43,76,109,142; rows y=27..225 (step 33)
-		iconpositions[EquipSlot::Id::BOOK]     = Point<int16_t>(10, 27);
-		iconpositions[EquipSlot::Id::HAT]      = Point<int16_t>(43, 27);
-		iconpositions[EquipSlot::Id::BADGE]    = Point<int16_t>(76, 27);
-		iconpositions[EquipSlot::Id::ANDROID]  = Point<int16_t>(109, 27);
-		iconpositions[EquipSlot::Id::HEART]    = Point<int16_t>(142, 27);
+		// Board cells (column, row) as labelled on the v83 backgrnd bitmap:
+		//
+		//   row 0:        CAP
+		//   row 1: MEDAL  FOREHEAD            RING     RING
+		//   row 2:                  EYE ACC   EAR ACC
+		//   row 3: MANTLE CLOTHES   PENDANT   WEAPON   SHIELD
+		//   row 4: GLOVES PANTS     BELT      RING     RING
+		//   row 5:                  SHOES              PET MP
+		//   row 6: TAMING SADDLE    MOB EQUIP PET ACC  PET HP
+		//
+		// The PET MP / PET HP / PET ACC / MOB EQUIP cells have no EquipSlot
+		// id in this client and stay unmapped (0,0 = skipped when drawing).
+		auto cell = [](int16_t col, int16_t row)
+		{
+			return Point<int16_t>(GRID_X + col * GRID_PITCH, GRID_Y + row * GRID_PITCH);
+		};
 
-		iconpositions[EquipSlot::Id::MEDAL]    = Point<int16_t>(10, 60);
-		iconpositions[EquipSlot::Id::FACE]     = Point<int16_t>(43, 60);
-		iconpositions[EquipSlot::Id::RING1]    = Point<int16_t>(109, 60);
-		iconpositions[EquipSlot::Id::RING2]    = Point<int16_t>(142, 60);
+		iconpositions[EquipSlot::Id::HAT]      = cell(1, 0);
 
-		iconpositions[EquipSlot::Id::EYEACC]   = Point<int16_t>(43, 93);
-		iconpositions[EquipSlot::Id::EARACC]   = Point<int16_t>(109, 93);
-		iconpositions[EquipSlot::Id::SHOULDER] = Point<int16_t>(142, 93);
+		iconpositions[EquipSlot::Id::MEDAL]    = cell(0, 1);
+		iconpositions[EquipSlot::Id::FACE]     = cell(1, 1);
+		iconpositions[EquipSlot::Id::RING1]    = cell(3, 1);
+		iconpositions[EquipSlot::Id::RING2]    = cell(4, 1);
 
-		iconpositions[EquipSlot::Id::CAPE]     = Point<int16_t>(10, 126);
-		iconpositions[EquipSlot::Id::TOP]      = Point<int16_t>(43, 126);
-		iconpositions[EquipSlot::Id::PENDANT1] = Point<int16_t>(76, 126);
-		iconpositions[EquipSlot::Id::WEAPON]   = Point<int16_t>(109, 126);
-		iconpositions[EquipSlot::Id::SHIELD]   = Point<int16_t>(142, 126);
+		iconpositions[EquipSlot::Id::EYEACC]   = cell(2, 2);
+		iconpositions[EquipSlot::Id::EARACC]   = cell(3, 2);
 
-		iconpositions[EquipSlot::Id::GLOVES]   = Point<int16_t>(10, 159);
-		iconpositions[EquipSlot::Id::BOTTOM]   = Point<int16_t>(43, 159);
-		iconpositions[EquipSlot::Id::BELT]     = Point<int16_t>(76, 159);
-		iconpositions[EquipSlot::Id::RING3]    = Point<int16_t>(109, 159);
-		iconpositions[EquipSlot::Id::RING4]    = Point<int16_t>(142, 159);
+		iconpositions[EquipSlot::Id::CAPE]     = cell(0, 3);
+		iconpositions[EquipSlot::Id::TOP]      = cell(1, 3);
+		iconpositions[EquipSlot::Id::PENDANT1] = cell(2, 3);
+		iconpositions[EquipSlot::Id::WEAPON]   = cell(3, 3);
+		iconpositions[EquipSlot::Id::SHIELD]   = cell(4, 3);
 
-		iconpositions[EquipSlot::Id::SHOES]    = Point<int16_t>(76, 192);
+		iconpositions[EquipSlot::Id::GLOVES]   = cell(0, 4);
+		iconpositions[EquipSlot::Id::BOTTOM]   = cell(1, 4);
+		iconpositions[EquipSlot::Id::BELT]     = cell(2, 4);
+		iconpositions[EquipSlot::Id::RING3]    = cell(3, 4);
+		iconpositions[EquipSlot::Id::RING4]    = cell(4, 4);
 
-		iconpositions[EquipSlot::Id::TAMEDMOB] = Point<int16_t>(10, 225);
-		iconpositions[EquipSlot::Id::SADDLE]   = Point<int16_t>(43, 225);
+		iconpositions[EquipSlot::Id::SHOES]    = cell(2, 5);
 
-		tab_source[Buttons::BT_TAB0] = "Equip";
-		tab_source[Buttons::BT_TAB1] = "Cash";
-		tab_source[Buttons::BT_TAB2] = "Pet";
-		tab_source[Buttons::BT_TAB3] = "Android";
+		iconpositions[EquipSlot::Id::TAMEDMOB] = cell(0, 6);
+		iconpositions[EquipSlot::Id::SADDLE]   = cell(1, 6);
 
-		nl::node close = nl::nx::ui["Basic.img"]["BtClose3"];
-		nl::node character = nl::nx::ui["UIWindow2.img"]["Equip"]["character"];
+		// v83 ships the equip window in UIWindow.img/Equip (no UIWindow2.img)
+		nl::node Equip = nl::nx::ui["UIWindow.img"]["Equip"];
 
-		nl::node backgrnd = character["backgrnd"];
+		nl::node backgrnd = Equip["backgrnd"];
 		Point<int16_t> bg_dimensions = Texture(backgrnd).get_dimensions();
 
 		sprites.emplace_back(backgrnd);
-		sprites.emplace_back(character["backgrnd2"]);
-		sprites.emplace_back(character["backgrnd3"]);
 
-		totem_dimensions = Point<int16_t>(0, 0);
-		totem_adj = Point<int16_t>(0, 0);
+		pet_panel = Equip["pet"];
 
-		disabled = character["disabled"];
+		// v83 Basic.img only has BtClose (12x12) and BtClose2 (14x14)
+		nl::node close = nl::nx::ui["Basic.img"]["BtClose"];
+		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(close, Point<int16_t>(bg_dimensions.x() - 18, 6));
 
-		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(close, Point<int16_t>(bg_dimensions.x() - 19, 5));
+		// Bottom bar (y=277..300): "SLOT+" (32x11, origin 0,0) at the left,
+		// "PET EQUIP >" (54x18, origin 0,0) at the right
+		buttons[Buttons::BT_SLOTPLUS] = std::make_unique<MapleButton>(Equip["BtCashshop"], Point<int16_t>(8, 283));
+		buttons[Buttons::BT_PETSHOW] = std::make_unique<MapleButton>(Equip["BtPetEquipShow"], Point<int16_t>(bg_dimensions.x() - 60, 280));
 
-		tab = Buttons::BT_TAB0;
+		// "<" (17x16, origin 8,8 - placed by centre) on the pet panel's own
+		// bottom bar (panel y=150..181), 14px in from its left edge
+		Point<int16_t> pet_offset = Point<int16_t>(bg_dimensions.x(), 0);
+		buttons[Buttons::BT_PETHIDE] = std::make_unique<MapleButton>(Equip["BtPetEquipHide"], pet_offset + Point<int16_t>(22, 168));
 
 		dimension = bg_dimensions;
 		dragarea = Point<int16_t>(bg_dimensions.x(), 20);
 
+		show_pet_panel(false);
 		load_icons();
 	}
 
 	void UIEquipInventory::draw(float alpha) const
 	{
-		UIElement::draw(alpha);
+		UIElement::draw_sprites(alpha);
+
+		if (pet_shown)
+			pet_panel.draw(position + pet_panel_offset());
 
 		for (auto iter : icons)
 		{
-			// Unmapped slots (emblem/pocket/etc — not on this doll) default
-			// to (0,0); skip them so no icon stacks in the corner.
+			// Slots without a cell on this board (pocket, emblem, ...) stay
+			// at (0,0); skip them so no icon stacks in the corner.
 			Point<int16_t> ipos = iconpositions[iter.first];
 
 			if (iter.second && (ipos.x() != 0 || ipos.y() != 0))
-				iter.second->draw(position + ipos + Point<int16_t>(1, 1));
+				iter.second->draw(position + ipos);
 		}
+
+		// The hide button lies on the pet panel, so buttons go last
+		UIElement::draw_buttons(alpha);
 	}
 
 	Button::State UIEquipInventory::button_pressed(uint16_t id)
 	{
 		switch (id)
 		{
-		case Buttons::BT_CLOSE:
-			toggle_active();
-			break;
-		case Buttons::BT_TAB0:
-		case Buttons::BT_TAB1:
-		case Buttons::BT_TAB2:
-		case Buttons::BT_TAB3:
-			change_tab(id);
-
-			return Button::State::IDENTITY;
-		default:
-			break;
+			case Buttons::BT_CLOSE:
+			{
+				toggle_active();
+				break;
+			}
+			case Buttons::BT_SLOTPLUS:
+			{
+				// Equip slot expansion is bought in the Cash Shop
+				OutPacket(OutPacket::Opcode::ENTER_CASHSHOP).dispatch();
+				break;
+			}
+			case Buttons::BT_PETSHOW:
+			{
+				show_pet_panel(true);
+				break;
+			}
+			case Buttons::BT_PETHIDE:
+			{
+				show_pet_panel(false);
+				break;
+			}
+			default:
+			{
+				break;
+			}
 		}
 
 		return Button::State::NORMAL;
@@ -241,10 +272,18 @@ namespace ms
 	{
 		Rectangle<int16_t> bounds = Rectangle<int16_t>(position, position + dimension);
 
-		Rectangle<int16_t> totem_bounds = Rectangle<int16_t>(position, position + totem_dimensions);
-		totem_bounds.shift(totem_adj);
+		if (bounds.contains(cursorpos))
+			return true;
 
-		return bounds.contains(cursorpos) || totem_bounds.contains(cursorpos);
+		if (pet_shown && pet_panel.is_valid())
+		{
+			Point<int16_t> pet_pos = position + pet_panel_offset();
+			Rectangle<int16_t> pet_bounds = Rectangle<int16_t>(pet_pos, pet_pos + pet_panel.get_dimensions());
+
+			return pet_bounds.contains(cursorpos);
+		}
+
+		return false;
 	}
 
 	bool UIEquipInventory::send_icon(const Icon& icon, Point<int16_t> cursorpos)
@@ -260,6 +299,9 @@ namespace ms
 		clear_tooltip();
 
 		UIElement::toggle_active();
+
+		if (!active)
+			show_pet_panel(false);
 	}
 
 	void UIEquipInventory::modify(int16_t pos, int8_t mode, int16_t arg)
@@ -269,14 +311,14 @@ namespace ms
 
 		switch (mode)
 		{
-		case 0:
-		case 3:
-			update_slot(eqpos);
-			break;
-		case 2:
-			update_slot(eqpos);
-			update_slot(eqarg);
-			break;
+			case 0:
+			case 3:
+				update_slot(eqpos);
+				break;
+			case 2:
+				update_slot(eqpos);
+				update_slot(eqarg);
+				break;
 		}
 	}
 
@@ -292,14 +334,15 @@ namespace ms
 
 	EquipSlot::Id UIEquipInventory::slot_by_position(Point<int16_t> cursorpos) const
 	{
-		if (tab != Buttons::BT_TAB0)
-			return EquipSlot::Id::NONE;
-
 		for (auto iter : iconpositions)
 		{
+			// Unmapped slots sit at (0,0); never resolve them
+			if (iter.second.x() == 0 && iter.second.y() == 0)
+				continue;
+
 			Rectangle<int16_t> iconrect = Rectangle<int16_t>(
 				position + iter.second,
-				position + iter.second + Point<int16_t>(32, 32)
+				position + iter.second + Point<int16_t>(CELL_SIZE, CELL_SIZE)
 				);
 
 			if (iconrect.contains(cursorpos))
@@ -309,11 +352,18 @@ namespace ms
 		return EquipSlot::Id::NONE;
 	}
 
-	void UIEquipInventory::change_tab(uint16_t tabid)
+	void UIEquipInventory::show_pet_panel(bool show)
 	{
-		// Single-page v83 window: tab buttons are never created, so only
-		// remember the id (guards the old multi-tab code's null derefs).
-		tab = tabid;
+		pet_shown = show;
+
+		buttons[Buttons::BT_PETSHOW]->set_active(!pet_shown);
+		buttons[Buttons::BT_PETHIDE]->set_active(pet_shown);
+	}
+
+	Point<int16_t> UIEquipInventory::pet_panel_offset() const
+	{
+		// Docked flush to the right edge, top aligned
+		return Point<int16_t>(dimension.x(), 0);
 	}
 
 	UIEquipInventory::EquipIcon::EquipIcon(int16_t s)

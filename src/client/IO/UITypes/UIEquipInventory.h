@@ -21,7 +21,7 @@
 
 namespace ms
 {
-	// The Equip inventory
+	// The Equip inventory (v83 UIWindow.img/Equip)
 	class UIEquipInventory : public UIDragElement<PosEQINV>
 	{
 	public:
@@ -54,7 +54,10 @@ namespace ms
 		void load_icons();
 		void update_slot(EquipSlot::Id slot);
 		EquipSlot::Id slot_by_position(Point<int16_t> position) const;
-		void change_tab(uint16_t tabid);
+		// Show or hide the pet equipment panel docked to the right edge
+		void show_pet_panel(bool show);
+		// Top-left of the pet panel relative to the window
+		Point<int16_t> pet_panel_offset() const;
 
 		class EquipIcon : public Icon::Type
 		{
@@ -72,20 +75,21 @@ namespace ms
 			int16_t source;
 		};
 
+		// v83 UIWindow.img/Equip/backgrnd (175x304) is a 5 column x 7 row
+		// board of 31px cells on a 33px pitch, first cell at (6,36); the
+		// labelled cells were read off the bitmap. The bottom bar
+		// (y=277..300) holds SLOT+ and PET EQUIP.
+		static constexpr int16_t GRID_X = 6;
+		static constexpr int16_t GRID_Y = 36;
+		static constexpr int16_t GRID_PITCH = 33;
+		static constexpr int16_t CELL_SIZE = 32;
+
 		enum Buttons : uint16_t
 		{
-			BT_TAB0,
-			BT_TAB1,
-			BT_TAB2,
-			BT_TAB3,
-			BT_TABE,
 			BT_CLOSE,
-			BT_SLOT,
-			BT_EFFECT,
-			BT_SALON,
-			BT_CONSUMESETTING,
-			BT_EXCEPTION,
-			BT_SHOP
+			BT_SLOTPLUS,
+			BT_PETSHOW,
+			BT_PETHIDE
 		};
 
 		const Inventory& inventory;
@@ -93,18 +97,10 @@ namespace ms
 		EnumMap<EquipSlot::Id, Point<int16_t>> iconpositions;
 		EnumMap<EquipSlot::Id, std::unique_ptr<Icon>> icons;
 
-		uint16_t tab;
-		std::string tab_source[Buttons::BT_TABE];
-		Texture tabbar;
-		Texture background[Buttons::BT_TABE];
-		Texture disabled;
-		Texture disabled2;
-		std::vector<Texture> Slots[Buttons::BT_TABE];
-
-		Point<int16_t> totem_dimensions;
-		Point<int16_t> totem_adj;
-
-		bool hasPendantSlot;
-		bool hasPocketSlot;
+		// UIWindow.img/Equip/pet (177x181): pet equipment board shown to the
+		// right of the window. v83 EquipSlot has no pet slot ids, so the
+		// panel is display-only.
+		Texture pet_panel;
+		bool pet_shown;
 	};
 }

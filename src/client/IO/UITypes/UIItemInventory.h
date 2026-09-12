@@ -23,7 +23,7 @@
 
 namespace ms
 {
-	// The Item inventory
+	// The Item inventory (v83 UIWindow.img/Item)
 	class UIItemInventory : public UIDragElement<PosINV>
 	{
 	public:
@@ -64,8 +64,11 @@ namespace ms
 		bool can_wear_equip(int16_t slot) const;
 		int16_t slot_by_position(Point<int16_t> position) const;
 		uint16_t button_by_tab(InventoryType::Id tab) const;
+		// Top-left of a slot cell in the current view (regular or expanded)
 		Point<int16_t> get_slotpos(int16_t slot) const;
+		// Top-left of a slot cell on the expanded (FullBackgrnd) view
 		Point<int16_t> get_full_slotpos(int16_t slot) const;
+		// Top-left of a tab cell on the tab strip
 		Point<int16_t> get_tabpos(InventoryType::Id tab) const;
 		Icon* get_icon(int16_t slot);
 		void set_full(bool enabled);
@@ -101,45 +104,53 @@ namespace ms
 			const UIItemInventory& parent;
 		};
 
-		static constexpr uint16_t ROWS = 8;
-		static constexpr uint16_t COLUMNS = 4;
-		static constexpr uint16_t MAXSLOTS = ROWS * COLUMNS;
-		static constexpr uint16_t MAXFULLSLOTS = COLUMNS * MAXSLOTS;
-		static constexpr uint16_t ICON_WIDTH = 36;
-		static constexpr uint16_t ICON_HEIGHT = 35;
+		// v83 UIWindow.img/Item layout. All values were measured on the
+		// backgrnd (175x289) and FullBackgrnd (603x289) bitmaps: the slot
+		// cells are 31px squares on a 36px horizontal / 34px vertical pitch,
+		// the tab strip is a 165px bar at y=24..41 split into five 33px cells
+		// (New/Tab0 highlight frames are 34x18 - one cell), and the meso box
+		// is the white field at x=25..137, y=267..280 on both backgrounds.
+		static constexpr int16_t COLUMNS = 4;
+		static constexpr int16_t ROWS = 6;
+		static constexpr int16_t MAXSLOTS = ROWS * COLUMNS;
+		static constexpr int16_t FULL_PAGES = 4;
+		static constexpr int16_t MAXFULLSLOTS = FULL_PAGES * MAXSLOTS;
+		static constexpr int16_t SLOT_X = 9;
+		static constexpr int16_t SLOT_Y = 51;
+		static constexpr int16_t FULL_SLOT_X = 8;
+		static constexpr int16_t SLOT_PITCH_X = 36;
+		static constexpr int16_t SLOT_PITCH_Y = 34;
+		static constexpr int16_t SLOT_SIZE = 32;
+		static constexpr int16_t FULL_PAGE_PITCH = 149;
+		static constexpr int16_t NUM_TABS = 5;
+		static constexpr int16_t TAB_X = 5;
+		static constexpr int16_t TAB_Y = 24;
+		static constexpr int16_t TAB_PITCH = 33;
+		static constexpr int16_t TAB_HEIGHT = 18;
+		// Small (12x12, origin 6,6) title-bar buttons are placed by centre,
+		// measured back from the window's right edge next to BtClose
+		static constexpr int16_t TITLE_BUTTON_Y = 12;
+		static constexpr int16_t CLOSE_RIGHT_INSET = 18;
+		static constexpr int16_t FULL_RIGHT_INSET = 26;
+		static constexpr int16_t SORT_RIGHT_INSET = 40;
+		// Scrollbar runs down the light strip right of the slot block
+		static constexpr int16_t SLIDER_X = 152;
+		static constexpr int16_t SLIDER_TOP = 51;
+		static constexpr int16_t SLIDER_BOTTOM = 240;
 
 		enum Buttons
 		{
 			BT_CLOSE,
 			BT_TAB_EQUIP,
 			BT_TAB_USE,
-			BT_TAB_ETC,
 			BT_TAB_SETUP,
+			BT_TAB_ETC,
 			BT_TAB_CASH,
 			BT_COIN,
-			BT_POINT,
 			BT_GATHER,
 			BT_SORT,
 			BT_FULL,
 			BT_SMALL,
-			BT_POT,
-			BT_UPGRADE,
-			BT_APPRAISE,
-			BT_EXTRACT,
-			BT_DISASSEMBLE,
-			BT_TOAD,
-			BT_COIN_SM,
-			BT_POINT_SM,
-			BT_GATHER_SM,
-			BT_SORT_SM,
-			BT_FULL_SM,
-			BT_SMALL_SM,
-			BT_POT_SM,
-			BT_UPGRADE_SM,
-			BT_APPRAISE_SM,
-			BT_EXTRACT_SM,
-			BT_DISASSEMBLE_SM,
-			BT_TOAD_SM,
 			BT_CASHSHOP
 		};
 
@@ -147,10 +158,10 @@ namespace ms
 
 		Animation newitemslot;
 		Animation newitemtab;
+		Animation newitemtab_active;
 		Texture projectile;
 		Texture disabled;
 		Text mesolabel;
-		Text maplepointslabel;
 		Slider slider;
 
 		std::map<int16_t, std::unique_ptr<Icon>> icons;
@@ -165,11 +176,7 @@ namespace ms
 		bool sort_enabled;
 		bool full_enabled;
 		Texture backgrnd;
-		Texture backgrnd2;
-		Texture backgrnd3;
 		Texture full_backgrnd;
-		Texture full_backgrnd2;
-		Texture full_backgrnd3;
 		Point<int16_t> bg_dimensions;
 		Point<int16_t> bg_full_dimensions;
 	};
