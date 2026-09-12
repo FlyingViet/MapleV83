@@ -27,9 +27,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
-    def translate_path(self, path):
+    def strip_prefix(self, path):
         if PATH_PREFIX and (path == PATH_PREFIX or path.startswith(PATH_PREFIX + "/")):
             path = path[len(PATH_PREFIX):] or "/"
+        return path
+
+    def translate_path(self, path):
+        path = self.strip_prefix(path)
+        # The page lives in web/; serve it at the site root so its relative URLs resolve.
+        if path.split("?", 1)[0] in ("", "/"):
+            path = "/web/index.html"
         return super().translate_path(path)
 
     def end_headers(self):
@@ -41,6 +48,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Serve a GET request."""
+        bare = self.strip_prefix(self.path).split("?", 1)[0]
+        if bare == "/web/index.html" or bare == "/web/" or bare == "/web":
+            # Deep links to the page itself go back to the root so relative URLs work.
+            self.send_response(302)
+            self.send_header("Location", (PATH_PREFIX or "") + "/")
+            self.end_headers()
+            return
+        if PATH_PREFIX and self.path.split("?", 1)[0] == PATH_PREFIX:
+            self.send_response(302)
+            self.send_header("Location", PATH_PREFIX + "/")
+            self.end_headers()
+            return
         range_header = self.headers.get("Range")
         if range_header:
             self.send_range_response(range_header)
