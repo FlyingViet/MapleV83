@@ -31,7 +31,6 @@
 #include "UIMessenger.h"
 #include "UIMonsterBattle.h"
 #include "UIMonsterLife.h"
-#include "UIStatusMessenger.h"
 #include "UIItemInventory.h"
 #include "UIJoypad.h"
 #include "UIKeyConfig.h"
@@ -49,14 +48,11 @@
 #include "UIQuit.h"
 #include "UISkillBook.h"
 #include "UIStatsInfo.h"
-#include "UIWorldMap.h"
-#include "UIGuild.h"
 #include "UIRanking.h"
 #include "UIMonsterBook.h"
-#include "UIChat.h"
-#include "UIFarmChat.h"
 #include "UIWhisper.h"
 
+#include "../../Audio/Audio.h"
 #include "../../Net/OutPacket.h"
 #include "../../Net/Session.h"
 #include "../../IO/Window.h"
@@ -76,27 +72,114 @@
 
 namespace ms
 {
+	// ======================================================================
+	// v83 layout. Every constant below is measured in pixels relative to
+	// the top-left of StatusBar.img/base/backgrnd (800x71); `position` is
+	// that top-left on screen (see UIStatusBar::bar_origin).
+	//
+	// base/backgrnd2 (570x71) paints, on top of the plain strip:
+	//   - the white chat input band, rows 7..28, x 0..565
+	//   - the dark "LV." panel, rows 36..69, x 0..207 (LV box x 33..75)
+	//   - the dark gauge panel, rows 36..69, x 209..562
+	// The right-hand 235 px (x 565..800) are the button column.
+	// ======================================================================
+
+	// backgrnd2 sits 1 px in from the bar's left edge so its rounded corner
+	// does not get clipped at the screen border on an 800-wide view.
+	static constexpr int16_t BG2_X = 1;
+
+	// gauge/bar + gauge/graduation (340x31): centred inside the 353 px wide
+	// gauge panel (x 209..562 -> 217), rows 38..69 so the label row
+	// (bitmap rows 0..12) sits on the panel's top edge.
+	static constexpr int16_t GAUGE_X = 217;
+	static constexpr int16_t GAUGE_Y = 38;
+	// Coloured fill rectangles inside gauge/bar (bitmap-local): the HP bar
+	// is red on x 2..106, MP blue on 110..214, EXP yellow on 223..337, all
+	// on rows 15..28. gauge/gray (1x16) is stretched over the unfilled
+	// remainder, starting one row above the fill so it also hides the
+	// bar's own inner highlight; graduation restores the frame on top.
+	static constexpr int16_t GAUGE_FILL_Y = 14;
+	static constexpr int16_t GAUGE_FILL_H = 16;
+	static constexpr int16_t HP_FILL_X = 2;
+	static constexpr int16_t HP_FILL_W = 105;
+	static constexpr int16_t MP_FILL_X = 110;
+	static constexpr int16_t MP_FILL_W = 105;
+	static constexpr int16_t EXP_FILL_X = 223;
+	static constexpr int16_t EXP_FILL_W = 115;
+	// hpFlash / mpFlash (109x18) frame the HP (bitmap x 0..108) and MP
+	// (x 108..216) bars, starting on bitmap row 13.
+	static constexpr int16_t HP_FLASH_X = 0;
+	static constexpr int16_t MP_FLASH_X = 108;
+	static constexpr int16_t FLASH_Y = 13;
+	// Numbers use the 5x7 StatusBar.img/number font and sit on the label
+	// row, right of the baked "HP" (ends x 17), "MP" (x 109..128) and
+	// "EXP" (x 221..245) captions; row 3 centres them on the 13 px captions.
+	static constexpr int16_t HP_NUM_X = 20;
+	static constexpr int16_t MP_NUM_X = 131;
+	static constexpr int16_t EXP_NUM_X = 248;
+	static constexpr int16_t NUM_Y = 3;
+
+	// Basic.img/LevelNo digits (11x13) centred on the LV box (x 33..75,
+	// rows 38..69).
+	static constexpr int16_t LEVEL_CX = 54;
+	static constexpr int16_t LEVEL_Y = 47;
+	static constexpr int16_t LEVEL_DIGIT_W = 11;
+	// Character name over job name inside the LV panel, right of the LV box.
+	static constexpr int16_t NAME_X = 80;
+	static constexpr int16_t NAME_Y = 37;
+	static constexpr int16_t JOB_Y = 51;
+
+	// Chat input band: BtWhisper (12x19) at the very left of the band.
+	static constexpr int16_t WHISPER_X = 3;
+	static constexpr int16_t BAND_Y = 8;
+
+	// Right column, top row (inside the input band, rows 8..27):
+	// base/box (42x19) right after the band ends at x 565, then the six
+	// 28x20 hot keys with a 2 px gap, ending flush with the big buttons.
+	static constexpr int16_t BOX_X = 572;
+	static constexpr int16_t BOX_Y = 8;
+	// BtClaim (20x19) fills the box's left slot (x 1..18 inside the box);
+	// iconMemo (14x11) is centred in the right slot (x 23..40).
+	static constexpr int16_t CLAIM_X = 572;
+	static constexpr int16_t MEMO_X = 597;
+	static constexpr int16_t MEMO_Y = 12;
+	static constexpr int16_t MEMO_SLOT_X = 595;
+	static constexpr int16_t MEMO_SLOT_W = 18;
+	static constexpr int16_t HOTKEY_X0 = 616;
+	static constexpr int16_t HOTKEY_Y = 8;
+	static constexpr int16_t HOTKEY_STEP = 30;
+	// Right column, bottom row: four 54x34 buttons (Shop, MTS, Menu,
+	// Shortcut) with a 2 px gap, rows 36..69, ending at x 794.
+	static constexpr int16_t BIG_X0 = 572;
+	static constexpr int16_t BIG_Y = 36;
+	static constexpr int16_t BIG_STEP = 56;
+	static constexpr int16_t BIG_W = 54;
+	static constexpr int16_t MENU_BTN_X = BIG_X0 + BIG_STEP * 2;
+
+	// Menu popup: text rows above BtMenu, right edge flush with the button,
+	// 2 px above the bar.
+	static constexpr int16_t MENU_W = 132;
+	static constexpr int16_t MENU_ROW_H = 16;
+	static constexpr int16_t MENU_PAD = 4;
+	static constexpr int16_t MENU_SEP_H = 5;
+	static constexpr int16_t MENU_GAP = 2;
+	// Index of the first "system" row (Channel / Keys / Options / ...), which
+	// gets a separator line above it.
+	static constexpr int16_t MENU_SYS_FIRST = 12;
+
 	// === Quickslot layout constants (used by draw() and the slot helpers) ===
-	// Panel: quickSlot bitmap is 145x93 with origin (-143, 143), so drawing at
-	// `position` places the panel top-left at (position.x + 143, position.y - 143).
-	static constexpr int16_t QS_PANEL_OFFSET_X = 143;
-	static constexpr int16_t QS_PANEL_OFFSET_Y = -143;
-	// Extra lift applied to the whole opened quickslot (panel + icons + labels).
-	// 0 = original position (the panel itself is fine where it is).
-	static constexpr int16_t QS_LIFT = 0;
-	// Upward shift for the quickslot arrow button in the OPEN state (BtClose).
-	static constexpr int16_t QS_OPEN_BTN_LIFT = 15;
-	// Vertical nudge (negative = up) for the cube icon and the key-name label.
-	static constexpr int16_t QS_ICON_NUDGE_Y  = -8;
-	static constexpr int16_t QS_LABEL_NUDGE_Y = -14;
-	// Cube grid, measured from the StatusBar2 panel: cubes start at x=8,41,74,107
-	// (step 33, ~28 wide) and y=16,49 (step 33, ~28 tall).
-	static constexpr int16_t QS_CELL_OFFSET_X = 8;
-	static constexpr int16_t QS_CELL_OFFSET_Y = 16;
+	// base/quickSlot (151x80) pops up above the bar, 1 px in from the bar's
+	// right edge, so it hangs over the QuickSlot toggle button.
+	static constexpr int16_t QS_PANEL_X = UIStatusBar::BAR_WIDTH - 151 - 1;
+	static constexpr int16_t QS_PANEL_Y = -80 - 1;
+	// Cube grid measured from the bitmap: white cubes at x=9,44,79,114
+	// (28 wide, step 35) and y=9,43 (25 tall, step 34).
+	static constexpr int16_t QS_CELL_OFFSET_X = 9;
+	static constexpr int16_t QS_CELL_OFFSET_Y = 9;
 	static constexpr int16_t QS_CELL_W   = 28;
-	static constexpr int16_t QS_CELL_H   = 28;
-	static constexpr int16_t QS_COL_STEP = 33;
-	static constexpr int16_t QS_ROW_STEP = 33;
+	static constexpr int16_t QS_CELL_H   = 25;
+	static constexpr int16_t QS_COL_STEP = 35;
+	static constexpr int16_t QS_ROW_STEP = 34;
 
 	// Short display name for a maple/DIK quickslot keycode (drawn on each cube).
 	static std::string qs_keyname(uint8_t code)
@@ -131,22 +214,29 @@ namespace ms
 		}
 	}
 
+	Point<int16_t> UIStatusBar::bar_origin()
+	{
+		int16_t vwidth = Constants::Constants::get().get_viewwidth();
+		int16_t vheight = Constants::Constants::get().get_viewheight();
+
+		int16_t left = vwidth > BAR_WIDTH
+			? static_cast<int16_t>((vwidth - BAR_WIDTH) / 2)
+			: 0;
+
+		return Point<int16_t>(left, static_cast<int16_t>(vheight - BAR_HEIGHT));
+	}
+
 	UIStatusBar::UIStatusBar(const CharStats& st) : stats(st)
 	{
-		int16_t VWIDTH = Constants::Constants::get().get_viewwidth();
-		int16_t VHEIGHT = Constants::Constants::get().get_viewheight();
-
-		position = Point<int16_t>(512, VHEIGHT);
-		dimension = Point<int16_t>(std::max<int16_t>(1366, VWIDTH), 84);
+		position = bar_origin();
+		dimension = Point<int16_t>(BAR_WIDTH, BAR_HEIGHT);
 
 		show_menu = false;
-		show_system = false;
 		show_quickslot = false;
-		// menu_bg and sys_bg are initialized after sub-panel buttons are created (sizes computed there)
-		chat_open = false;
 
-		nl::node mainbar = nl::nx::ui["StatusBar2.img"]["mainBar"];
-		nl::node chat = nl::nx::ui["StatusBar2.img"]["chat"];
+		nl::node statusbar = nl::nx::ui["StatusBar.img"];
+		nl::node base = statusbar["base"];
+		nl::node gauge = statusbar["gauge"];
 
 		has_notification = false;
 		notice_pulse_tick = 0;
@@ -156,53 +246,25 @@ namespace ms
 		prev_hp_pct = gethppercent();
 		prev_mp_pct = getmppercent();
 		prev_exp_pct = getexppercent();
+		hp_shown = prev_hp_pct;
+		mp_shown = prev_mp_pct;
+		exp_shown = prev_exp_pct;
 		hp_flash_ticks = 0;
 		mp_flash_ticks = 0;
 		exp_flash_ticks = 0;
 
 		// === Background ===
-		bar_backgrnd = Texture(mainbar["backgrnd"]);
-		sprites.emplace_back(mainbar["gaugeBackgrd"]);
-		notice_sprite = Texture(mainbar["notice"]);
-		sprites.emplace_back(mainbar["lvBacktrnd"]);
-		sprites.emplace_back(mainbar["lvCover"]);
+		bar_backgrnd = Texture(base["backgrnd"]);
+		bar_backgrnd2 = Texture(base["backgrnd2"]);
+		hotkey_box = Texture(base["box"]);
+		icon_memo = Texture(base["iconMemo"]);
 
-		// === Gauge cover (overlay on top of gauge area) ===
-		gauge_cover = Texture(mainbar["gaugeCover"]);
-
-		// === Class-variant gauge backgrounds ===
-		gauge_backgrd_ab = Texture(mainbar["gaugeBackgrdAB"]);
-		gauge_backgrd_demon = Texture(mainbar["gaugeBackgrdDemon"]);
-		gauge_backgrd_kanna = Texture(mainbar["gaugeBackgrdKanna"]);
-		gauge_backgrd_zero = Texture(mainbar["gaugeBackgrdZero"]);
-		gauge_cover_ab = Texture(mainbar["gaugeCoverAB"]);
-		lv_backtrnd_sao = Texture(mainbar["lvBacktrndSao"]);
-
-		// === Main gauges ===
-		expbar = Gauge(
-			Gauge::Type::GAME,
-			mainbar.resolve("gauge/exp/0"),
-			mainbar.resolve("gauge/exp/1"),
-			mainbar.resolve("gauge/exp/2"),
-			308, 0.0f
-		);
-		hpbar = Gauge(
-			Gauge::Type::GAME,
-			mainbar.resolve("gauge/hp/0"),
-			mainbar.resolve("gauge/hp/1"),
-			mainbar.resolve("gauge/hp/2"),
-			137, 0.0f
-		);
-		mpbar = Gauge(
-			Gauge::Type::GAME,
-			mainbar.resolve("gauge/mp/0"),
-			mainbar.resolve("gauge/mp/1"),
-			mainbar.resolve("gauge/mp/2"),
-			137, 0.0f
-		);
-
-		// === Extra gauges ===
-		nl::node gauge_node = mainbar["gauge"];
+		// === Gauges ===
+		gauge_bar = Texture(gauge["bar"]);
+		gauge_graduation = Texture(gauge["graduation"]);
+		gauge_gray = Texture(gauge["gray"]);
+		hp_flash = Animation(gauge["hpFlash"]);
+		mp_flash = Animation(gauge["mpFlash"]);
 
 		nl::node energy_node = nl::nx::ui["UIWindow.img"]["EnergyBar"];
 
@@ -213,248 +275,85 @@ namespace ms
 		if (energy_node["effect"])
 			energy_full_effect = Animation(energy_node["effect"]);
 
-		barrier_bar = Gauge(
-			Gauge::Type::GAME,
-			gauge_node.resolve("barrier/0"),
-			gauge_node.resolve("barrier/1"),
-			gauge_node.resolve("barrier/2"),
-			137, 0.0f
-		);
-		df_bar = Gauge(
-			Gauge::Type::GAME,
-			gauge_node.resolve("df/0"),
-			gauge_node.resolve("df/1"),
-			gauge_node.resolve("df/2"),
-			137, 0.0f
-		);
-		relax_exp_bar = Gauge(
-			Gauge::Type::GAME,
-			gauge_node.resolve("relaxExp/0"),
-			gauge_node.resolve("relaxExp/1"),
-			gauge_node.resolve("relaxExp/2"),
-			308, 0.0f
-		);
-		tf_bar = Gauge(
-			Gauge::Type::GAME,
-			gauge_node.resolve("tf/0"),
-			gauge_node.resolve("tf/1"),
-			gauge_node.resolve("tf/2"),
-			137, 0.0f
-		);
-
 		// === Charsets ===
-		statset = Charset(gauge_node["number"], Charset::Alignment::RIGHT);
-		levelset = Charset(mainbar["lvNumber"], Charset::Alignment::LEFT);
+		// StatusBar.img/number names its glyphs 0..9, Lbracket, Rbracket,
+		// percent and slash; Charset keys each by the first character of its
+		// name, so the extras are reachable as 'L', 'R', 'p' and 's'.
+		nl::node numbers = statusbar["number"];
+		statset = Charset(numbers, Charset::Alignment::LEFT);
+		num_lbracket = Texture(numbers["Lbracket"]);
+		num_rbracket = Texture(numbers["Rbracket"]);
+		levelset = Charset(nl::nx::ui["Basic.img"]["LevelNo"], Charset::Alignment::LEFT);
 
 		// === Labels ===
-		joblabel = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::YELLOW);
-		namelabel = Text(Text::Font::A13M, Text::Alignment::LEFT, Color::Name::WHITE);
+		namelabel = Text(Text::Font::A11B, Text::Alignment::LEFT, Color::Name::WHITE);
+		joblabel = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::WHITE);
+		menu_label = Text(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::WHITE);
 		// Bold white key label drawn in each quickslot cube's corner.
 		qs_key_label = Text(Text::Font::A11B, Text::Alignment::LEFT, Color::Name::WHITE);
 
-		nl::node keynames = nl::nx::ui["StatusBar.img"]["key"];
+		nl::node keynames = statusbar["key"];
 		for (int i = 0; i < 8; i++)
 			qs_key_sprites[i] = keynames[std::to_string(i)];
 
-		// === Gauge animations ===
-		ani_hp_gauge = Animation(mainbar["aniHPGauge"]);
-		ani_hp_gauge_ab = Animation(mainbar["aniHPGaugeAB"]);
-		ani_mp_gauge = Animation(mainbar["aniMPGauge"]);
-
-		// === Notification animations ===
-		ap_notify = Animation(mainbar["ApNotify"]);
-		sp_notify = Animation(mainbar["SpNotify"]);
-		noncombat_notify = Animation(mainbar["noncombatNotify"]);
-		cooltime_return = Texture(mainbar["coolTimeReturn"]["0"]);
-
 		// === Main bar buttons ===
-		buttons[BT_WHISPER]     = std::make_unique<MapleButton>(mainbar["BtChat"]);
-		buttons[BT_CALLGM]     = std::make_unique<MapleButton>(mainbar["BtClaim"]);
-		buttons[BT_CASHSHOP]   = std::make_unique<MapleButton>(mainbar["BtCashShop"]);
-		buttons[BT_TRADE]      = std::make_unique<MapleButton>(mainbar["BtMTS"], Point<int16_t>(17, 0));
-		buttons[BT_MENU]       = std::make_unique<MapleButton>(mainbar["BtMenu"], Point<int16_t>(53, 0));
-		buttons[BT_OPTIONS]    = std::make_unique<MapleButton>(mainbar["BtSystem"], Point<int16_t>(53, 0));
-		buttons[BT_CHARACTER]  = std::make_unique<MapleButton>(mainbar["BtCharacter"]);
-		buttons[BT_STATS]      = std::make_unique<MapleButton>(mainbar["BtStat"]);
-		buttons[BT_QUEST]      = std::make_unique<MapleButton>(mainbar["BtQuest"]);
-		buttons[BT_INVENTORY]  = std::make_unique<MapleButton>(mainbar["BtInven"]);
-		buttons[BT_EQUIPS]     = std::make_unique<MapleButton>(mainbar["BtEquip"]);
-		buttons[BT_SKILL]      = std::make_unique<MapleButton>(mainbar["BtSkill"]);
+		buttons[BT_WHISPER]    = std::make_unique<MapleButton>(statusbar["BtWhisper"], Point<int16_t>(WHISPER_X, BAND_Y));
+		buttons[BT_CALLGM]     = std::make_unique<MapleButton>(statusbar["BtClaim"],   Point<int16_t>(CLAIM_X, BOX_Y));
+		buttons[BT_CASHSHOP]   = std::make_unique<MapleButton>(statusbar["BtShop"],    Point<int16_t>(BIG_X0,                BIG_Y));
+		buttons[BT_TRADE]      = std::make_unique<MapleButton>(statusbar["BtNPT"],     Point<int16_t>(BIG_X0 + BIG_STEP,     BIG_Y));
+		buttons[BT_MENU]       = std::make_unique<MapleButton>(statusbar["BtMenu"],    Point<int16_t>(MENU_BTN_X,            BIG_Y));
+		buttons[BT_KEYSETTING] = std::make_unique<MapleButton>(statusbar["BtShort"],   Point<int16_t>(BIG_X0 + BIG_STEP * 3, BIG_Y));
 
-		// === Additional main bar buttons ===
-		buttons[BT_CHANNEL]    = std::make_unique<MapleButton>(mainbar["BtChannel"], Point<int16_t>(53, 0));
-		buttons[BT_KEYSETTING] = std::make_unique<MapleButton>(mainbar["BtKeysetting"], Point<int16_t>(53, 0));
-		buttons[BT_NOTICE]     = std::make_unique<MapleButton>(mainbar["BtNotice"]);
-		buttons[BT_FARM]       = std::make_unique<MapleButton>(mainbar["BtFarm"]);
-		buttons[BT_EXITDUNGEON] = std::make_unique<MapleButton>(mainbar["BtExitDungeon"]);
-		buttons[BF_BT_CASHSHOP] = std::make_unique<MapleButton>(mainbar["BfBtCashShop"]);
+		// === Hot-key row ===
+		buttons[BT_EQUIPS]    = std::make_unique<MapleButton>(statusbar["EquipKey"], Point<int16_t>(HOTKEY_X0,                   HOTKEY_Y));
+		buttons[BT_INVENTORY] = std::make_unique<MapleButton>(statusbar["InvenKey"], Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP,     HOTKEY_Y));
+		buttons[BT_STATS]     = std::make_unique<MapleButton>(statusbar["StatKey"],  Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP * 2, HOTKEY_Y));
+		buttons[BT_SKILL]     = std::make_unique<MapleButton>(statusbar["SkillKey"], Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP * 3, HOTKEY_Y));
+		buttons[BT_KEYSET]    = std::make_unique<MapleButton>(statusbar["KeySet"],   Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP * 4, HOTKEY_Y));
 
-		// Farm, ExitDungeon not used on Cosmic server
-		buttons[BT_FARM]->set_active(false);
-		buttons[BT_EXITDUNGEON]->set_active(false);
-		buttons[BF_BT_CASHSHOP]->set_active(false);
-
-		// BtCharacter duplicates BtStat (both open UIStatsInfo); the v83
-		// toolbar only uses BtStat, so hide BtCharacter.
-		buttons[BT_CHARACTER]->set_active(false);
-
-
-		// === Chat buttons ===
-		buttons[BT_CHATCLOSE]  = std::make_unique<MapleButton>(mainbar["chatClose"]);
-		buttons[BT_CHATOPEN]   = std::make_unique<MapleButton>(mainbar["chatOpen"]);
-		buttons[BT_SCROLLUP]   = std::make_unique<MapleButton>(mainbar["scrollUp"]);
-		buttons[BT_SCROLLDOWN] = std::make_unique<MapleButton>(mainbar["scrollDown"]);
-
-		// Chat buttons handled by UIChatBar, disable here
-		buttons[BT_CHATOPEN]->set_active(false);
-		buttons[BT_CHATCLOSE]->set_active(false);
-		buttons[BT_SCROLLUP]->set_active(false);
-		buttons[BT_SCROLLDOWN]->set_active(false);
-
-		// === Chat area textures ===
-		chat_cover = Texture(mainbar["chatCover"]);
-		chat_enter = Texture(mainbar["chatEnter"]);
-		chat_space = Texture(mainbar["chatSpace"]);
-		chat_space2 = Texture(mainbar["chatSpace2"]);
-
-		// Chat targets are handled by the chat bar's own To: button
-		// (UIChatBar cycles All/Buddy/Guild/Alliance/Party and sends the
-		// matching MultiChat packet) — the old half-built tab row here
-		// was never positioned and never wired, so it's gone.
-		nl::node chat_scroll = chat["scroll"];
-		chat_scroll_normal = Texture(chat_scroll["normal"]);
-		chat_scroll_over = Texture(chat_scroll["over"]);
+		// Unspent AP / SP reminder: the hot keys ship a 2-frame `ani` blink.
+		stat_blink = Animation(statusbar["StatKey"]["ani"]);
+		skill_blink = Animation(statusbar["SkillKey"]["ani"]);
 
 		// === Quick slot ===
-		nl::node qs = mainbar["quickSlot"];
-		// Prefer the v83 `StatusBar.img/base/quickSlot` bitmap — that
-		// one has the Shft/Ctl/Ins/Del/Hme/End/PgU/PgD key labels
-		// baked into the panel frame. Only when it isn't present in
-		// this NX build do we fall back to the StatusBar2 variant
-		// (`mainBar/quickSlot/quickSlot`), which is a blank frame and
-		// would need programmatic labels — left to a separate path.
-		nl::node statusbar_v83 = nl::nx::ui["StatusBar.img"];
-		nl::node v83_labeled = statusbar_v83["base"]["quickSlot"];
-		if (v83_labeled)
-		{
-			quickslot_bg = Texture(v83_labeled);
-			quickslot_bg_v83 = true;
-		}
-		else
-		{
-			quickslot_bg = Texture(qs["quickSlot"]);
-			quickslot_bg_v83 = false;
-		}
+		quickslot_bg = Texture(base["quickSlot"]);
 
-		buttons[BT_QS_OPEN]  = std::make_unique<MapleButton>(qs["BtOpen"]);
+		// QuickSlot (arrow up) shows the panel, QuickSlotD (arrow down)
+		// hides it again; both occupy the last hot-key slot.
+		Point<int16_t> qs_btn_pos(HOTKEY_X0 + HOTKEY_STEP * 5, HOTKEY_Y);
+		buttons[BT_QS_OPEN]  = std::make_unique<MapleButton>(statusbar["QuickSlot"], qs_btn_pos);
+		buttons[BT_QS_CLOSE] = std::make_unique<MapleButton>(statusbar["QuickSlotD"], qs_btn_pos);
 		buttons[BT_QS_OPEN]->set_active(true);
-		// Open state: nudge the "close quickslot" arrow up from its sprite spot.
-		buttons[BT_QS_CLOSE] = std::make_unique<MapleButton>(qs["BtClose"], Point<int16_t>(0, -QS_OPEN_BTN_LIFT));
 		buttons[BT_QS_CLOSE]->set_active(false);
 
-		// === Menu sub-panel ===
-		nl::node menu_node = mainbar["Menu"];
-
-		// Menu buttons stack top-to-bottom above the bar.
-		// Bar top is at -84 relative to position. Panel sits just above that.
-		// v83-visible: Stat, Skill, Quest, Item, Equip, Community, Event, Rank, EpisodBook, MSN
-		constexpr int16_t MENU_STEP = 26;
-		constexpr int16_t MENU_VISIBLE = 12;
-		constexpr int16_t MENU_PANEL_H = MENU_VISIBLE * MENU_STEP + 8;
-
-		int16_t menu_x = 188;
-		// Position the Menu panel using the same anchor style as the
-		// System sub-panel so both popups line up vertically on screen.
-		int16_t menu_panel_top = -(14 + MENU_PANEL_H);
-		int16_t menu_y = menu_panel_top - 26;
-
-		buttons[BT_MENU_STAT]          = std::make_unique<MapleButton>(menu_node["BtStat"],      Point<int16_t>(menu_x, menu_y));
-		buttons[BT_MENU_SKILL]         = std::make_unique<MapleButton>(menu_node["BtSkill"],     Point<int16_t>(menu_x, menu_y + MENU_STEP));
-		buttons[BT_MENU_QUEST]         = std::make_unique<MapleButton>(menu_node["BtQuest"],     Point<int16_t>(menu_x, menu_y + MENU_STEP * 2));
-		buttons[BT_MENU_ITEM]          = std::make_unique<MapleButton>(menu_node["BtItem"],      Point<int16_t>(menu_x, menu_y + MENU_STEP * 3));
-		buttons[BT_MENU_EQUIP]         = std::make_unique<MapleButton>(menu_node["BtEquip"],     Point<int16_t>(menu_x, menu_y + MENU_STEP * 4));
-		buttons[BT_MENU_COMMUNITY]     = std::make_unique<MapleButton>(menu_node["BtCommunity"], Point<int16_t>(menu_x, menu_y + MENU_STEP * 5));
-		buttons[BT_MENU_EVENT]         = std::make_unique<MapleButton>(menu_node["BtEvent"],     Point<int16_t>(menu_x, menu_y + MENU_STEP * 6));
-		buttons[BT_MENU_RANK]          = std::make_unique<MapleButton>(menu_node["BtRank"],      Point<int16_t>(menu_x, menu_y + MENU_STEP * 7));
-		buttons[BT_MENU_EPISODBOOK]    = std::make_unique<MapleButton>(menu_node["BtEpisodBook"],    Point<int16_t>(menu_x, menu_y + MENU_STEP * 8));
-		buttons[BT_MENU_MSN]           = std::make_unique<MapleButton>(menu_node["BtMSN"],       Point<int16_t>(menu_x, menu_y + MENU_STEP * 9));
-		buttons[BT_MENU_MONSTERBATTLE] = std::make_unique<MapleButton>(menu_node["BtMonsterBattle"], Point<int16_t>(menu_x, menu_y + MENU_STEP * 10));
-		buttons[BT_MENU_MONSTERLIFE]   = std::make_unique<MapleButton>(menu_node["BtMonsterLife"], Point<int16_t>(menu_x, menu_y + MENU_STEP * 11));
-
-		// Monster Battle / Monster Life / AfreecaTV have no Cosmic counterpart.
-
-		// All menu buttons hidden until menu is toggled
-		for (uint16_t i = BT_MENU_STAT; i <= BT_MENU_MONSTERLIFE; i++)
-			buttons[i]->set_active(false);
-
-		// Menu background sized to cover visible buttons
-
-		// === System sub-panel ===
-		nl::node sys_node = mainbar["System"];
-
-		// 5 visible buttons (v83 layout):
-		//   Channel → JoyPad → KeySetting → Option (System) → Quit
-		// SYS_STEP = button height (25) + 0px gap between rows (tight).
-		constexpr int16_t SYS_STEP = 25;
-		constexpr int16_t SYS_VISIBLE = 5;
-		constexpr int16_t SYS_PANEL_H = SYS_VISIBLE * SYS_STEP + 8;
-
-		int16_t sys_x = 264;
-		int16_t sys_panel_top = -(14 + SYS_PANEL_H);
-		int16_t sys_y = sys_panel_top - 26;
-
-		int16_t si = 0;
-		buttons[BT_SYS_CHANNEL]    = std::make_unique<MapleButton>(sys_node["BtChannel"],    Point<int16_t>(sys_x, sys_y + SYS_STEP * si++));
-		buttons[BT_SYS_JOYPAD]     = std::make_unique<MapleButton>(sys_node["BtJoyPad"],     Point<int16_t>(sys_x, sys_y + SYS_STEP * si++));
-		buttons[BT_SYS_KEYSETTING] = std::make_unique<MapleButton>(sys_node["BtKeySetting"], Point<int16_t>(sys_x, sys_y + SYS_STEP * si++));
-		buttons[BT_SYS_OPTION]     = std::make_unique<MapleButton>(sys_node["BtOption"],     Point<int16_t>(sys_x, sys_y + SYS_STEP * si++));
-		buttons[BT_SYS_GAMEQUIT]   = std::make_unique<MapleButton>(sys_node["BtGameQuit"],   Point<int16_t>(sys_x, sys_y + SYS_STEP * si++));
-
-		// All system buttons hidden until toggled
-		buttons[BT_SYS_CHANNEL]->set_active(false);
-		buttons[BT_SYS_JOYPAD]->set_active(false);
-		buttons[BT_SYS_KEYSETTING]->set_active(false);
-		buttons[BT_SYS_OPTION]->set_active(false);
-		buttons[BT_SYS_GAMEQUIT]->set_active(false);
-
-		// 3-piece tiled backdrop (StatusBar2.img/mainBar/System/backgrnd/0..2).
-		{
-			nl::node sys_bg_node = sys_node["backgrnd"];
-			sys_bg_top = Texture(sys_bg_node["0"]);
-			sys_bg_mid = Texture(sys_bg_node["1"]);
-			sys_bg_bot = Texture(sys_bg_node["2"]);
-		}
-
-		{
-			nl::node menu_bg_node = mainbar["Menu"]["backgrnd"];
-			menu_bg_top = menu_bg_node["0"];
-			menu_bg_mid = menu_bg_node["1"];
-			menu_bg_bot = menu_bg_node["2"];
-		}
-
-		// === readyZero ===
-		nl::node rz = mainbar["readyZero"];
-		ready_zero_backgrnd = Texture(rz["gaugeBackgrnd"]);
-
-		// === Buff tray background (StatusBar3.img) ===
-		nl::node statusbar3 = nl::nx::ui["StatusBar3.img"];
-		if (statusbar3.size() > 0)
-		{
-			nl::node buff = statusbar3["buff"];
-			buff_backgrnd = Texture(buff["backgrnd"]);
-
-			nl::node alarm = statusbar3["alarm"];
-			alarm_backgrnd = Texture(alarm["backgrnd"]);
-			alarm_anim = Animation(alarm["ani"]);
-
-			nl::node event = statusbar3["event"];
-			event_backgrnd = Texture(event["backgrnd"]);
-		}
+		// === Menu popup rows ===
+		// v83's StatusBar.img has no Menu/System sub-panel art, so the popup
+		// is a list of text rows. Order: the character windows first, then
+		// (after a separator, see MENU_SYS_FIRST) the system entries.
+		menu_rows = {
+			{ BT_MENU_STAT,          "Stats" },
+			{ BT_MENU_SKILL,         "Skills" },
+			{ BT_MENU_QUEST,         "Quests" },
+			{ BT_MENU_EQUIP,         "Equipment" },
+			{ BT_MENU_ITEM,          "Inventory" },
+			{ BT_MENU_COMMUNITY,     "Buddy List" },
+			{ BT_MENU_MSN,           "Messenger" },
+			{ BT_MENU_EVENT,         "Events" },
+			{ BT_MENU_RANK,          "Ranking" },
+			{ BT_MENU_EPISODBOOK,    "Monster Book" },
+			{ BT_MENU_MONSTERBATTLE, "Monster Battle" },
+			{ BT_MENU_MONSTERLIFE,   "Monster Life" },
+			{ BT_SYS_CHANNEL,        "Change Channel" },
+			{ BT_SYS_KEYSETTING,     "Key Settings" },
+			{ BT_SYS_OPTION,         "Options" },
+			{ BT_SYS_JOYPAD,         "Joypad" },
+			{ BT_SYS_GAMEQUIT,       "Quit Game" }
+		};
 	}
 
 	void UIStatusBar::update_boss_hp(const std::string& name, int8_t percent)
 	{
-		// 0% (or below) means the boss died / the tag cleared — hide the gauge.
+		// 0% (or below) means the boss died / the tag cleared - hide the gauge.
 		if (percent <= 0)
 		{
 			boss_hp_ticks = 0;
@@ -465,6 +364,57 @@ namespace ms
 		boss_gage.set_mob(0, name, 0);
 		boss_hp_percent = std::clamp(static_cast<float>(percent) / 100.0f, 0.0f, 1.0f);
 		boss_hp_ticks = 250; // ~4s of fixed-step updates; refreshed on every report
+	}
+
+	float UIStatusBar::ease_towards(float current, float target)
+	{
+		float diff = target - current;
+
+		if (std::fabs(diff) < 0.0005f)
+			return target;
+
+		// Exponential ease-out: close ~12% of the remaining gap each tick,
+		// floored so small gaps still close in finite time (same feel as
+		// Gauge::update, which the v83 gray-cover technique can't use).
+		float move = diff * 0.12f;
+		const float min_step = 0.0015f;
+
+		if (std::fabs(move) < min_step)
+			move = (diff > 0.0f) ? min_step : -min_step;
+
+		if ((diff > 0.0f && move > diff) || (diff < 0.0f && move < diff))
+			move = diff;
+
+		return current + move;
+	}
+
+	void UIStatusBar::draw_stat_text(const std::string& text, Point<int16_t> pos) const
+	{
+		// Digits/slash/percent are 7 px tall, the brackets 9 px; drop the
+		// glyphs one row so they centre on the brackets.
+		int16_t x = pos.x();
+
+		for (char c : text)
+		{
+			if (c == 'L' || c == 'R')
+			{
+				const Texture& bracket = (c == 'L') ? num_lbracket : num_rbracket;
+				bracket.draw(DrawArgument(Point<int16_t>(x, pos.y())));
+				x += bracket.width() + 1;
+			}
+			else if (c == '.')
+			{
+				// The v83 number font has no dot glyph - a 1x1 white box on
+				// the digit baseline reads the same at this size.
+				ColorBox(1, 1, Color::Name::WHITE, 1.0f).draw(DrawArgument(Point<int16_t>(x, pos.y() + 7)));
+				x += 2;
+			}
+			else
+			{
+				statset.draw(c, DrawArgument(Point<int16_t>(x, pos.y() + 1)));
+				x += statset.getw(c) + 1;
+			}
+		}
 	}
 
 	void UIStatusBar::draw(float alpha) const
@@ -489,7 +439,8 @@ namespace ms
 			int16_t filled = static_cast<int16_t>(
 				static_cast<int64_t>(amount) * ENERGY_WIDTH / ENERGY_MAX);
 
-			Point<int16_t> ep((vwidth - ENERGY_WIDTH) / 2, position.y() - 62);
+			// Just above the bar, centred.
+			Point<int16_t> ep((vwidth - ENERGY_WIDTH) / 2, position.y() - 24);
 
 			for (int16_t x = 0; x < ENERGY_WIDTH; x++)
 				energy_bar_c.draw(DrawArgument(ep + Point<int16_t>(x, 0)));
@@ -505,30 +456,18 @@ namespace ms
 				energy_full_effect.draw(DrawArgument(ep + Point<int16_t>(ENERGY_WIDTH / 2, 0)), alpha);
 		}
 
-		// Quickslot panel — drawn FIRST so the status bar renders on
-		// top of it. The panel sits above the main bar on screen, but
-		// any overlap with other status bar sprites goes to the bar.
+		// Quickslot panel - drawn FIRST so the status bar renders on top of
+		// it; it sits above the bar, over the hot-key column.
 		if (show_quickslot)
 		{
+			Point<int16_t> panel = quickslot_panel_pos();
+
 			if (quickslot_bg.is_valid())
-			{
-				// The v83 base sprite has no origin, so it must be drawn at
-				// the panel position (above the bar, where the slots are).
-				// The StatusBar2 fallback self-positions from `position`.
-				// Drawing at `position` was hiding the base panel behind the
-				// status bar — only the slot icons showed.
-				// v83 panel draws at the (already lifted) panel pos; the StatusBar2
-				// fallback self-positions from `position` via its origin, so lift it
-				// the same amount here to keep it aligned with the slot cells.
-				Point<int16_t> bgpos = quickslot_bg_v83
-					? quickslot_panel_pos()
-					: position + Point<int16_t>(0, -QS_LIFT);
-				quickslot_bg.draw(DrawArgument(bgpos));
-			}
+				quickslot_bg.draw(DrawArgument(panel));
 
 			const auto& maplekeys = UI::get().get_keyboard().get_maplekeys();
 			const auto& quickslot_keys = UI::get().get_keyboard().get_quickslot_keys();
-			constexpr int16_t CELL = 28; // visible cube size (see QS_CELL_W)
+
 			for (int16_t i = 0; i < static_cast<int16_t>(quickslot_keys.size()); ++i)
 			{
 				int32_t keycode = quickslot_keys[i];
@@ -543,139 +482,102 @@ namespace ms
 					Texture icon = get_quickslot_icon(it->second.type, it->second.action);
 					if (icon.is_valid())
 					{
-						// Fit the (32px) icon into the ~28px cube and centre it — its
+						// Fit the (32px) icon into the 28x25 cube and centre it - its
 						// origin is already normalised to top-left by get_quickslot_icon.
 						Point<int16_t> dims = icon.get_dimensions();
 						float scale = 1.0f;
 						int16_t maxdim = std::max(dims.x(), dims.y());
-						if (maxdim > CELL)
-							scale = static_cast<float>(CELL) / static_cast<float>(maxdim);
+						if (maxdim > QS_CELL_H)
+							scale = static_cast<float>(QS_CELL_H) / static_cast<float>(maxdim);
 
 						int16_t dw = static_cast<int16_t>(dims.x() * scale);
 						int16_t dh = static_cast<int16_t>(dims.y() * scale);
 						Point<int16_t> pos(
-							static_cast<int16_t>(tl.x() + (CELL - dw) / 2),
-							static_cast<int16_t>(tl.y() + (CELL - dh) / 2 + QS_ICON_NUDGE_Y));
+							static_cast<int16_t>(tl.x() + (QS_CELL_W - dw) / 2),
+							static_cast<int16_t>(tl.y() + (QS_CELL_H - dh) / 2));
 						icon.draw(DrawArgument(pos, scale, scale, 1.0f));
 					}
 				}
 
 				// Key label for EVERY cube (even empty ones), so the player always
 				// knows which key fires each slot. Drawn from the real binding, so it
-				// stays correct after rebinding and on the blank panel. Bottom-left
-				// corner keeps it clear of the centred icon.
+				// stays correct after rebinding. The v83 key sprites (28x11,
+				// outlined white text) sit on the cube's top edge like the
+				// original client; non-default keys get a boxed text label there.
 				static const uint8_t defcodes[8] = { 42, 82, 71, 73, 29, 83, 79, 81 };
 				bool default_key = i < 8 && (static_cast<uint8_t>(keycode) == defcodes[i]
 					|| (i == 0 && keycode == 54) || (i == 4 && keycode == 157));
 
 				if (default_key && qs_key_sprites[i].is_valid())
 				{
-					qs_key_sprites[i].draw(tl + Point<int16_t>(1, CELL - 12 + QS_LABEL_NUDGE_Y));
+					qs_key_sprites[i].draw(tl);
 				}
 				else
 				{
 					qs_key_label.change_text(qs_keyname(static_cast<uint8_t>(keycode)));
 
 					ColorBox label_bg(qs_key_label.width() + 4, 12, Color::Name::BLACK, 0.65f);
-					label_bg.draw(DrawArgument(tl + Point<int16_t>(0, CELL - 11 + QS_LABEL_NUDGE_Y)));
+					label_bg.draw(DrawArgument(tl));
 
-					qs_key_label.draw(tl + Point<int16_t>(1, CELL - 13 + QS_LABEL_NUDGE_Y));
+					qs_key_label.draw(tl + Point<int16_t>(2, -2));
 				}
 			}
 		}
 
-		// Draw bar background at its natural anchor (position), extending
-		// further right so the sprite reaches the right edge of wider
-		// viewports. `vwidth * 2` guarantees the stretch covers beyond
-		// the viewport at any resolution; extra pixels past the screen
-		// are clipped harmlessly.
+		// Plain strip stretched across the whole view so the bar reaches both
+		// screen edges regardless of the view width; the 800-wide content is
+		// laid over it from `position`.
 		if (bar_backgrnd.is_valid())
+			bar_backgrnd.draw(DrawArgument(Point<int16_t>(0, position.y()), Point<int16_t>(vwidth, BAR_HEIGHT)));
+
+		if (bar_backgrnd2.is_valid())
+			bar_backgrnd2.draw(DrawArgument(position + Point<int16_t>(BG2_X, 0)));
+
+		// === Gauges ===
+		Point<int16_t> gauge_pos = position + Point<int16_t>(GAUGE_X, GAUGE_Y);
+
+		if (gauge_bar.is_valid())
+			gauge_bar.draw(DrawArgument(gauge_pos));
+
+		// Cover the unfilled remainder of each bar with the gray strip.
+		auto cover_missing = [&](int16_t fill_x, int16_t fill_w, float shown)
 		{
-			int16_t bg_h = bar_backgrnd.height();
-			bar_backgrnd.draw(DrawArgument(position, Point<int16_t>(vwidth * 2, bg_h)));
-		}
+			if (!gauge_gray.is_valid())
+				return;
 
-		UIElement::draw_sprites(alpha);
+			float pct = std::clamp(shown, 0.0f, 1.0f);
+			int16_t filled = static_cast<int16_t>(std::lround(pct * fill_w));
+			int16_t missing = static_cast<int16_t>(fill_w - filled);
 
-		// Draw class-variant gauge backgrounds based on job
-		uint16_t jobid = stats.get_job().get_id();
+			if (missing > 0)
+				gauge_gray.draw(DrawArgument(
+					gauge_pos + Point<int16_t>(fill_x + filled, GAUGE_FILL_Y),
+					Point<int16_t>(missing, GAUGE_FILL_H)));
+		};
 
-		// Aran/Blaster (AB) job range: 2000+
-		if (jobid >= 2000 && jobid < 3000)
-		{
-			if (gauge_backgrd_ab.is_valid())
-				gauge_backgrd_ab.draw(DrawArgument(position));
-		}
-		// Demon job range: 3001-3112
-		else if (jobid >= 3001 && jobid <= 3112)
-		{
-			if (gauge_backgrd_demon.is_valid())
-				gauge_backgrd_demon.draw(DrawArgument(position));
-		}
-		// Kanna job range: 4200+
-		else if (jobid >= 4200 && jobid < 4300)
-		{
-			if (gauge_backgrd_kanna.is_valid())
-				gauge_backgrd_kanna.draw(DrawArgument(position));
-		}
-		// Zero job range: 10000+
-		else if (jobid >= 10000)
-		{
-			if (gauge_backgrd_zero.is_valid())
-				gauge_backgrd_zero.draw(DrawArgument(position));
+		cover_missing(HP_FILL_X, HP_FILL_W, hp_shown);
+		cover_missing(MP_FILL_X, MP_FILL_W, mp_shown);
+		cover_missing(EXP_FILL_X, EXP_FILL_W, exp_shown);
 
-			if (ready_zero_backgrnd.is_valid())
-				ready_zero_backgrnd.draw(DrawArgument(position));
+		if (gauge_graduation.is_valid())
+			gauge_graduation.draw(DrawArgument(gauge_pos));
 
-			if (lv_backtrnd_sao.is_valid())
-				lv_backtrnd_sao.draw(DrawArgument(position));
-		}
-
-		// Draw gauges (fills stretch inside the gauge slots).
-		expbar.draw(position + Point<int16_t>(-261, -15));
-		hpbar.draw(position + Point<int16_t>(-261, -31));
-		mpbar.draw(position + Point<int16_t>(-90, -31));
-
-		// Draw gauge cover ON TOP of the fills — this is the glossy
-		// sheen sprite (StatusBar2/mainBar/gaugeCover, 308x28). The v83
-		// "shiny bar" look comes from this overlay; drawing it before
-		// the fills hides it completely.
-		if (gauge_cover.is_valid())
-			gauge_cover.draw(DrawArgument(position));
-
-		// AB gauge cover variant
-		if (jobid >= 2000 && jobid < 3000 && gauge_cover_ab.is_valid())
-			gauge_cover_ab.draw(DrawArgument(position));
-
-		// EXP flash-on-drop: no dedicated animation sprite, so re-draw the
-		// expbar to pulse its brightness for the duration of the flash.
+		// EXP flash-on-drop: no dedicated animation sprite, so pulse the EXP
+		// fill's brightness for the duration of the flash.
 		if (exp_flash_ticks > 0)
 		{
 			float pulse = static_cast<float>(exp_flash_ticks) / FLASH_DURATION_TICKS;
-			expbar.draw(DrawArgument(position + Point<int16_t>(-261, -15), pulse));
+			int16_t filled = static_cast<int16_t>(std::lround(std::clamp(exp_shown, 0.0f, 1.0f) * EXP_FILL_W));
+
+			if (filled > 0)
+				ColorBox(filled, GAUGE_FILL_H - 2, Color::Name::WHITE, 0.35f * pulse)
+					.draw(DrawArgument(gauge_pos + Point<int16_t>(EXP_FILL_X, GAUGE_FILL_Y + 1)));
 		}
 
-		// Draw extra gauges for special classes
-		// Demon Force gauge (replaces MP for Demon classes)
-		if (jobid >= 3001 && jobid <= 3112)
-			df_bar.draw(position + Point<int16_t>(-90, -31));
-
-		// Time Force gauge (Zero class)
-		if (jobid >= 10000)
-			tf_bar.draw(position + Point<int16_t>(-90, -31));
-
-		// Barrier gauge (Kanna)
-		if (jobid >= 4200 && jobid < 4300)
-			barrier_bar.draw(position + Point<int16_t>(-90, -31));
-
-		// Relax EXP gauge (shows bonus EXP from resting)
-		relax_exp_bar.draw(position + Point<int16_t>(-261, -15));
-
-		// Gauge blink animations (StatusBar2.img/mainBar/aniHPGauge,
-		// aniMPGauge, aniHPGaugeAB). The trigger threshold comes from
-		// the HP/MP Warning sliders in System → Options (0..100 %). The
-		// flash_ticks branch also fires the pulse briefly when the
-		// gauge just dropped, regardless of the threshold.
+		// Gauge blink animations (StatusBar.img/gauge/hpFlash, mpFlash). The
+		// trigger threshold comes from the HP/MP Warning sliders in
+		// System -> Options (0..100 %). The flash_ticks branch also fires the
+		// pulse briefly when the gauge just dropped, regardless of the threshold.
 		float hp_pct = gethppercent();
 		float mp_pct = getmppercent();
 
@@ -683,17 +585,12 @@ namespace ms
 		float mp_warn = Setting<MPWarning>::get().load() / 100.0f;
 
 		if (hp_pct < hp_warn || hp_flash_ticks > 0)
-		{
-			if (jobid >= 2000 && jobid < 3000)
-				ani_hp_gauge_ab.draw(DrawArgument(position + Point<int16_t>(-261, -31)), alpha);
-			else
-				ani_hp_gauge.draw(DrawArgument(position + Point<int16_t>(-261, -31)), alpha);
-		}
+			hp_flash.draw(DrawArgument(gauge_pos + Point<int16_t>(HP_FLASH_X, FLASH_Y)), alpha);
 
 		if (mp_pct < mp_warn || mp_flash_ticks > 0)
-			ani_mp_gauge.draw(DrawArgument(position + Point<int16_t>(-90, -31)), alpha);
+			mp_flash.draw(DrawArgument(gauge_pos + Point<int16_t>(MP_FLASH_X, FLASH_Y)), alpha);
 
-		// Draw stat numbers
+		// === Stat numbers ===
 		int16_t level = stats.get_stat(MapleStat::Id::LEVEL);
 		int32_t hp = stats.get_stat(MapleStat::Id::HP); // uint16_t -> int32; avoid int16 overflow > 32767
 		int32_t mp = stats.get_stat(MapleStat::Id::MP);
@@ -702,153 +599,132 @@ namespace ms
 		int64_t exp = stats.get_exp();
 
 		std::string expstring = std::to_string(100 * getexppercent());
-		statset.draw(
-			std::to_string(exp) + "[" + expstring.substr(0, expstring.find('.') + 3) + "%]",
-			position + Point<int16_t>(47, -13)
-		);
-		statset.draw(
-			"[" + std::to_string(hp) + "/" + std::to_string(maxhp) + "]",
-			position + Point<int16_t>(-124, -29)
-		);
-		statset.draw(
-			"[" + std::to_string(mp) + "/" + std::to_string(maxmp) + "]",
-			position + Point<int16_t>(47, -29)
-		);
-		levelset.draw(
-			std::to_string(level),
-			position + Point<int16_t>(-480, -24)
-		);
+		expstring = expstring.substr(0, expstring.find('.') + 3);
 
-		joblabel.draw(position + Point<int16_t>(-435, -21));
-		namelabel.draw(position + Point<int16_t>(-435, -36));
+		// "[hp/maxhp]", "[mp/maxmp]" and "exp[12.34%]" in the bitmap font;
+		// see draw_stat_text for the L/R/s/p glyph aliases.
+		draw_stat_text("L" + std::to_string(hp) + "s" + std::to_string(maxhp) + "R",
+			gauge_pos + Point<int16_t>(HP_NUM_X, NUM_Y));
+		draw_stat_text("L" + std::to_string(mp) + "s" + std::to_string(maxmp) + "R",
+			gauge_pos + Point<int16_t>(MP_NUM_X, NUM_Y));
+		draw_stat_text(std::to_string(exp) + "L" + expstring + "pR",
+			gauge_pos + Point<int16_t>(EXP_NUM_X, NUM_Y));
 
-		// Draw notice sprite when there are pending notifications.
-		// Notice overlay moved to AFTER draw_buttons — see below.
-
-		// Draw cooltime return indicator (NX origin positions it)
-		if (cooltime_return.is_valid())
-			cooltime_return.draw(DrawArgument(position));
-
-		// Chat area rendering handled by UIChatBar
-
-		// Draw AP notification only when player has unspent AP
-		uint16_t ap = stats.get_stat(MapleStat::Id::AP);
-		if (ap > 0)
-			ap_notify.draw(DrawArgument(position), alpha);
-
-		// Draw SP notification only when player has unspent SP
-		uint16_t sp = stats.get_stat(MapleStat::Id::SP);
-		if (sp > 0)
-			sp_notify.draw(DrawArgument(position), alpha);
-
-		// noncombat_notify blinking animation removed — the
-		// UIAlarmInvite banner is the sole notification visual.
-
-		// Quickslot panel is now drawn at the very top of draw() so it
-		// sits BEHIND the rest of the status bar UI.
-
-		// Buff tray (StatusBar3.img/buff/backgrnd) and alarm tray
-		// (StatusBar3.img/alarm/backgrnd) are post-Big-Bang UI elements that
-		// appear as large grid-like panels ("numpad" shaped) on screen.
-		// v83 does not use these — keep the textures loaded but suppress
-		// drawing them.
-		// if (buff_backgrnd.is_valid())
-		//     buff_backgrnd.draw(DrawArgument(position + Point<int16_t>(184, -70)));
-		// if (alarm_backgrnd.is_valid())
-		//     alarm_backgrnd.draw(DrawArgument(position + Point<int16_t>(-512, -70)));
-
-		// Draw main-bar buttons first
-		UIElement::draw_buttons(alpha);
-
-		// Pending-notification badge above the bell button. Set by
-		// `notify()` whenever a quest completes, an invite arrives, an
-		// item-effect msg fires, etc., and cleared once the player
-		// opens the notification drawer or otherwise resolves it.
-		// notice_sprite carries its own NX origin so a plain draw at
-		// `position` lands it on top of BtNotice.
-		if (has_notification && notice_sprite.is_valid())
-			notice_sprite.draw(DrawArgument(position));
-
-		// Sub-panel overlays — drawn LAST so they sit above every other
-		// sprite/button in the status bar. Sub-panel buttons have already
-		// drawn via draw_buttons() above; we re-draw them here on top of
-		// the backdrop so they remain visible.
-		// Padding: tight on the sides (4px), extra on top (16px) and
-		// bottom (8px) so the frame extends noticeably upward.
-		constexpr int16_t SUBPANEL_PAD_X    = 8;
-		constexpr int16_t SUBPANEL_PAD_TOP  = 15;
-		constexpr int16_t SUBPANEL_PAD_BOT  = 13;
-
-		auto draw_subpanel = [&](const Button& top_b, const Button& bot_b,
-			const Texture& t, const Texture& m, const Texture& b, float fade)
+		// Level, centred on the LV box (Charset LEFT adds a 1 px gap per digit).
 		{
-			auto top_btn = top_b.bounds(position);
-			auto bot_btn = bot_b.bounds(position);
-			int16_t btn_w = top_btn.get_right_bottom().x() - top_btn.get_left_top().x();
-			int16_t span  = bot_btn.get_right_bottom().y() - top_btn.get_left_top().y();
-			int16_t panel_w = btn_w + SUBPANEL_PAD_X * 2;
-			int16_t panel_h = span + SUBPANEL_PAD_TOP + SUBPANEL_PAD_BOT;
-			Point<int16_t> tl(top_btn.get_left_top().x() - SUBPANEL_PAD_X,
-			                  top_btn.get_left_top().y() - SUBPANEL_PAD_TOP);
-			draw_tiled_panel(tl, panel_w, panel_h, t, m, b, fade);
-		};
-
-		if (menu_fade > 0.0f)
-		{
-			draw_subpanel(*buttons.at(BT_MENU_STAT),
-			              *buttons.at(BT_MENU_MONSTERLIFE),
-			              menu_bg_top, menu_bg_mid, menu_bg_bot, menu_fade);
-			// Fade the buttons alongside the backdrop (alpha overload
-			// ignores the `active` flag so the visual fade is smooth).
-			for (uint16_t i = BT_MENU_STAT; i <= BT_MENU_MONSTERLIFE; i++)
-				static_cast<MapleButton*>(buttons.at(i).get())->draw(position, menu_fade);
+			std::string levelstr = std::to_string(level);
+			int16_t ndigits = static_cast<int16_t>(levelstr.size());
+			int16_t total_w = static_cast<int16_t>(ndigits * LEVEL_DIGIT_W + (ndigits - 1));
+			levelset.draw(levelstr, position + Point<int16_t>(LEVEL_CX - total_w / 2, LEVEL_Y));
 		}
 
-		if (sys_fade > 0.0f)
+		namelabel.draw(position + Point<int16_t>(NAME_X, NAME_Y));
+		joblabel.draw(position + Point<int16_t>(NAME_X, JOB_Y));
+
+		// Two-slot tray right of the input band: BtClaim (button) on the
+		// left, the memo icon on the right doubling as the notification badge.
+		if (hotkey_box.is_valid())
+			hotkey_box.draw(DrawArgument(position + Point<int16_t>(BOX_X, BOX_Y)));
+
+		// Draw main-bar buttons
+		UIElement::draw_buttons(alpha);
+
+		// Notification badge: dim when the drawer is empty (still clickable),
+		// pulsing at full strength while something is pending. Set by
+		// `notify()` whenever a quest completes, an invite arrives, an
+		// item-effect msg fires, etc., and cleared once the player opens
+		// the notification drawer or otherwise resolves it.
+		if (icon_memo.is_valid())
 		{
-			draw_subpanel(*buttons.at(BT_SYS_CHANNEL),
-			              *buttons.at(BT_SYS_GAMEQUIT),
-			              sys_bg_top, sys_bg_mid, sys_bg_bot, sys_fade);
-			auto draw_sys = [&](uint16_t id) {
-				static_cast<MapleButton*>(buttons.at(id).get())->draw(position, sys_fade);
-			};
-			draw_sys(BT_SYS_CHANNEL);
-			draw_sys(BT_SYS_JOYPAD);
-			draw_sys(BT_SYS_KEYSETTING);
-			draw_sys(BT_SYS_OPTION);
-			draw_sys(BT_SYS_GAMEQUIT);
+			float memo_alpha = 0.35f;
+
+			if (has_notification)
+				memo_alpha = 0.7f + 0.3f * static_cast<float>(std::sin(notice_pulse_tick * 0.15));
+
+			icon_memo.draw(DrawArgument(position + Point<int16_t>(MEMO_X, MEMO_Y), memo_alpha));
+		}
+
+		// Unspent AP / SP: blink the Stat / Skill hot keys over their buttons.
+		if (stats.get_stat(MapleStat::Id::AP) > 0)
+			stat_blink.draw(DrawArgument(position + Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP * 2, HOTKEY_Y)), alpha);
+
+		if (stats.get_stat(MapleStat::Id::SP) > 0)
+			skill_blink.draw(DrawArgument(position + Point<int16_t>(HOTKEY_X0 + HOTKEY_STEP * 3, HOTKEY_Y)), alpha);
+
+		// Menu popup - drawn LAST so it sits above every other sprite/button
+		// in the status bar.
+		if (menu_fade > 0.0f)
+		{
+			Rectangle<int16_t> panel = menu_panel_rect();
+			Point<int16_t> tl = panel.get_left_top();
+			int16_t panel_h = menu_panel_height();
+
+			ColorBox(MENU_W, panel_h, Color::Name::BLACK, 0.78f * menu_fade).draw(DrawArgument(tl));
+
+			for (int16_t i = 0; i < static_cast<int16_t>(menu_rows.size()); i++)
+			{
+				Rectangle<int16_t> row = menu_row_rect(i);
+				Point<int16_t> rtl = row.get_left_top();
+
+				if (i == MENU_SYS_FIRST)
+					ColorBox(MENU_W - MENU_PAD * 2, 1, Color::Name::WHITE, 0.35f * menu_fade)
+						.draw(DrawArgument(rtl + Point<int16_t>(MENU_PAD, -(MENU_SEP_H / 2 + 1))));
+
+				if (i == menu_hover)
+					ColorBox(MENU_W - MENU_PAD * 2, MENU_ROW_H, Color::Name::WHITE, 0.25f * menu_fade)
+						.draw(DrawArgument(rtl + Point<int16_t>(MENU_PAD, 0)));
+
+				menu_label.change_text(menu_rows[i].label);
+				menu_label.draw(DrawArgument(rtl + Point<int16_t>(MENU_PAD + 6, 0), menu_fade));
+			}
 		}
 	}
 
-	void UIStatusBar::draw_tiled_panel(Point<int16_t> tl, int16_t panel_w, int16_t panel_h,
-		const Texture& top, const Texture& mid, const Texture& bot,
-		float fade_alpha) const
+	int16_t UIStatusBar::menu_panel_height() const
 	{
-		if (fade_alpha <= 0.0f) return;
+		return static_cast<int16_t>(menu_rows.size() * MENU_ROW_H + MENU_PAD * 2 + MENU_SEP_H);
+	}
 
-		int16_t top_h = top.get_dimensions().y();
-		int16_t bot_h = bot.get_dimensions().y();
+	Rectangle<int16_t> UIStatusBar::menu_panel_rect() const
+	{
+		int16_t panel_h = menu_panel_height();
+		Point<int16_t> tl = position + Point<int16_t>(MENU_BTN_X + BIG_W - MENU_W, -MENU_GAP - panel_h);
 
-		// Clamp middle stretch so top + middle + bottom >= panel_h.
-		int16_t middle_h = panel_h - top_h - bot_h;
-		if (middle_h < 0) middle_h = 0;
+		return Rectangle<int16_t>(tl, tl + Point<int16_t>(MENU_W, panel_h));
+	}
 
-		// Stretch all three pieces to panel_w so the panel matches the
-		// button row width (sprite is natively 79px).
-		top.draw(DrawArgument(tl, Point<int16_t>(panel_w, top_h)) + fade_alpha);
-		if (middle_h > 0)
-			mid.draw(DrawArgument(tl + Point<int16_t>(0, top_h),
-				Point<int16_t>(panel_w, middle_h)) + fade_alpha);
-		bot.draw(DrawArgument(tl + Point<int16_t>(0, top_h + middle_h),
-			Point<int16_t>(panel_w, bot_h)) + fade_alpha);
+	Rectangle<int16_t> UIStatusBar::menu_row_rect(int16_t row) const
+	{
+		Point<int16_t> tl = menu_panel_rect().get_left_top();
+		int16_t y = static_cast<int16_t>(MENU_PAD + row * MENU_ROW_H + (row >= MENU_SYS_FIRST ? MENU_SEP_H : 0));
+		Point<int16_t> rtl = tl + Point<int16_t>(0, y);
+
+		return Rectangle<int16_t>(rtl, rtl + Point<int16_t>(MENU_W, MENU_ROW_H));
+	}
+
+	int16_t UIStatusBar::menu_row_at(Point<int16_t> cursorpos) const
+	{
+		if (!show_menu || menu_fade < 1.0f)
+			return -1;
+
+		for (int16_t i = 0; i < static_cast<int16_t>(menu_rows.size()); i++)
+			if (menu_row_rect(i).contains(cursorpos))
+				return i;
+
+		return -1;
+	}
+
+	Rectangle<int16_t> UIStatusBar::notice_rect() const
+	{
+		Point<int16_t> tl = position + Point<int16_t>(MEMO_SLOT_X, BOX_Y);
+
+		return Rectangle<int16_t>(tl, tl + Point<int16_t>(MEMO_SLOT_W, hotkey_box.is_valid() ? hotkey_box.height() : 19));
 	}
 
 	void UIStatusBar::update()
 	{
-		int16_t VWIDTH = Constants::Constants::get().get_viewwidth();
-		int16_t VHEIGHT = Constants::Constants::get().get_viewheight();
-		position = Point<int16_t>(512, VHEIGHT);
-		dimension = Point<int16_t>(std::max<int16_t>(1366, VWIDTH), 84);
+		position = bar_origin();
+		dimension = Point<int16_t>(BAR_WIDTH, BAR_HEIGHT);
 
 		UIElement::update();
 
@@ -861,51 +737,28 @@ namespace ms
 
 		// Age notification entries; auto-decline anything older than
 		// NotificationCenter::TTL_TICKS (~2 minutes). When the queue
-		// drains we drop the badge but keep the bell button visible.
+		// drains we drop the badge but keep the slot clickable.
 		NotificationCenter::get().tick();
 		if (NotificationCenter::get().empty())
 			has_notification = false;
 
-		// Fade sub-panels in/out. Target is 1.0 while shown, 0.0 while
-		// hidden — a ~8-tick ramp gives a smooth fade instead of a pop.
+		// Fade the menu popup in/out. Target is 1.0 while shown, 0.0 while
+		// hidden - a ~8-tick ramp gives a smooth fade instead of a pop. Rows
+		// only take clicks at full opacity (see menu_row_at).
 		constexpr float FADE_STEP = 1.0f / 8.0f;
-		float menu_target = show_menu   ? 1.0f : 0.0f;
-		float sys_target  = show_system ? 1.0f : 0.0f;
+		float menu_target = show_menu ? 1.0f : 0.0f;
 		if (menu_fade < menu_target)      menu_fade = std::min(menu_target, menu_fade + FADE_STEP);
 		else if (menu_fade > menu_target) menu_fade = std::max(menu_target, menu_fade - FADE_STEP);
-		if (sys_fade < sys_target)        sys_fade  = std::min(sys_target,  sys_fade  + FADE_STEP);
-		else if (sys_fade > sys_target)   sys_fade  = std::max(sys_target,  sys_fade  - FADE_STEP);
 
-		// Sub-panel buttons are clickable only at full opacity — this
-		// keeps visual fade in sync with input routing and prevents the
-		// old "buttons pop in before backdrop" flash.
-		bool menu_live = (menu_fade >= 1.0f);
-		buttons[BT_MENU_STAT]      ->set_active(menu_live);
-		buttons[BT_MENU_SKILL]     ->set_active(menu_live);
-		buttons[BT_MENU_QUEST]     ->set_active(menu_live);
-		buttons[BT_MENU_ITEM]      ->set_active(menu_live);
-		buttons[BT_MENU_EQUIP]     ->set_active(menu_live);
-		buttons[BT_MENU_COMMUNITY] ->set_active(menu_live);
-		buttons[BT_MENU_EVENT]     ->set_active(menu_live);
-		buttons[BT_MENU_RANK]      ->set_active(menu_live);
-		buttons[BT_MENU_EPISODBOOK]->set_active(menu_live);
-		buttons[BT_MENU_MSN]       ->set_active(menu_live);
-		buttons[BT_MENU_MONSTERBATTLE]->set_active(menu_live);
-		buttons[BT_MENU_MONSTERLIFE]->set_active(menu_live);
-
-		bool sys_live = (sys_fade >= 1.0f);
-		buttons[BT_SYS_CHANNEL]   ->set_active(sys_live);
-		buttons[BT_SYS_JOYPAD]    ->set_active(sys_live);
-		buttons[BT_SYS_KEYSETTING]->set_active(sys_live);
-		buttons[BT_SYS_OPTION]    ->set_active(sys_live);
-		buttons[BT_SYS_GAMEQUIT]  ->set_active(sys_live);
+		if (!show_menu)
+			menu_hover = -1;
 
 		float cur_hp = gethppercent();
 		float cur_mp = getmppercent();
 		float cur_exp = getexppercent();
 
 		// Trigger flash whenever a gauge drops. Small epsilon avoids noise
-		// from floating-point jitter in the smoothing inside Gauge::update.
+		// from floating-point jitter.
 		constexpr float eps = 0.0005f;
 		if (cur_hp + eps < prev_hp_pct)
 			hp_flash_ticks = FLASH_DURATION_TICKS;
@@ -922,27 +775,22 @@ namespace ms
 		if (mp_flash_ticks) mp_flash_ticks--;
 		if (exp_flash_ticks) exp_flash_ticks--;
 
-		expbar.update(cur_exp);
-		hpbar.update(cur_hp);
-		mpbar.update(cur_mp);
+		hp_shown = ease_towards(hp_shown, cur_hp);
+		mp_shown = ease_towards(mp_shown, cur_mp);
+		exp_shown = ease_towards(exp_shown, cur_exp);
 
 		namelabel.change_text(stats.get_name());
 		joblabel.change_text(stats.get_jobname());
 
 		// Update animations
-		ani_hp_gauge.update();
-		ani_mp_gauge.update();
-		ap_notify.update();
-		sp_notify.update();
-		noncombat_notify.update();
-		alarm_anim.update();
+		hp_flash.update();
+		mp_flash.update();
+		stat_blink.update();
+		skill_blink.update();
 
-		// Pulse counter for notice sprite (only advances when active)
+		// Pulse counter for the notification badge (only advances when active)
 		if (has_notification)
 			notice_pulse_tick++;
-
-		// Forcing NORMAL here re-armed the NORMAL->MOUSEOVER transition every frame,
-		// which replayed the hover sound continuously.
 	}
 
 	Button::State UIStatusBar::button_pressed(uint16_t id)
@@ -955,10 +803,6 @@ namespace ms
 
 		case BT_CALLGM:
 			UI::get().emplace<UIReport>();
-			return Button::State::NORMAL;
-
-		case BT_FARM:
-			UI::get().emplace<UIFarmChat>();
 			return Button::State::NORMAL;
 
 		case BT_STATS:
@@ -994,7 +838,6 @@ namespace ms
 			remove_menus();
 			return Button::State::NORMAL;
 
-		case BT_QUEST:
 		case BT_MENU_QUEST:
 			UI::get().emplace<UIQuestLog>(
 				Stage::get().get_player().get_quests()
@@ -1003,7 +846,6 @@ namespace ms
 			return Button::State::NORMAL;
 
 		case BT_CASHSHOP:
-		case BF_BT_CASHSHOP:
 			OutPacket(OutPacket::Opcode::ENTER_CASHSHOP).dispatch();
 			return Button::State::NORMAL;
 
@@ -1018,34 +860,10 @@ namespace ms
 			toggle_menu();
 			return Button::State::NORMAL;
 
-		case BT_OPTIONS:
-		{
-			if (show_system)
-			{
-				show_system = false;
-	
-
-			}
-			else
-			{
-				// Close menu if open
-				if (show_menu)
-					toggle_menu();
-
-				show_system = true;
-	
-	
-			}
-			return Button::State::NORMAL;
-		}
-
-		case BT_CHARACTER:
-			UI::get().emplace<UIStatsInfo>(
-				Stage::get().get_player().get_stats()
-			);
-			return Button::State::NORMAL;
-
+		// BtShort ("SHORT-CUT"), the KeySet hot key and the menu's Key
+		// Settings row all open the key config window.
 		case BT_KEYSETTING:
+		case BT_KEYSET:
 		case BT_SYS_KEYSETTING:
 			UI::get().emplace<UIKeyConfig>(
 				Stage::get().get_player().get_inventory(),
@@ -1060,15 +878,13 @@ namespace ms
 				if (alarm->is_active())
 					alarm->stash();
 
-			// Open the notification drawer anchored above this button.
+			// Open the notification drawer anchored above the memo slot.
 			// The popup positions itself so its bottom-right corner is
-			// the button's top-left.
-			Point<int16_t> btn_pos = position + buttons[BT_NOTICE]->bounds(Point<int16_t>(0, 0)).get_left_top();
-			UI::get().emplace<UINotificationList>(btn_pos);
+			// the slot's top-left.
+			UI::get().emplace<UINotificationList>(get_notice_anchor());
 			return Button::State::NORMAL;
 		}
 
-		case BT_CHANNEL:
 		case BT_SYS_CHANNEL:
 			UI::get().emplace<UIChannel>();
 			remove_menus();
@@ -1084,32 +900,12 @@ namespace ms
 			remove_menus();
 			return Button::State::NORMAL;
 
-
 		case BT_SYS_JOYPAD:
 			UI::get().emplace<UIJoypad>();
 			remove_menus();
 			return Button::State::NORMAL;
 
-		case BT_CHATOPEN:
-			chat_open = true;
-			buttons[BT_CHATOPEN]->set_active(false);
-			buttons[BT_CHATCLOSE]->set_active(true);
-			buttons[BT_SCROLLUP]->set_active(true);
-			buttons[BT_SCROLLDOWN]->set_active(true);
-			return Button::State::NORMAL;
-
-		case BT_CHATCLOSE:
-			chat_open = false;
-			buttons[BT_CHATCLOSE]->set_active(false);
-			buttons[BT_CHATOPEN]->set_active(true);
-			buttons[BT_SCROLLUP]->set_active(false);
-			buttons[BT_SCROLLDOWN]->set_active(false);
-			return Button::State::NORMAL;
-
 		case BT_QS_OPEN:
-			toggle_qs();
-			return Button::State::NORMAL;
-
 		case BT_QS_CLOSE:
 			toggle_qs();
 			return Button::State::NORMAL;
@@ -1158,15 +954,27 @@ namespace ms
 	{
 		int16_t vwidth = Constants::Constants::get().get_viewwidth();
 
-		// Extend upward when menu, system sub-panel, or quick slot is open
-		int16_t extra_height = (show_menu || show_system || show_quickslot) ? 300 : 0;
-
-		Rectangle<int16_t> bounds(
-			Point<int16_t>(0, position.y() - 84 - extra_height),
-			Point<int16_t>(vwidth, position.y())
+		// The bar itself spans the full view width (the strip is stretched).
+		Rectangle<int16_t> bar(
+			Point<int16_t>(0, position.y()),
+			Point<int16_t>(vwidth, position.y() + BAR_HEIGHT)
 		);
 
-		return bounds.contains(cursorpos);
+		if (bar.contains(cursorpos))
+			return true;
+
+		if (show_quickslot && quickslot_bg.is_valid())
+		{
+			Point<int16_t> tl = quickslot_panel_pos();
+
+			if (Rectangle<int16_t>(tl, tl + quickslot_bg.get_dimensions()).contains(cursorpos))
+				return true;
+		}
+
+		if (show_menu && menu_panel_rect().contains(cursorpos))
+			return true;
+
+		return false;
 	}
 
 	UIElement::Type UIStatusBar::get_type() const
@@ -1198,32 +1006,19 @@ namespace ms
 
 	void UIStatusBar::toggle_menu()
 	{
-		if (show_menu)
-		{
-			show_menu = false;
-		}
-		else
-		{
-			// Close system panel if open
-			if (show_system)
-				show_system = false;
-
-			show_menu = true;
-		}
+		show_menu = !show_menu;
+		menu_hover = -1;
 	}
 
 	void UIStatusBar::remove_menus()
 	{
 		if (show_menu)
 			toggle_menu();
-
-		if (show_system)
-			show_system = false;
 	}
 
 	bool UIStatusBar::is_menu_active()
 	{
-		return show_menu || show_system;
+		return show_menu;
 	}
 
 	float UIStatusBar::getexppercent() const
@@ -1264,9 +1059,9 @@ namespace ms
 
 	void UIStatusBar::notify()
 	{
-		// The bell button itself is always active (clickable so the
-		// user can open an empty drawer at any time). Only the notice
-		// badge sprite above the button toggles with has_notification.
+		// The memo slot is always clickable (so the user can open an empty
+		// drawer at any time). Only the badge brightness/pulse toggles with
+		// has_notification.
 		has_notification = true;
 	}
 
@@ -1277,22 +1072,14 @@ namespace ms
 
 	Point<int16_t> UIStatusBar::get_notice_anchor() const
 	{
-		auto it = buttons.find(BT_NOTICE);
-		if (it == buttons.end() || !it->second)
-		{
-			// Fallback: roughly where the bell sits at 800x600.
-			int16_t vw = Constants::Constants::get().get_viewwidth();
-			int16_t vh = Constants::Constants::get().get_viewheight();
-			return Point<int16_t>(vw - 8, vh - 36);
-		}
-		return position + it->second->bounds(Point<int16_t>(0, 0)).get_left_top();
+		return notice_rect().get_left_top();
 	}
 
 	// === Quickslot drop / render ===
 
 	Point<int16_t> UIStatusBar::quickslot_panel_pos() const
 	{
-		return position + Point<int16_t>(QS_PANEL_OFFSET_X, QS_PANEL_OFFSET_Y - QS_LIFT);
+		return position + Point<int16_t>(QS_PANEL_X, QS_PANEL_Y);
 	}
 
 	Point<int16_t> UIStatusBar::quickslot_slot_pos(int16_t slot) const
@@ -1339,7 +1126,7 @@ namespace ms
 
 		// v83 skill/item icons have origin (0, 32) so a raw draw at `pos`
 		// renders 32 px ABOVE `pos` (matching StatefulIcon's compensation).
-		// Shift so the texture's origin becomes (0, 0) — top-left at `pos`.
+		// Shift so the texture's origin becomes (0, 0) - top-left at `pos`.
 		tx.shift(Point<int16_t>(0, 32));
 
 		qs_icon_cache[action * 8 + type] = tx;
@@ -1381,8 +1168,48 @@ namespace ms
 		return true;
 	}
 
+	void UIStatusBar::remove_cursor()
+	{
+		menu_hover = -1;
+
+		UIElement::remove_cursor();
+	}
+
 	Cursor::State UIStatusBar::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
+		// Menu popup rows (text rows, not MapleButtons): hover highlight and
+		// click dispatch through button_pressed with the row's id.
+		if (show_menu)
+		{
+			int16_t row = menu_row_at(cursorpos);
+			menu_hover = row;
+
+			if (row >= 0)
+			{
+				if (clicked)
+				{
+					Sound(Sound::Name::BUTTONCLICK).play();
+					button_pressed(menu_rows[row].id);
+					return Cursor::State::IDLE;
+				}
+
+				return Cursor::State::CANCLICK;
+			}
+		}
+
+		// Notification (memo) slot in the base/box tray.
+		if (notice_rect().contains(cursorpos))
+		{
+			if (clicked)
+			{
+				Sound(Sound::Name::BUTTONCLICK).play();
+				button_pressed(BT_NOTICE);
+				return Cursor::State::IDLE;
+			}
+
+			return Cursor::State::CANCLICK;
+		}
+
 		// If cursor is over a quickslot cube that has a binding, allow the
 		// user to pick it up and drag it (either to another cube, or off the
 		// quickslot to clear the binding).
@@ -1404,7 +1231,7 @@ namespace ms
 						{
 							// Build a fresh Icon owning its own raw texture.
 							// The Icon ctor shifts (0,32), so pass the raw
-							// (origin 0,32) texture — not the cache's already-
+							// (origin 0,32) texture - not the cache's already-
 							// shifted one.
 							Texture raw;
 							if (m.type == KeyType::Id::SKILL)
@@ -1424,9 +1251,8 @@ namespace ms
 							// Compute cursor offset relative to the icon's
 							// top-left so dragdraw follows the grip point.
 							Point<int16_t> tl = quickslot_slot_pos(slot);
-							int16_t cell_w = 30, cell_h = 30;
 							Point<int16_t> center = tl + Point<int16_t>(
-								(cell_w - 32) / 2, (cell_h - 32) / 2);
+								(QS_CELL_W - 32) / 2, (QS_CELL_H - 32) / 2);
 
 							icon->start_drag(cursorpos - center);
 

@@ -81,10 +81,53 @@ namespace ms
 			catch (...) { return false; }
 			return true;
 		}
+
+		// ==================================================================
+		// v83 layout, in pixels relative to the status bar's top-left
+		// (UIStatusBar::bar_origin()). The white chat input band painted by
+		// StatusBar.img/base/backgrnd2 occupies rows 7..28, x 0..565; the
+		// status bar's own BtWhisper (12x19) takes x 3..14 of it.
+		// ==================================================================
+
+		// base/chatTarget (81x20) right after BtWhisper, vertically centred
+		// in the 22 px band.
+		constexpr int16_t TARGET_X = 17;
+		constexpr int16_t TARGET_Y = 8;
+		constexpr int16_t TARGET_W = 81;
+		constexpr int16_t TARGET_H = 20;
+		// Basic.img/BtComboBox (17x16) as the "cycle target" arrow, glued to
+		// the box's right edge.
+		constexpr int16_t COMBO_X = 100;
+		constexpr int16_t COMBO_Y = 10;
+		// Text field fills the rest of the band up to the open/close toggle.
+		constexpr int16_t FIELD_X = 120;
+		constexpr int16_t FIELD_Y = 9;
+		constexpr int16_t FIELD_RIGHT = 545;
+		constexpr int16_t FIELD_BOTTOM = 27;
+		// Basic.img/BtUP / BtDown (12x12) at the band's right end (band art
+		// ends at x 565; base/box starts at 572).
+		constexpr int16_t TOGGLE_X = 549;
+		constexpr int16_t TOGGLE_Y = 12;
+		// Extent of the band for hit-testing.
+		constexpr int16_t BAND_TOP = 7;
+		constexpr int16_t BAND_BOTTOM = 29;
+
+		// Basic.img/VScr4 pieces are 15 px wide; keep the slider inside the
+		// log's right edge with a 1 px margin.
+		constexpr int16_t SLIDER_W = 16;
+		// Slider top sits just under the strip.
+		constexpr int16_t SLIDER_Y = 3;
+		// Left inset of the log text.
+		constexpr int16_t TEXT_X = 4;
+		// Log text wraps before the slider column.
+		constexpr uint16_t TEXT_MAXWIDTH = 540;
+		constexpr uint16_t TEXT_MAXWIDTH_ICON = 524;
 	}
 
-	UIChatBar::UIChatBar(Point<int16_t> pos) : UIElement(pos, Point<int16_t>(500, 60))
+	UIChatBar::UIChatBar(Point<int16_t> pos) : UIElement(UIStatusBar::bar_origin(), Point<int16_t>(CHATLOG_W, UIStatusBar::BAR_HEIGHT))
 	{
+		(void)pos; // re-anchored to the status bar art, see update()
+
 		chatopen = false;
 		chatfieldopen = false;
 		chattarget = CHT_ALL;
@@ -97,38 +140,20 @@ namespace ms
 		lastpos = 0;
 		dragchattop = false;
 
-		nl::node mainbar = nl::nx::ui["StatusBar2.img"]["mainBar"];
+		nl::node base = nl::nx::ui["StatusBar.img"]["base"];
+		nl::node basic = nl::nx::ui["Basic.img"];
 
-		buttons[BT_OPENCHAT] = std::make_unique<MapleButton>(mainbar["chatOpen"]);
-		buttons[BT_CLOSECHAT] = std::make_unique<MapleButton>(mainbar["chatClose"]);
-		buttons[BT_SCROLLUP] = std::make_unique<MapleButton>(mainbar["scrollUp"]);
-		buttons[BT_SCROLLDOWN] = std::make_unique<MapleButton>(mainbar["scrollDown"]);
-		buttons[BT_CHATTARGETS] = std::make_unique<MapleButton>(mainbar["chatTarget"]["base"]);
+		// v83 has no dedicated chat open/close/target buttons; the generic
+		// Basic.img buttons (all with normal/mouseOver/pressed/disabled)
+		// stand in for them.
+		buttons[BT_OPENCHAT] = std::make_unique<MapleButton>(basic["BtUP"], Point<int16_t>(TOGGLE_X, TOGGLE_Y));
+		buttons[BT_CLOSECHAT] = std::make_unique<MapleButton>(basic["BtDown"], Point<int16_t>(TOGGLE_X, TOGGLE_Y));
+		buttons[BT_CHATTARGETS] = std::make_unique<MapleButton>(basic["BtComboBox"], Point<int16_t>(COMBO_X, COMBO_Y));
 
-		// Emoticon picker, from v83's own social-chat assets.
-		nl::node social = nl::nx::ui["UIWindow2.img"]["socialChat"];
-		buttons[BT_IMOTICON] = std::make_unique<MapleButton>(social["BtImoticon"], Point<int16_t>(-30, -59));
-		emoticon_frame = Texture(social["ImoticonFrame"]["backgrnd1"]);
-
-		nl::node faces = nl::nx::character["Face"]["00020000.img"];
-		for (int32_t i = 0; i < Text::emoticon_count(); i++)
-			emoticon_icons.emplace_back(faces[Text::emoticon_name(i)]["0"]["face"]);
-
-		chatspace[0] = mainbar["chatSpace"];
-		chatspace[1] = mainbar["chatEnter"];
-		chatenter = mainbar["chatSpace2"];
-		chatcover = mainbar["chatCover"];
-
-		chattargets[CHT_ALL] = mainbar["chatTarget"]["all"];
-		chattargets[CHT_BUDDY] = mainbar["chatTarget"]["friend"];
-		chattargets[CHT_GUILD] = mainbar["chatTarget"]["guild"];
-		chattargets[CHT_ALLIANCE] = mainbar["chatTarget"]["association"];
-		chattargets[CHT_PARTY] = mainbar["chatTarget"]["party"];
-		chattargets[CHT_SQUAD] = mainbar["chatTarget"]["expedition"];
-
-		nl::node chat = nl::nx::ui["StatusBar2.img"]["chat"];
-		tapbar = chat["tapBar"];
-		tapbartop = chat["tapBarOver"];
+		chat_strip = Texture(base["chat"]);
+		target_box = Texture(base["chatTarget"]);
+		target_label = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::WHITE);
+		refresh_target_label();
 
 		// Small megaphone icons (UIWindow.img/Megaphone/0..3, 13x12 each)
 		// painted before megaphone / super / item / triple chat lines.
@@ -136,12 +161,11 @@ namespace ms
 		for (int i = 0; i < 4; i++)
 			megaphone_icons[i] = Texture(mega_icons[std::to_string(i)]);
 
-		chatbox = ColorBox(502, 1 + chatrows * CHATROWHEIGHT, Color::Name::BLACK, 0.6f);
+		chatbox = ColorBox(CHATLOG_W, 1 + chatrows * CHATROWHEIGHT, Color::Name::BLACK, 0.6f);
 
-		// Bump the font from A11M to A12M and lower the bounds top a
-		// few pixels so the typed text sits centered in the input
-		// strip instead of jamming against its top edge.
-		chatfield = Textfield(Text::A12M, Text::LEFT, Color::Name::BLACK, Rectangle<int16_t>(Point<int16_t>(-435, -59), Point<int16_t>(-40, -39)), 0);
+		// A12M so the typed text sits centred in the 22 px input band.
+		chatfield = Textfield(Text::A12M, Text::LEFT, Color::Name::BLACK,
+			Rectangle<int16_t>(Point<int16_t>(FIELD_X, FIELD_Y), Point<int16_t>(FIELD_RIGHT, FIELD_BOTTOM)), 0);
 
 		set_chat_open(chatopen);
 
@@ -197,7 +221,8 @@ namespace ms
 			}
 		);
 
-		slider = Slider(11, Range<int16_t>(0, CHATROWHEIGHT * chatrows - 14), -22, chatrows, 1,
+		// Basic.img/VScr4 (the StatusBar2 chat scrollbar does not exist in v83).
+		slider = Slider(Slider::Type::NORMAL_CALYPSO, Range<int16_t>(0, CHATROWHEIGHT * chatrows - 14), CHATLOG_W - SLIDER_W, chatrows, 1,
 			[&](bool up)
 			{
 				int16_t next = up ? rowpos - 1 : rowpos + 1;
@@ -215,14 +240,10 @@ namespace ms
 		buttons[BT_OPENCHAT]->set_active(!open);
 		buttons[BT_CLOSECHAT]->set_active(open);
 		buttons[BT_CHATTARGETS]->set_active(open);
-		buttons[BT_SCROLLUP]->set_active(open);
-		buttons[BT_SCROLLDOWN]->set_active(open);
-		buttons[BT_IMOTICON]->set_active(open);
 
 		if (!open)
 		{
 			chatfieldopen = false;
-			emoticons_open = false;
 			chatfield.set_state(Textfield::State::DISABLED);
 		}
 		else
@@ -231,80 +252,14 @@ namespace ms
 		}
 	}
 
-	Point<int16_t> UIChatBar::emoticon_origin() const
+	void UIChatBar::refresh_target_label()
 	{
-		int16_t rows = (Text::emoticon_count() + EMOTE_COLS - 1) / EMOTE_COLS;
-		int16_t h = rows * EMOTE_CELL + EMOTE_PAD * 2;
+		static const char* const names[NUM_TARGETS] = {
+			"To: All", "To: Buddy", "To: Guild", "To: Ally", "To: Party", "To: Squad"
+		};
 
-		// Sits directly above its own button so the panel never covers the
-		// chat input the user is typing into.
-		return position + Point<int16_t>(-30 - EMOTE_COLS * EMOTE_CELL / 2, -64 - h);
-	}
-
-	int32_t UIChatBar::emoticon_at(Point<int16_t> cursorpos) const
-	{
-		if (!emoticons_open)
-			return -1;
-
-		Point<int16_t> grid = emoticon_origin() + Point<int16_t>(EMOTE_PAD, EMOTE_PAD);
-		int16_t dx = cursorpos.x() - grid.x();
-		int16_t dy = cursorpos.y() - grid.y();
-
-		if (dx < 0 || dy < 0)
-			return -1;
-
-		int16_t col = dx / EMOTE_CELL;
-		int16_t row = dy / EMOTE_CELL;
-
-		if (col >= EMOTE_COLS)
-			return -1;
-
-		int32_t index = row * EMOTE_COLS + col;
-
-		return index < Text::emoticon_count() ? index : -1;
-	}
-
-	void UIChatBar::draw_emoticons(Point<int16_t> pos) const
-	{
-		if (!emoticons_open)
-			return;
-
-		int16_t rows = (Text::emoticon_count() + EMOTE_COLS - 1) / EMOTE_COLS;
-		int16_t w = EMOTE_COLS * EMOTE_CELL + EMOTE_PAD * 2;
-		int16_t h = rows * EMOTE_CELL + EMOTE_PAD * 2;
-
-		ColorBox(w, h, Color::Name::BLACK, 0.82f).draw(DrawArgument(pos));
-
-		Point<int16_t> grid = pos + Point<int16_t>(EMOTE_PAD, EMOTE_PAD);
-
-		for (int32_t i = 0; i < Text::emoticon_count(); i++)
-		{
-			int16_t col = i % EMOTE_COLS;
-			int16_t row = i / EMOTE_COLS;
-			Point<int16_t> cell = grid + Point<int16_t>(col * EMOTE_CELL, row * EMOTE_CELL);
-
-			if (i == emoticon_hover)
-				ColorBox(EMOTE_CELL - 2, EMOTE_CELL - 2, Color::Name::WHITE, 0.25f)
-					.draw(DrawArgument(cell));
-
-			if (i < static_cast<int32_t>(emoticon_icons.size()) && emoticon_icons[i].is_valid())
-			{
-				// Face sprites carry their own origin, which would scatter them
-				// across the grid -- place them on the cell centre instead.
-				Point<int16_t> dim = emoticon_icons[i].get_dimensions();
-				emoticon_icons[i].draw(DrawArgument(
-					cell + Point<int16_t>((EMOTE_CELL - dim.x()) / 2 + dim.x() / 2,
-					                      (EMOTE_CELL - dim.y()) / 2 + dim.y() / 2)));
-			}
-		}
-	}
-
-	void UIChatBar::toggle_emoticons()
-	{
-		emoticons_open = !emoticons_open;
-
-		if (emoticons_open)
-			focus_chatfield();
+		if (chattarget >= CHT_ALL && chattarget < NUM_TARGETS)
+			target_label.change_text(names[chattarget]);
 	}
 
 	void UIChatBar::focus_chatfield()
@@ -316,27 +271,39 @@ namespace ms
 		chatfield.set_state(Textfield::State::FOCUSED);
 	}
 
+	Point<int16_t> UIChatBar::log_origin() const
+	{
+		return Point<int16_t>(position.x(), getchattop());
+	}
+
 	void UIChatBar::draw(float inter) const
 	{
-		chatspace[chatopen ? 1 : 0].draw(position);
-		chatenter.draw(position);
+		// Target selector always shows on the input band (the band art itself
+		// is part of the status bar's backgrnd2).
+		if (target_box.is_valid())
+			target_box.draw(DrawArgument(position + Point<int16_t>(TARGET_X, TARGET_Y)));
+
+		target_label.draw(position + Point<int16_t>(TARGET_X + TARGET_W / 2, TARGET_Y + 3));
 
 		UIElement::draw_buttons(inter);
 
-		draw_emoticons(emoticon_origin());
-
 		if (chatopen)
 		{
-			tapbartop.draw(Point<int16_t>(position.x() - 576, getchattop()));
+			Point<int16_t> lo = log_origin();
+			int16_t chattop = lo.y();
 
-			chatbox.draw(DrawArgument(Point<int16_t>(0, getchattop() + 2)));
+			// The 566x5 strip caps the log and is the resize handle.
+			if (chat_strip.is_valid())
+				chat_strip.draw(DrawArgument(lo - Point<int16_t>(0, CHATSTRIP_H)));
 
-			int16_t chattop = getchattop();
+			chatbox.draw(DrawArgument(lo));
+
 			int16_t chatbottom = chattop + chatrows * CHATROWHEIGHT;
 			Range<int16_t> chatclip(chattop + 2, chatbottom);
 
 			int16_t chatheight = CHATROWHEIGHT * chatrows;
 			int16_t yshift = -chatheight;
+			int16_t textx = lo.x() + TEXT_X;
 
 			for (int16_t i = 0; i < chatrows; i++)
 			{
@@ -363,7 +330,7 @@ namespace ms
 
 				// Megaphone rows: paint a colored strip ALIGNED WITH the
 				// actual text row (so it sits behind the glyphs, not
-				// above or below), then draw name → icon → message.
+				// above or below), then draw name -> icon -> message.
 				auto mega_it = mega_rows.find(rowid);
 				if (mega_it != mega_rows.end())
 				{
@@ -378,16 +345,16 @@ namespace ms
 					case 3: bg_color = Color::Name::YELLOW; break; // triple
 					}
 
-					// A12M glyph top sits at msgy + (linespace - bearing) ≈
-					// msgy+5; bottom ≈ msgy+17. Strip matches that band
+					// A12M glyph top sits at msgy + (linespace - bearing) ~
+					// msgy+5; bottom ~ msgy+17. Strip matches that band
 					// exactly so it sits BEHIND the glyphs only, and uses
 					// a softer alpha so the text stays legible.
 					int16_t strip_top = msgy + 5;
 					int16_t strip_h   = 13;
-					ColorBox row_bg(496, strip_h, bg_color, 0.18f);
-					row_bg.draw(DrawArgument(Point<int16_t>(2, strip_top)));
+					ColorBox row_bg(CHATLOG_W - 6, strip_h, bg_color, 0.18f);
+					row_bg.draw(DrawArgument(Point<int16_t>(lo.x() + 2, strip_top)));
 
-					int16_t x = 4;
+					int16_t x = textx;
 
 					if (!mr.namepart.empty())
 					{
@@ -415,14 +382,14 @@ namespace ms
 				else
 				{
 					rowtexts.at(rowid).draw(
-						DrawArgument(Point<int16_t>(4, msgy)), chatclip);
+						DrawArgument(Point<int16_t>(textx, msgy)), chatclip);
 
 					// Text::draw paints glyphs only; inline #v/#i/#q/#s/#f/#e
 					// sprites are a separate overlay, which the chat window
 					// was never doing -- so emoticons showed in speech
 					// balloons but not in the chat log.
 					ChatBalloon::draw_inline_images(
-						rowtexts.at(rowid), Point<int16_t>(4, msgy), chatclip);
+						rowtexts.at(rowid), Point<int16_t>(textx, msgy), chatclip);
 				}
 
 				if (has_selection)
@@ -439,13 +406,13 @@ namespace ms
 						int16_t to = (rowid == er) ? ec : len;
 						if (to < from) to = from;
 
-						int16_t x0 = 4 + static_cast<int16_t>(rowtexts.at(rowid).advance(from));
-						int16_t x1 = 4 + static_cast<int16_t>(rowtexts.at(rowid).advance(to));
+						int16_t x0 = textx + static_cast<int16_t>(rowtexts.at(rowid).advance(from));
+						int16_t x1 = textx + static_cast<int16_t>(rowtexts.at(rowid).advance(to));
 						int16_t w = x1 - x0;
 
 						if (w > 0)
 						{
-							// Hug the glyph band (A12M top ≈ msgy+5, bottom ≈ msgy+18)
+							// Hug the glyph band (A12M top ~ msgy+5, bottom ~ msgy+18)
 							// so the highlight sits on the text, and keep it bold.
 							ColorBox cover(w, 13, Color::Name::WHITE, 0.55f);
 							cover.draw(DrawArgument(Point<int16_t>(x0, msgy + 5)));
@@ -454,22 +421,23 @@ namespace ms
 				}
 			}
 
-			slider.draw(Point<int16_t>(position.x(), getchattop() + 5));
+			slider.draw(Point<int16_t>(lo.x(), chattop + SLIDER_Y));
 
-			if (chattarget >= CHT_ALL && chattarget < NUM_TARGETS)
-				chattargets[chattarget].draw(DrawArgument(position + Point<int16_t>(0, 2)));
-
-			chatcover.draw(position);
 			chatfield.draw(position);
 		}
 		else if (rowtexts.count(rowmax))
 		{
-			rowtexts.at(rowmax).draw(position + Point<int16_t>(-500, -60));
+			// Collapsed: keep the newest line floating just above the bar so
+			// incoming chat is never missed.
+			rowtexts.at(rowmax).draw(position + Point<int16_t>(TEXT_X, -20));
 		}
 	}
 
 	void UIChatBar::update()
 	{
+		// Follow the status bar art (handles view resizes).
+		position = UIStatusBar::bar_origin();
+
 		UIElement::update();
 		chatfield.update(position);
 	}
@@ -526,19 +494,8 @@ namespace ms
 		case BT_CLOSECHAT:
 			set_chat_open(false);
 			break;
-		case BT_SCROLLUP:
-			if (rowpos < rowmax)
-				rowpos++;
-			break;
-		case BT_SCROLLDOWN:
-			if (rowpos > 0)
-				rowpos--;
-			break;
 		case BT_CHATTARGETS:
 			cycle_chat_target();
-			return Button::State::NORMAL;
-		case BT_IMOTICON:
-			toggle_emoticons();
 			return Button::State::NORMAL;
 		}
 
@@ -547,20 +504,27 @@ namespace ms
 
 	bool UIChatBar::is_in_range(Point<int16_t> cursorpos) const
 	{
-		if (emoticons_open)
-		{
-			int16_t rows = (Text::emoticon_count() + EMOTE_COLS - 1) / EMOTE_COLS;
-			Point<int16_t> ep = emoticon_origin();
-			Point<int16_t> edim(EMOTE_COLS * EMOTE_CELL + EMOTE_PAD * 2,
-			                    rows * EMOTE_CELL + EMOTE_PAD * 2);
+		// The input band on the status bar.
+		Rectangle<int16_t> band(
+			position + Point<int16_t>(0, BAND_TOP),
+			position + Point<int16_t>(CHATLOG_W, BAND_BOTTOM));
 
-			if (Rectangle<int16_t>(ep, ep + edim).contains(cursorpos))
+		if (band.contains(cursorpos))
+			return true;
+
+		if (chatopen)
+		{
+			// The log (strip + text box) above the bar.
+			Point<int16_t> lo = log_origin();
+			Rectangle<int16_t> log(
+				lo - Point<int16_t>(0, CHATSTRIP_H),
+				Point<int16_t>(lo.x() + CHATLOG_W, position.y()));
+
+			if (log.contains(cursorpos))
 				return true;
 		}
 
-		Point<int16_t> absp(0, getchattop() - 16);
-		Point<int16_t> dim(500, chatrows * CHATROWHEIGHT + CHATYOFFSET + 16);
-		return Rectangle<int16_t>(absp, absp + dim).contains(cursorpos);
+		return false;
 	}
 
 	int16_t UIChatBar::row_at(Point<int16_t> cursorpos) const
@@ -603,7 +567,7 @@ namespace ms
 		if (it == rowtexts.end() || sit == rowstrings.end())
 			return 0;
 
-		int16_t relx = x - 4;
+		int16_t relx = x - (position.x() + TEXT_X);
 		if (relx <= 0)
 			return 0;
 
@@ -669,28 +633,6 @@ namespace ms
 
 	Cursor::State UIChatBar::send_cursor(bool clicking, Point<int16_t> cursorpos)
 	{
-		// The picker sits above the bar and must win over everything under it,
-		// including the chat-log selection drag.
-		if (emoticons_open)
-		{
-			int32_t hovered = emoticon_at(cursorpos);
-			emoticon_hover = hovered;
-
-			if (hovered >= 0)
-			{
-				if (clicking)
-				{
-					Sound(Sound::Name::BUTTONCLICK).play();
-					focus_chatfield();
-					chatfield.add_string("#e" + std::to_string(hovered) + "#");
-					emoticons_open = false;
-					emoticon_hover = -1;
-				}
-
-				return Cursor::State::CANCLICK;
-			}
-		}
-
 		// Custom button handling: break after a button press fires.
 		// UIElement::send_cursor iterates ALL buttons in one loop, so when
 		// BT_CLOSECHAT fires and activates BT_OPENCHAT, the loop immediately
@@ -731,9 +673,32 @@ namespace ms
 		if (button_handled)
 			return Cursor::State::IDLE;
 
+		// Clicking the "To: ..." box itself also cycles the target (the
+		// combo arrow is small).
+		if (chatopen)
+		{
+			Rectangle<int16_t> target_area(
+				position + Point<int16_t>(TARGET_X, TARGET_Y),
+				position + Point<int16_t>(TARGET_X + TARGET_W, TARGET_Y + TARGET_H));
+
+			if (target_area.contains(cursorpos))
+			{
+				if (clicking)
+				{
+					Sound(Sound::Name::BUTTONCLICK).play();
+					cycle_chat_target();
+					return Cursor::State::IDLE;
+				}
+
+				return Cursor::State::CANCLICK;
+			}
+		}
+
+		Point<int16_t> lo = log_origin();
+
 		if (slider.isenabled())
 		{
-			auto cursoroffset = cursorpos - Point<int16_t>(position.x(), getchattop() + 5);
+			auto cursoroffset = cursorpos - Point<int16_t>(lo.x(), lo.y() + SLIDER_Y);
 			Cursor::State sstate = slider.send_cursor(cursoroffset, clicking);
 			if (sstate != Cursor::State::IDLE)
 				return sstate;
@@ -746,7 +711,7 @@ namespace ms
 			if (tstate == Cursor::State::CLICKING || tstate == Cursor::State::CANCLICK)
 				return tstate;
 
-			// Don't let clicks outside the textfield defocus it —
+			// Don't let clicks outside the textfield defocus it -
 			// only Enter key should close the chatfield
 			if (clicking && chatfieldopen && chatfield.get_state() != Textfield::State::FOCUSED)
 				chatfield.set_state(Textfield::State::FOCUSED);
@@ -754,10 +719,9 @@ namespace ms
 		else if (clicking)
 		{
 			// Clicking the chat input area when chat is closed opens and focuses it
-			// Use the chatfield bounds relative to position to check
 			Rectangle<int16_t> input_area(
-				position + Point<int16_t>(-435, -58),
-				position + Point<int16_t>(-40, -35)
+				position + Point<int16_t>(FIELD_X, FIELD_Y),
+				position + Point<int16_t>(FIELD_RIGHT, FIELD_BOTTOM)
 			);
 
 			if (input_area.contains(cursorpos))
@@ -767,8 +731,9 @@ namespace ms
 			}
 		}
 
-		auto chattop_rect = Rectangle<int16_t>(0, 502, getchattop(), getchattop() + 6);
-		bool contains = chattop_rect.contains(cursorpos);
+		// The strip on top of the log is the resize handle.
+		auto chattop_rect = Rectangle<int16_t>(lo.x(), lo.x() + CHATLOG_W, lo.y() - CHATSTRIP_H, lo.y() + 1);
+		bool contains = chatopen && chattop_rect.contains(cursorpos);
 
 		if (dragchattop)
 		{
@@ -788,7 +753,7 @@ namespace ms
 					ydelta += CHATROWHEIGHT;
 				}
 
-				chatbox = ColorBox(502, 1 + chatrows * CHATROWHEIGHT, Color::Name::BLACK, 0.6f);
+				chatbox = ColorBox(CHATLOG_W, 1 + chatrows * CHATROWHEIGHT, Color::Name::BLACK, 0.6f);
 				slider.setrows(rowpos, chatrows, rowmax);
 				slider.setvertical(Range<int16_t>(0, CHATROWHEIGHT * chatrows - 14));
 
@@ -819,11 +784,13 @@ namespace ms
 		{
 			int16_t ctop = getchattop();
 			int16_t cbottom = ctop + chatrows * CHATROWHEIGHT;
+			int16_t cleft = lo.x();
+			int16_t cright = lo.x() + CHATLOG_W;
 
 			if (!sel_dragging)
 			{
 				// Begin a selection only when the press lands on an actual line.
-				if (cursorpos.x() >= 0 && cursorpos.x() <= 500
+				if (cursorpos.x() >= cleft && cursorpos.x() <= cright
 					&& cursorpos.y() >= ctop && cursorpos.y() <= cbottom)
 				{
 					int16_t r = row_at(cursorpos);
@@ -843,11 +810,11 @@ namespace ms
 			else
 			{
 				// Mid-drag: keep extending even when the cursor leaves the
-				// text — clamp it back into the log so the selection tracks
+				// text - clamp it back into the log so the selection tracks
 				// off the end of a line / above / below like a normal drag.
 				int16_t cx = cursorpos.x();
-				if (cx < 0) cx = 0;
-				if (cx > 500) cx = 500;
+				if (cx < cleft) cx = cleft;
+				if (cx > cright) cx = cright;
 				int16_t cy = cursorpos.y();
 				if (cy < ctop) cy = ctop;
 				if (cy > cbottom - 1) cy = cbottom - 1;
@@ -925,7 +892,7 @@ namespace ms
 		}
 
 		// Reserve room for the icon + a small gap when the row has one.
-		uint16_t text_maxwidth = (icon >= 0) ? 464 : 480;
+		uint16_t text_maxwidth = (icon >= 0) ? TEXT_MAXWIDTH_ICON : TEXT_MAXWIDTH;
 
 		rowtexts.emplace(
 			std::piecewise_construct,
@@ -1011,7 +978,7 @@ namespace ms
 				set_chat_open(true);
 
 			// set_state(FOCUSED) internally calls UI::get().focus_textfield()
-			// so we must NOT call focus_textfield again — the double call
+			// so we must NOT call focus_textfield again - the double call
 			// would reset the state back to NORMAL.
 			chatfield.set_state(Textfield::State::FOCUSED);
 		}
@@ -1034,12 +1001,16 @@ namespace ms
 	void UIChatBar::set_chat_target(ChatTarget target)
 	{
 		if (target >= CHT_ALL && target < NUM_TARGETS)
+		{
 			chattarget = target;
+			refresh_target_label();
+		}
 	}
 
 	void UIChatBar::cycle_chat_target()
 	{
 		chattarget = static_cast<ChatTarget>((chattarget + 1) % NUM_TARGETS);
+		refresh_target_label();
 	}
 
 	void UIChatBar::set_pending_party_invite(int32_t in_party_id, const std::string& inviter)

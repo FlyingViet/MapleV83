@@ -24,6 +24,7 @@
 #include "../Components/Textfield.h"
 
 #include "../../Graphics/Geometry.h"
+#include "../../Graphics/Text.h"
 #include "../../Graphics/Texture.h"
 
 #include <cstdint>
@@ -33,6 +34,10 @@
 
 namespace ms
 {
+	// Chat input line + chat log, rendered from the v83 UI.nx assets. The
+	// white input band is part of StatusBar.img/base/backgrnd2 (drawn by
+	// UIStatusBar); this element draws the target selector, the text field,
+	// the open/close toggle and, when open, the log above the bar.
 	class UIChatBar : public UIElement
 	{
 	public:
@@ -61,19 +66,19 @@ namespace ms
 			PINK,
 			LIGHTBLUE,
 			GREEN,
-			// Channel-chat colors mandated by the v83 protocol —
+			// Channel-chat colors mandated by the v83 protocol -
 			// Buddy chat reads orange, Alliance chat reads as a soft
 			// light-green band; both are distinct from PINK (party)
 			// and GREEN (guild).
 			ORANGE,
 			LIGHTGREEN,
-			// Dedicated megaphone line styles — render a tiny megaphone
+			// Dedicated megaphone line styles - render a tiny megaphone
 			// icon (UIWindow.img/Megaphone/0..3) before the text so these
 			// broadcasts are visually distinct from regular chat.
-			MEGAPHONE,        // Cheap / Regular  (5070 / 5071) — icon 0
-			SUPER_MEGAPHONE,  // Super            (5072)        — icon 1
-			ITEM_MEGAPHONE,   // Item             (5076)        — icon 2
-			TRIPLE_MEGAPHONE  // Triple           (5077)        — icon 3
+			MEGAPHONE,        // Cheap / Regular  (5070 / 5071) - icon 0
+			SUPER_MEGAPHONE,  // Super            (5072)        - icon 1
+			ITEM_MEGAPHONE,   // Item             (5076)        - icon 2
+			TRIPLE_MEGAPHONE  // Triple           (5077)        - icon 3
 		};
 
 		struct PartyMember
@@ -88,6 +93,9 @@ namespace ms
 			int32_t max_hp = 0;
 		};
 
+		// `position` is accepted for compatibility with the existing
+		// emplace call; the bar re-anchors itself to UIStatusBar::bar_origin()
+		// so the input line always sits on the status bar art.
 		UIChatBar(Point<int16_t> position);
 
 		void draw(float inter) const override;
@@ -141,49 +149,35 @@ namespace ms
 		void send_chat_message(const std::string& message);
 		void send_targeted_message(const std::string& target, const std::string& message);
 		void send_party_message(const std::string& message);
+		// Top of the chat log's text box (screen space).
 		int16_t getchattop() const;
+		// Top-left of the chat log's text box (screen space).
+		Point<int16_t> log_origin() const;
+		// Refreshes the "To: ..." caption after the target changes.
+		void refresh_target_label();
 
 		enum Buttons : uint16_t
 		{
-			BT_OPENCHAT,
-			BT_CLOSECHAT,
-			BT_SCROLLUP,
-			BT_SCROLLDOWN,
-			BT_CHATTARGETS,
-			BT_IMOTICON
+			BT_OPENCHAT,     // Basic.img/BtUP   - expand the log
+			BT_CLOSECHAT,    // Basic.img/BtDown - collapse the log
+			BT_CHATTARGETS   // Basic.img/BtComboBox - cycle the chat target
 		};
 
-		// Emoticon picker. Sprites are v83's own: socialChat/BtImoticon for the
-		// button and socialChat/ImoticonFrame for the panel.
-		void toggle_emoticons();
-		void draw_emoticons(Point<int16_t> position) const;
-		// Grid cell under the cursor, or -1. Shared by hover and click so the
-		// highlight can never disagree with what a click inserts.
-		int32_t emoticon_at(Point<int16_t> cursorpos) const;
-		Point<int16_t> emoticon_origin() const;
-
-		static constexpr int16_t EMOTE_COLS = 6;
-		static constexpr int16_t EMOTE_CELL = 28;
-		static constexpr int16_t EMOTE_PAD = 8;
-
-		bool emoticons_open = false;
-		int32_t emoticon_hover = -1;
-		Texture emoticon_frame;
-		std::vector<Texture> emoticon_icons;
-
-		static constexpr int16_t CHATYOFFSET = 65;
+		// Width of the log = width of StatusBar.img/base/chat, the 566x5
+		// strip that caps the log and doubles as its resize handle.
+		static constexpr int16_t CHATLOG_W = 566;
+		static constexpr int16_t CHATSTRIP_H = 5;
+		// Gap between the log's text box and the top of the status bar.
+		static constexpr int16_t CHATYOFFSET = 1;
 		static constexpr int16_t CHATROWHEIGHT = 16;
 		static constexpr int16_t MAXCHATROWS = 16;
 		static constexpr int16_t MINCHATROWS = 1;
 		static constexpr time_t MESSAGE_COOLDOWN = 1000;
 
 		Textfield chatfield;
-		Texture chatspace[2];
-		Texture chattargets[NUM_TARGETS];
-		Texture chatenter;
-		Texture chatcover;
-		Texture tapbar;
-		Texture tapbartop;
+		Texture chat_strip;   // StatusBar.img/base/chat
+		Texture target_box;   // StatusBar.img/base/chatTarget
+		Text target_label;
 
 		bool chatopen;
 		bool chatfieldopen;
@@ -236,7 +230,7 @@ namespace ms
 	// Convenience namespace for the very common
 	//   `if (auto cb = UI::get().get_element<UIChatBar>())
 	//        cb->send_chatline(text, type);`
-	// pattern. Null-safe — silently no-ops if the chat bar isn't
+	// pattern. Null-safe - silently no-ops if the chat bar isn't
 	// present (e.g. on the title screen).
 	namespace chat
 	{

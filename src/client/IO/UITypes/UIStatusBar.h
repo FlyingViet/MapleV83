@@ -20,7 +20,6 @@
 #include "../UIElement.h"
 
 #include "../Components/Charset.h"
-#include "../Components/Gauge.h"
 #include "../Components/Icon.h"
 #include "../Components/MobGage.h"
 #include "../KeyConfig.h"
@@ -28,22 +27,37 @@
 
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "../../Character/CharStats.h"
 #include "../../Graphics/Text.h"
 #include "../../Graphics/Animation.h"
 #include "../../Graphics/Geometry.h"
 
-#include <array>
-
 namespace ms
 {
+	// In-game status bar rendered from the v83 UI.nx assets
+	// (StatusBar.img + Basic.img). The v83 bar is a single 800x71 strip
+	// authored for an 800x600 client: chat input line on top, then
+	// LV / name / HP / MP / EXP on the bottom row, hot-key buttons and the
+	// Shop / MTS / Menu / Shortcut buttons on the right.
 	class UIStatusBar : public UIElement
 	{
 	public:
 		static constexpr Type TYPE = UIElement::Type::STATUSBAR;
 		static constexpr bool FOCUSED = false;
 		static constexpr bool TOGGLED = true;
+
+		// Size of StatusBar.img/base/backgrnd (and the backgrnd2 layout).
+		static constexpr int16_t BAR_WIDTH = 800;
+		static constexpr int16_t BAR_HEIGHT = 71;
+
+		// Screen-space top-left of the 800-wide bar content: flush with the
+		// bottom of the view and centred horizontally (the plain backgrnd
+		// strip is stretched across the whole view width behind it). Shared
+		// with UIChatBar so the chat input lines up with the bar art.
+		static Point<int16_t> bar_origin();
 
 		UIStatusBar(const CharStats& stats);
 
@@ -53,6 +67,7 @@ namespace ms
 		bool is_in_range(Point<int16_t> cursorpos) const override;
 		bool send_icon(const Icon& icon, Point<int16_t> cursorpos) override;
 		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
+		void remove_cursor() override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
 
 		UIElement::Type get_type() const override;
@@ -68,9 +83,9 @@ namespace ms
 		void notify();
 		void clear_notification();
 
-		// Screen-space top-left of the BT_NOTICE bell button. Used as
-		// the anchor for both the drawer popup and the floating toast
-		// so they line up over the bell.
+		// Screen-space top-left of the notification (memo) icon slot in the
+		// base/box tray. Used as the anchor for both the drawer popup and
+		// the floating toast so they line up over it.
 		Point<int16_t> get_notice_anchor() const;
 
 	protected:
@@ -83,33 +98,26 @@ namespace ms
 
 		enum Buttons : uint16_t
 		{
-			// Main bar buttons
-			BT_WHISPER,
-			BT_CALLGM,
-			BT_CASHSHOP,
-			BT_TRADE,
-			BT_MENU,
-			BT_OPTIONS,
-			BT_CHARACTER,
-			BT_STATS,
-			BT_QUEST,
-			BT_INVENTORY,
-			BT_EQUIPS,
-			BT_SKILL,
-			BT_CHANNEL,
-			BT_KEYSETTING,
-			BT_NOTICE,
-			BT_FARM,
-			BT_EXITDUNGEON,
-			BF_BT_CASHSHOP,
-			BT_CHATCLOSE,
-			BT_CHATOPEN,
-			BT_SCROLLUP,
-			BT_SCROLLDOWN,
-			// Quick slot
+			// Main bar (StatusBar.img/Bt*) - MapleButtons
+			BT_WHISPER,     // BtWhisper
+			BT_CALLGM,      // BtClaim (report)
+			BT_CASHSHOP,    // BtShop
+			BT_TRADE,       // BtNPT (MTS)
+			BT_MENU,        // BtMenu
+			BT_KEYSETTING,  // BtShort (shortcut / key config)
+			// Hot-key row (StatusBar.img/*Key) - MapleButtons
+			BT_EQUIPS,      // EquipKey
+			BT_INVENTORY,   // InvenKey
+			BT_STATS,       // StatKey
+			BT_SKILL,       // SkillKey
+			BT_KEYSET,      // KeySet
+			// Quick slot toggle (StatusBar.img/QuickSlot, QuickSlotD)
 			BT_QS_OPEN,
 			BT_QS_CLOSE,
-			// Menu sub-panel
+			// Notification slot in base/box - hit-rect, not a MapleButton
+			BT_NOTICE,
+			// Menu popup rows - text rows, not MapleButtons (v83 ships no
+			// per-entry menu button art)
 			BT_MENU_STAT,
 			BT_MENU_SKILL,
 			BT_MENU_QUEST,
@@ -122,25 +130,19 @@ namespace ms
 			BT_MENU_MSN,
 			BT_MENU_MONSTERBATTLE,
 			BT_MENU_MONSTERLIFE,
-			// System sub-panel (v83: 5 buttons — Channel, JoyPad, KeySetting, Option, Quit)
 			BT_SYS_CHANNEL,
-			BT_SYS_GAMEQUIT,
-			BT_SYS_JOYPAD,
 			BT_SYS_KEYSETTING,
 			BT_SYS_OPTION,
+			BT_SYS_JOYPAD,
+			BT_SYS_GAMEQUIT
 		};
 
 		const CharStats& stats;
 
-		// Boss HP gauge (top-centre) — shown while a boss reports its HP.
+		// Boss HP gauge (top-centre) - shown while a boss reports its HP.
 		MobGage boss_gage;
 		float boss_hp_percent = 0.0f;
 		int32_t boss_hp_ticks = 0; // ms remaining before the gauge auto-hides
-
-		// Main gauges
-		Gauge expbar;
-		Gauge hpbar;
-		Gauge mpbar;
 
 		// UIWindow.img/EnergyBar
 		Texture energy_bar_c;
@@ -148,70 +150,81 @@ namespace ms
 		Texture energy_fill;
 		Animation energy_full_effect;
 
-		// Extra gauges
-		Gauge barrier_bar;
-		Gauge df_bar;
-		Gauge relax_exp_bar;
-		Gauge tf_bar;
+		// StatusBar.img/base
+		Texture bar_backgrnd;   // 800x71 plain strip, stretched to the view width
+		Texture bar_backgrnd2;  // 570x71 overlay: input line + LV/name + gauge panels
+		Texture hotkey_box;     // 42x19 two-slot tray (report button + memo icon)
+		Texture icon_memo;      // 14x11 memo icon, reused as the notification badge
 
+		// StatusBar.img/gauge. v83 draws the fully coloured `bar`, covers the
+		// missing part of each gauge with the 1x16 `gray` strip and lays the
+		// `graduation` ticks on top.
+		Texture gauge_bar;
+		Texture gauge_graduation;
+		Texture gauge_gray;
+		Animation hp_flash;
+		Animation mp_flash;
+
+		// Hot-key blink frames (StatusBar.img/StatKey|SkillKey/ani), used
+		// as the unspent AP / SP reminder.
+		Animation stat_blink;
+		Animation skill_blink;
+
+		// StatusBar.img/number (digits + Lbracket/Rbracket/percent/slash)
 		Charset statset;
+		Texture num_lbracket;
+		Texture num_rbracket;
+		// Basic.img/LevelNo (orange 11x13 digits)
 		Charset levelset;
+
 		Text namelabel;
 		Text joblabel;
 
-		// Main bar background (drawn stretched to screen width)
-		Texture bar_backgrnd;
+		// Draws a stat string with the bitmap font: digits, 's' (slash),
+		// 'p' (percent), 'L'/'R' (brackets) and '.' (drawn as a dot box).
+		void draw_stat_text(const std::string& text, Point<int16_t> pos) const;
 
-		// Gauge cover (overlay on top of gauges)
-		Texture gauge_cover;
+		// Displayed gauge fill, eased towards the real percentage each tick.
+		float hp_shown;
+		float mp_shown;
+		float exp_shown;
+		static float ease_towards(float current, float target);
 
-		// Class-variant gauge backgrounds
-		Texture gauge_backgrd_ab;
-		Texture gauge_backgrd_demon;
-		Texture gauge_backgrd_kanna;
-		Texture gauge_backgrd_zero;
-		Texture gauge_cover_ab;
-		Texture lv_backtrnd_sao;
+		// Gauge-change flash state: start a short timer whenever HP/MP/EXP
+		// drops, and play the hpFlash/mpFlash animation while it is alive,
+		// not only when the resource is below the warning threshold.
+		float prev_hp_pct;
+		float prev_mp_pct;
+		float prev_exp_pct;
+		uint16_t hp_flash_ticks;
+		uint16_t mp_flash_ticks;
+		uint16_t exp_flash_ticks;
+		static constexpr uint16_t FLASH_DURATION_TICKS = 20;
 
-		// Gauge animations (low HP/MP flash)
-		Animation ani_hp_gauge;
-		Animation ani_hp_gauge_ab;
-		Animation ani_mp_gauge;
-
-		// Notification animations
-		Animation ap_notify;
-		Animation sp_notify;
-		Animation noncombat_notify;
-		Texture cooltime_return;
-
-		// Chat area
-		Texture chat_cover;
-		Texture chat_enter;
-		Texture chat_space;
-		Texture chat_space2;
-		bool chat_open;
-
-		// Chat target
-
-		// Chat tab bar
-		Texture chat_scroll_normal;
-		Texture chat_scroll_over;
-
-		// Menu sub-panel
-		Texture menu_backgrnd;
+		// Menu popup (BtMenu). v83 has no sub-menu button art, so the popup
+		// is a translucent panel of text rows drawn above the button.
+		struct MenuRow
+		{
+			uint16_t id;
+			std::string label;
+		};
+		std::vector<MenuRow> menu_rows;
 		bool show_menu;
+		// Fade alpha for the popup (0 hidden .. 1 fully visible).
+		float menu_fade = 0.0f;
+		int16_t menu_hover = -1;
+		// mutable: draw() is const but re-texts the shared label per row.
+		mutable Text menu_label;
+		int16_t menu_panel_height() const;
+		Rectangle<int16_t> menu_panel_rect() const;
+		Rectangle<int16_t> menu_row_rect(int16_t row) const;
+		int16_t menu_row_at(Point<int16_t> cursorpos) const;
 
-		// System sub-panel
-		Texture system_backgrnd;
-		bool show_system;
+		// Notification slot hit-rect (right slot of base/box).
+		Rectangle<int16_t> notice_rect() const;
 
-		// Quick slot
+		// Quick slot (StatusBar.img/base/quickSlot, 151x80, 4x2 cubes)
 		Texture quickslot_bg;
-		// True when quickslot_bg is the v83 StatusBar.img/base/quickSlot
-		// bitmap, which has origin (0,0) and must be drawn at the panel
-		// position. The StatusBar2 fallback has a baked (-143,143) origin
-		// and self-positions when drawn at `position`.
-		bool quickslot_bg_v83 = false;
 		bool show_quickslot;
 		Texture qs_key_sprites[8];
 
@@ -267,47 +280,8 @@ namespace ms
 			int32_t action;
 		};
 
-		// readyZero
-		Texture ready_zero_backgrnd;
-		Texture ready_zero_gauge_backgrnd;
-
-		// Buff tray background (from StatusBar3.img)
-		Texture buff_backgrnd;
-
-		// Alarm/notification area
-		Texture alarm_backgrnd;
-		Animation alarm_anim;
-
-		// Event shortcut icons
-		Texture event_backgrnd;
-
 		// Notice/notification state
 		bool has_notification;
-
-		Texture notice_sprite;
 		uint32_t notice_pulse_tick;
-
-		// Gauge-change flash state: start a short timer whenever HP/MP/EXP
-		// drops, and draw the animated overlay while the timer is alive,
-		// not only when the resource is below 30%.
-		float prev_hp_pct;
-		float prev_mp_pct;
-		float prev_exp_pct;
-		uint16_t hp_flash_ticks;
-		uint16_t mp_flash_ticks;
-		uint16_t exp_flash_ticks;
-		static constexpr uint16_t FLASH_DURATION_TICKS = 20;
-
-		// 3-piece tiled backdrop for the Menu / System sub-panels
-		// (StatusBar2.img/mainBar/{Menu,System}/backgrnd/0..2).
-		Texture menu_bg_top, menu_bg_mid, menu_bg_bot;
-		Texture sys_bg_top,  sys_bg_mid,  sys_bg_bot;
-		// Fade alpha for each sub-panel (0 hidden .. 1 fully visible).
-		float menu_fade = 0.0f;
-		float sys_fade  = 0.0f;
-
-		void draw_tiled_panel(Point<int16_t> tl, int16_t panel_w, int16_t panel_h,
-			const Texture& top, const Texture& mid, const Texture& bot,
-			float fade_alpha) const;
 	};
 }
