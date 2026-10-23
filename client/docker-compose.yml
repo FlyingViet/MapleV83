@@ -1,0 +1,76 @@
+services:
+  # Serves the static files (HTML, WASM, Assets)
+  html-server:
+    container_name: html-server
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    command: python web/server.py
+    environment:
+      - WEB_PATH_PREFIX=${WEB_PATH_PREFIX:-}
+    ports:
+      - "${WEB_HOST_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    networks:
+      - maplestory-network
+    restart: unless-stopped
+
+  # Proxies WebSocket connections to the TCP Game Server
+  ws-proxy:
+    container_name: ws-proxy
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    # to ensure the client connects to 'host.docker.internal' or configure
+    # this proxy to route correctly.
+    command: python -u web/ws_proxy.py --ws-port 8080
+    environment:
+      - IS_DOCKER=true
+      - WS_PROXY_LOCALHOST_TARGET=host.docker.internal
+    ports:
+      - "${WS_PROXY_HOST_PORT:-8082}:8080"
+    volumes:
+      - .:/app
+    networks:
+      - maplestory-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Serves assets via WebSocket for LazyFS
+  assets-server:
+    container_name: assets-server
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    command: python web/assets_server.py --port 8765 --directory .
+    ports:
+      - "8765:8765"
+    volumes:
+      - .:/app
+    networks:
+      - maplestory-network
+    restart: unless-stopped
+
+  # Builder service - run with: docker-compose run --rm wasm-builder
+  wasm-builder:
+    container_name: wasm-builder
+    build:
+      context: .
+      dockerfile: docker/builder.Dockerfile
+    volumes:
+      - .:/app
+      # Persist Emscripten system library cache (zlib/freetype/etc.) between
+      # one-off `docker compose run --rm wasm-builder ...` invocations.
+      - emscripten-cache:/emsdk/upstream/emscripten/cache
+    networks:
+      - maplestory-network
+    profiles: ["tools"]
+
+networks:
+  maplestory-network:
+    external: true
+
+volumes:
+  emscripten-cache:

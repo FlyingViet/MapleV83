@@ -1,0 +1,11 @@
+/build/
+/.cache/
+/assets/
+/serverAssets/
+__pycache__
+/nxFiles/
+/wz/
+/logs/
+*.override.yml
+.env
+/port-staging/

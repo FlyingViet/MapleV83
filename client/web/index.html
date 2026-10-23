@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <title>MapleStory</title>
+    <link rel="manifest" href="web/manifest.json">
+    <link rel="icon" href="web/icons/app.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="web/icons/app-180.png">
+    <link rel="stylesheet" href="web/overlay.css">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #fff;
+        }
+
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            height: 100dvh;
+            width: 100vw;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        #container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        #canvas {
+            border: none;
+            background-color: #000;
+            display: block;
+            outline: none;
+            cursor: none;
+            touch-action: none;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <canvas id="canvas" tabindex="-1"></canvas>
+        <div id="mw-overlay" hidden></div>
+    </div>
+
+    <script>
+        (function () {
+            // The client picks its own render size (Width/Height in web/config.json,
+            // applied through GLFW); the page only scales that canvas to fit the screen.
+            let GAME_WIDTH = 800;
+            let GAME_HEIGHT = 600;
+
+            function syncCanvasResolution(canvas) {
+                if (canvas.width > 0 && canvas.height > 0) {
+                    GAME_WIDTH = canvas.width;
+                    GAME_HEIGHT = canvas.height;
+                }
+            }
+
+            function getFittedCanvasSize(viewW, viewH) {
+                if (viewW * GAME_HEIGHT <= viewH * GAME_WIDTH) {
+                    const width = Math.max(1, Math.floor(viewW));
+                    return {
+                        width,
+                        height: Math.max(1, Math.floor(width * GAME_HEIGHT / GAME_WIDTH))
+                    };
+                }
+
+                const height = Math.max(1, Math.floor(viewH));
+                return {
+                    width: Math.max(1, Math.floor(height * GAME_WIDTH / GAME_HEIGHT)),
+                    height
+                };
+            }
+
+            function fitCanvas() {
+                const canvas = document.getElementById('canvas');
+                if (!canvas) {
+                    return;
+                }
+
+                // Keep the render surface fixed and only scale it with CSS.
+                syncCanvasResolution(canvas);
+
+                const { width, height } = getFittedCanvasSize(window.innerWidth, window.innerHeight);
+
+                canvas.style.width = width + 'px';
+                canvas.style.height = height + 'px';
+                if (window.MapleOverlay && window.MapleOverlay.onResize) {
+                    window.MapleOverlay.onResize();
+                }
+            }
+
+            window.MapleWasmUI = {
+                applyScale: fitCanvas
+            };
+
+            window.addEventListener('resize', fitCanvas);
+            document.addEventListener('fullscreenchange', fitCanvas);
+            fitCanvas();
+        })();
+
+        Module = {
+            canvas: (function () {
+                let canvas = document.getElementById('canvas');
+                canvas.addEventListener("webglcontextlost", function (e) {
+                    alert('WebGL context lost. You will need to reload the page.');
+                    e.preventDefault();
+                }, false);
+                canvas.addEventListener("click", function () {
+                    canvas.focus();
+                });
+                return canvas;
+            })(),
+
+            // Disable stdin to prevent annoying prompt() popups
+            preRun: [function () {
+                function stdin() {
+                    return null; // Return null for EOF
+                }
+                FS.init(stdin, null, null);
+            }],
+
+            print: function (text) {
+                console.log('[stdout]', text);
+            },
+
+            printErr: function (text) {
+                console.error('[stderr]', text);
+            },
+
+            setStatus: function (text) {
+                if (text) {
+                    console.log('[status]', text);
+                }
+            },
+
+            monitorRunDependencies: function (left) {
+                console.log('[dependencies]', left, 'remaining');
+            },
+
+            onRuntimeInitialized: function () {
+                console.log('[runtime] Initialized');
+                if (window.MapleWasmUI && window.MapleWasmUI.applyScale) {
+                    window.MapleWasmUI.applyScale();
+                }
+                if (window.MapleOverlay && window.MapleOverlay.onRuntimeReady) {
+                    window.MapleOverlay.onRuntimeReady();
+                }
+            },
+
+            // Function to add C++ logs - now just console
+            addCppLog: function (level, message) {
+                let timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+                console.log('[' + timestamp + '] [' + level + '] ' + message);
+            }
+        };
+
+        console.log('[status] Downloading...');
+
+        window.onerror = function (event) {
+            console.error('[post-exception status] Exception thrown, see JavaScript console');
+        };
+
+        // All URLs are relative so the site works both at "/" and mounted under a
+        // path prefix (e.g. https://host/maple/) behind a reverse proxy.
+        fetch('web/config.json', { cache: 'no-store' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(config => {
+                if (config) {
+                    let hasConfig = false;
+                    const lazyConfig = {};
+
+                    const lazyConfigKeys = [
+                        'AssetsServerIP', 'AssetsServerPort', 'AssetsServerPath',
+                        'MapleStoryServerIp', 'MapleStoryServerPort',
+                        'ProxyIP', 'ProxyPort', 'ProxyPath', 'AssetsServerProtocol',
+                        'Width', 'Height'
+                    ];
+
+                    lazyConfigKeys.forEach(key => {
+                        if (config[key] !== undefined && config[key] !== null) {
+                            lazyConfig[key] = config[key];
+                            console.log(`[config] Set ${key} from config.json:`, config[key]);
+                            hasConfig = true;
+                        }
+                    });
+
+                    if (hasConfig) {
+                        Module.LazyFS = Object.assign(Module.LazyFS || {}, lazyConfig);
+                    }
+                }
+                loadWasmClient();
+            })
+            .catch(err => {
+                console.warn('[config] Could not load web/config.json, proceeding with defaults. Error:', err.message);
+                loadWasmClient();
+            });
+
+        function loadWasmClient() {
+            const script = document.createElement('script');
+            script.src = 'build/JourneyClient.js';
+            script.async = true;
+            document.body.appendChild(script);
+        }
+    </script>
+    <script src="web/overlay.js"></script>
+</body>
+
+</html>
