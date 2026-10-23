@@ -38,6 +38,14 @@ namespace ms
 			A14B,
 			A15B,
 			A18M,
+			// Twice-size rasters for the mobile panels, drawn at half scale
+			// (MobileUI): H13B reads as a sharp 13 px bold.
+			H11M,
+			H11B,
+			H13M,
+			H13B,
+			H16B,
+			H20B,
 			NUM_FONTS
 		};
 

@@ -270,7 +270,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
             this.transienthp = Float.NEGATIVE_INFINITY;
         }
         this.maxhp = hp_;
-        this.clientmaxhp = Math.min(30000, hp_);
+        this.clientmaxhp = hp_; // MapleV83: no 30000 cap
     }
 
     protected void setMaxMp(int mp_) {
@@ -278,36 +278,16 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
             this.transientmp = Float.NEGATIVE_INFINITY;
         }
         this.maxmp = mp_;
-        this.clientmaxmp = Math.min(30000, mp_);
+        this.clientmaxmp = mp_;
     }
 
-    private static long clampStat(int v, int min, int max) {
-        return (v < min) ? min : ((v > max) ? max : v);
+    // MapleV83: stats used to travel packed as four 16-bit fields in a long (capped at 32767).
+    // A null slot means "unchanged".
+    private static Integer[] statPool(Integer v1, Integer v2, Integer v3, Integer v4) {
+        return new Integer[]{v1, v2, v3, v4};
     }
 
-    private static long calcStatPoolNode(Integer v, int displacement) {
-        long r;
-        if (v == null) {
-            r = -32768;
-        } else {
-            r = clampStat(v, -32767, 32767);
-        }
-
-        return ((r & 0x0FFFF) << displacement);
-    }
-
-    private static long calcStatPoolLong(Integer v1, Integer v2, Integer v3, Integer v4) {
-        long ret = 0;
-
-        ret |= calcStatPoolNode(v1, 48);
-        ret |= calcStatPoolNode(v2, 32);
-        ret |= calcStatPoolNode(v3, 16);
-        ret |= calcStatPoolNode(v4, 0);
-
-        return ret;
-    }
-
-    private void changeStatPool(Long hpMpPool, Long strDexIntLuk, Long newSp, int newAp, boolean silent) {
+    private void changeStatPool(Integer[] hpMpPool, Integer[] strDexIntLuk, int[] newSp, int newAp, boolean silent) {
         effLock.lock();
         statWlock.lock();
         try {
@@ -316,12 +296,12 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
             boolean statUpdate = false;
 
             if (hpMpPool != null) {
-                short newHp = (short) (hpMpPool >> 48);
-                short newMp = (short) (hpMpPool >> 32);
-                short newMaxHp = (short) (hpMpPool >> 16);
-                short newMaxMp = hpMpPool.shortValue();
+                Integer newHp = hpMpPool[0];
+                Integer newMp = hpMpPool[1];
+                Integer newMaxHp = hpMpPool[2];
+                Integer newMaxMp = hpMpPool[3];
 
-                if (newMaxHp != Short.MIN_VALUE) {
+                if (newMaxHp != null) {
                     if (newMaxHp < 50) {
                         newMaxHp = 50;
                     }
@@ -332,12 +312,12 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
                     statUpdates.put(Stat.HP, hp);
                 }
 
-                if (newHp != Short.MIN_VALUE) {
+                if (newHp != null) {
                     setHp(newHp);
                     statUpdates.put(Stat.HP, hp);
                 }
 
-                if (newMaxMp != Short.MIN_VALUE) {
+                if (newMaxMp != null) {
                     if (newMaxMp < 5) {
                         newMaxMp = 5;
                     }
@@ -348,34 +328,34 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
                     statUpdates.put(Stat.MP, mp);
                 }
 
-                if (newMp != Short.MIN_VALUE) {
+                if (newMp != null) {
                     setMp(newMp);
                     statUpdates.put(Stat.MP, mp);
                 }
             }
 
             if (strDexIntLuk != null) {
-                short newStr = (short) (strDexIntLuk >> 48);
-                short newDex = (short) (strDexIntLuk >> 32);
-                short newInt = (short) (strDexIntLuk >> 16);
-                short newLuk = strDexIntLuk.shortValue();
+                Integer newStr = strDexIntLuk[0];
+                Integer newDex = strDexIntLuk[1];
+                Integer newInt = strDexIntLuk[2];
+                Integer newLuk = strDexIntLuk[3];
 
-                if (newStr >= 4) {
+                if (newStr != null && newStr >= 4) {
                     setStr(newStr);
                     statUpdates.put(Stat.STR, str);
                 }
 
-                if (newDex >= 4) {
+                if (newDex != null && newDex >= 4) {
                     setDex(newDex);
                     statUpdates.put(Stat.DEX, dex);
                 }
 
-                if (newInt >= 4) {
+                if (newInt != null && newInt >= 4) {
                     setInt(newInt);
                     statUpdates.put(Stat.INT, int_);
                 }
 
-                if (newLuk >= 4) {
+                if (newLuk != null && newLuk >= 4) {
                     setLuk(newLuk);
                     statUpdates.put(Stat.LUK, luk);
                 }
@@ -389,8 +369,8 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
             }
 
             if (newSp != null) {
-                short sp = (short) (newSp >> 16);
-                short skillbook = newSp.shortValue();
+                int sp = newSp[0];
+                int skillbook = newSp[1];
 
                 setRemainingSp(sp, skillbook);
                 statUpdates.put(Stat.AVAILABLESP, remainingSp[skillbook]);
@@ -416,7 +396,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
     }
 
     public void healHpMp() {
-        updateHpMp(30000);
+        updateHpMp(Integer.MAX_VALUE); // setHp/setMp clamp to the local max
     }
 
     public void updateHpMp(int x) {
@@ -432,8 +412,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
     }
 
     private void changeHpMpPool(Integer hp, Integer mp, Integer maxhp, Integer maxmp, boolean silent) {
-        long hpMpPool = calcStatPoolLong(hp, mp, maxhp, maxmp);
-        changeStatPool(hpMpPool, null, null, -1, silent);
+        changeStatPool(statPool(hp, mp, maxhp, maxmp), null, null, -1, silent);
     }
 
     public void updateHp(int hp) {
@@ -485,11 +464,17 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         }
     }
 
+    // MapleV83: stats go to the integer limit, so sums stop there instead of
+    // wrapping negative (a full HP bar plus regen used to kill the character).
+    protected static int sat(long value) {
+        return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value));
+    }
+
     public int safeAddHP(int delta) {
         effLock.lock();
         statWlock.lock();
         try {
-            if (hp + delta <= 0) {
+            if ((long) hp + delta <= 0) {
                 delta = -hp + 1;
             }
 
@@ -505,7 +490,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            updateHp(hp + delta);
+            updateHp(sat((long) hp + delta));
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -516,7 +501,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            updateMp(mp + delta);
+            updateMp(sat((long) mp + delta));
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -527,7 +512,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            updateHpMp(hp + hpDelta, mp + mpDelta);
+            updateHpMp(sat((long) hp + hpDelta), sat((long) mp + mpDelta));
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -538,7 +523,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            changeHpMpPool(null, null, maxhp + hpdelta, maxmp + mpdelta, silent);
+            changeHpMpPool(null, null, sat((long) maxhp + hpdelta), sat((long) maxmp + mpdelta), silent);
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -549,7 +534,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            updateMaxHp(maxhp + delta);
+            updateMaxHp(sat((long) maxhp + delta));
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -560,7 +545,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            updateMaxMp(maxmp + delta);
+            updateMaxMp(sat((long) maxmp + delta));
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -603,15 +588,15 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            if (remainingAp - deltaAp < 0 || hpMpApUsed + deltaAp < 0 || maxhp >= 30000) {
+            if (remainingAp - deltaAp < 0 || (long) hpMpApUsed + deltaAp < 0 || (long) maxhp + deltaHP > Integer.MAX_VALUE) {
                 return false;
             }
 
-            long hpMpPool = calcStatPoolLong(null, null, maxhp + deltaHP, maxmp);
-            long strDexIntLuk = calcStatPoolLong(str, dex, int_, luk);
+            Integer[] hpMpPool = statPool(null, null, maxhp + deltaHP, maxmp);
+            Integer[] strDexIntLuk = statPool(str, dex, int_, luk);
 
             changeStatPool(hpMpPool, strDexIntLuk, null, remainingAp - deltaAp, false);
-            setHpMpApUsed(hpMpApUsed + deltaAp);
+            setHpMpApUsed(sat((long) hpMpApUsed + deltaAp));
             return true;
         } finally {
             statWlock.unlock();
@@ -623,15 +608,15 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            if (remainingAp - deltaAp < 0 || hpMpApUsed + deltaAp < 0 || maxmp >= 30000) {
+            if (remainingAp - deltaAp < 0 || (long) hpMpApUsed + deltaAp < 0 || (long) maxmp + deltaMP > Integer.MAX_VALUE) {
                 return false;
             }
 
-            long hpMpPool = calcStatPoolLong(null, null, maxhp, maxmp + deltaMP);
-            long strDexIntLuk = calcStatPoolLong(str, dex, int_, luk);
+            Integer[] hpMpPool = statPool(null, null, maxhp, maxmp + deltaMP);
+            Integer[] strDexIntLuk = statPool(str, dex, int_, luk);
 
             changeStatPool(hpMpPool, strDexIntLuk, null, remainingAp - deltaAp, false);
-            setHpMpApUsed(hpMpApUsed + deltaAp);
+            setHpMpApUsed(sat((long) hpMpApUsed + deltaAp));
             return true;
         } finally {
             statWlock.unlock();
@@ -656,7 +641,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
                 return false;
             }
 
-            int newStr = str, newDex = dex, newInt = int_, newLuk = luk;
+            long newStr = str, newDex = dex, newInt = int_, newLuk = luk;
             if (deltaStr != null) {
                 newStr += deltaStr;   // thanks Rohenn for noticing an NPE case after "null" started being used
             }
@@ -687,7 +672,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
             }
 
             int newAp = remainingAp - apUsed;
-            updateStrDexIntLuk(newStr, newDex, newInt, newLuk, newAp);
+            updateStrDexIntLuk((int) newStr, (int) newDex, (int) newInt, (int) newLuk, newAp);
             return true;
         } finally {
             statWlock.unlock();
@@ -714,7 +699,7 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
         effLock.lock();
         statWlock.lock();
         try {
-            changeRemainingAp(Math.max(0, remainingAp + deltaAp), silent);
+            changeRemainingAp(Math.max(0, sat((long) remainingAp + deltaAp)), silent);
         } finally {
             statWlock.unlock();
             effLock.unlock();
@@ -726,14 +711,11 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
     }
 
     private void changeStrDexIntLuk(Integer str, Integer dex, Integer int_, Integer luk, int remainingAp, boolean silent) {
-        long strDexIntLuk = calcStatPoolLong(str, dex, int_, luk);
-        changeStatPool(null, strDexIntLuk, null, remainingAp, silent);
+        changeStatPool(null, statPool(str, dex, int_, luk), null, remainingAp, silent);
     }
 
     private void changeStrDexIntLukSp(Integer str, Integer dex, Integer int_, Integer luk, int remainingAp, int remainingSp, int skillbook, boolean silent) {
-        long strDexIntLuk = calcStatPoolLong(str, dex, int_, luk);
-        long sp = calcStatPoolLong(0, 0, remainingSp, skillbook);
-        changeStatPool(null, strDexIntLuk, sp, remainingAp, silent);
+        changeStatPool(null, statPool(str, dex, int_, luk), new int[]{remainingSp, skillbook}, remainingAp, silent);
     }
 
     protected void updateStrDexIntLukSp(int str, int dex, int int_, int luk, int remainingAp, int remainingSp, int skillbook) {
@@ -756,15 +738,14 @@ public abstract class AbstractCharacterObject extends AbstractAnimatedMapObject 
     }
 
     protected void changeRemainingSp(int remainingSp, int skillbook, boolean silent) {
-        long sp = calcStatPoolLong(0, 0, remainingSp, skillbook);
-        changeStatPool(null, null, sp, Short.MIN_VALUE, silent);
+        changeStatPool(null, null, new int[]{remainingSp, skillbook}, Short.MIN_VALUE, silent);
     }
 
     public void gainSp(int deltaSp, int skillbook, boolean silent) {
         effLock.lock();
         statWlock.lock();
         try {
-            changeRemainingSp(Math.max(0, remainingSp[skillbook] + deltaSp), skillbook, silent);
+            changeRemainingSp(Math.max(0, sat((long) remainingSp[skillbook] + deltaSp)), skillbook, silent);
         } finally {
             statWlock.unlock();
             effLock.unlock();

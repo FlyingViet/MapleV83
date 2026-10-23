@@ -56,7 +56,7 @@ namespace ms
 		std::string name;
 		bool female;
 		std::vector<int64_t> petids;
-		EnumMap<MapleStat::Id, uint16_t> stats;
+		EnumMap<MapleStat::Id, int32_t> stats;
 		int64_t exp;
 		int32_t mapid;
 		uint8_t portal;

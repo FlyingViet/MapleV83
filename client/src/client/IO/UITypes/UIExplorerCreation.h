@@ -26,9 +26,10 @@
 
 namespace ms
 {
-	// v83 Explorer creation (Login.img/NewChar): NAME OF CHARACTER sign with a
-	// check button first, then the CHARACTER SETTINGS sign with nine avatarSel
-	// rows, the STR/DEX/INT/LUK table and the dice, then OK to create.
+	// v83 character creation for every race (Login.img/NewChar, NewCharKnight,
+	// NewCharAran): NAME OF CHARACTER sign with a check button first, then the
+	// CHARACTER SETTINGS sign with nine avatarSel rows and the starting
+	// STR/DEX/INT/LUK table, then OK to create.
 	//
 	// Base flags: named = name accepted by the server (look sign showing),
 	// charSet = OK pressed on the look sign (creation packet sent). gender is
@@ -36,13 +37,22 @@ namespace ms
 	class UIExplorerCreation : public UICreationBase
 	{
 	public:
-		UIExplorerCreation();
+		enum class Race : uint8_t
+		{
+			EXPLORER,
+			CYGNUS,
+			ARAN
+		};
+
+		explicit UIExplorerCreation(Race race = Race::EXPLORER);
 
 		void draw(float inter) const override;
 		void update() override;
 
-		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
 		void send_naming_result(bool nameused) override;
+
+		// One race's board geometry (defined in the .cpp)
+		struct Layout;
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
@@ -62,11 +72,15 @@ namespace ms
 		void randomize_look();
 		void refresh_names();
 		void apply_hair();
-		void roll_stats();
 		void show_name_sign();
 		void show_look_sign();
 		void set_look_buttons(bool active);
 		static const std::string& hair_color_name(uint8_t color);
+		static const Layout& layout_for(Race race);
+		static uint16_t job_for(Race race);
+
+		Race race;
+		const Layout& layout;
 
 		// Background is stretched to the view (lay: x and y scaled separately);
 		// sign and stat art keep their aspect: alay()/aargs() map a design point
@@ -94,14 +108,8 @@ namespace ms
 		Text botname;
 		Text gendername;
 
-		// Display-only stat roll: the v83 CreateChar packet carries no stats.
+		// Starting stats: everyone begins at 4/4/4/4 and places 9 AP in game.
 		Texture stattable;
-		std::array<uint8_t, 4> stats;
 		std::array<Text, 4> stattexts;
-		Texture dice_idle;
-		Animation dice_roll;
-		Rectangle<int16_t> dice_bounds;
-		bool rolling;
-		uint8_t roll_cycles;
 	};
 }

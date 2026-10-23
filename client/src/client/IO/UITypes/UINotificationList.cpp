@@ -19,6 +19,8 @@
 
 #include "UIStatusBar.h"
 
+#include "../MobileUI.h"
+#include "../../Constants.h"
 #include "../UI.h"
 #include "../NotificationCenter.h"
 
@@ -53,6 +55,11 @@ namespace ms
 	void UINotificationList::layout()
 	{
 		position = anchor - Point<int16_t>(row.dims.x() - POCKET_X_NUDGE, row.dims.y());
+
+		// Where the phone shows its toasts (UIToastStack::place).
+		if (MobileUI::enabled())
+			position = Point<int16_t>(static_cast<int16_t>((Constants::Constants::get().get_viewwidth() - row.dims.x()) / 2), 62);
+
 		bool have_entry = !NotificationCenter::get().empty();
 		buttons[Buttons::BT_ACCEPT]->set_active(have_entry);
 		buttons[Buttons::BT_DECLINE]->set_active(have_entry);

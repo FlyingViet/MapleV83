@@ -37,5 +37,6 @@ namespace ms
 		Animation animation;
 		MovingObject moveobj;
 		bool flip;
+		bool leftward = false;
 	};
 }

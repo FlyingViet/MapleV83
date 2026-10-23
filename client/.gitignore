@@ -9,3 +9,5 @@ __pycache__
 *.override.yml
 .env
 /port-staging/
+/build-sim/
+/src/client/LocalServers.h

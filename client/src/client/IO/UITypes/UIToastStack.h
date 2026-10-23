@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../UIElement.h"
+#include "../Components/MobileNoticeCard.h"
 #include "../Components/NotificationRow.h"
 
 #include <cstdint>
@@ -35,6 +36,8 @@ namespace ms
 	// matching the bell-button drawer. The drawer (UINotificationList)
 	// keeps a parallel persistent copy of every entry until the user
 	// resolves it, so toasts that auto-expire never strand the request.
+	// On a phone the toast is a MobileNoticeCard banner across the top of the
+	// screen, and invites (Notifications::invite) go through here too.
 	class UIToastStack : public UIElement
 	{
 	public:
@@ -44,12 +47,21 @@ namespace ms
 
 		UIToastStack();
 
+		// actionable: the notification has something to accept or view.
+		// center_id: its NotificationCenter entry; answered elsewhere (the
+		// drawer, the inbox) the toast goes away unanswered.
+		// invite: holds longer and jumps ahead of plain alerts.
 		void push(std::string title, std::string body,
-			std::function<void(bool yes)> resolver);
+			std::function<void(bool yes)> resolver,
+			bool actionable = true, int32_t center_id = 0, bool invite = false);
+
+		// A toast with this title is showing or waiting.
+		bool has(const std::string& title) const;
 
 		void draw(float inter) const override;
 		void update() override;
 
+		bool is_in_range(Point<int16_t> cursorpos) const override;
 		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
 
 		UIElement::Type get_type() const override;
@@ -69,8 +81,18 @@ namespace ms
 			std::string title_str;
 			std::string body_str;
 			std::function<void(bool yes)> resolver;
+			// Milliseconds on screen.
 			int32_t age = 0;
+			bool actionable = true;
+			int32_t center_id = 0;
+			bool invite = false;
+			uint32_t serial = 0;
 		};
+
+		int32_t lifetime(const Entry& e) const;
+		bool paused() const;
+		// Lays the phone's banner out for the front entry.
+		void refresh_card();
 
 		// Pop the head of the queue and invoke its resolver — used by
 		// explicit Accept/Decline button clicks.
@@ -88,5 +110,10 @@ namespace ms
 
 		std::deque<Entry> queue;
 		NotificationRow row;
+
+		bool mobile = false;
+		MobileNoticeCard card;
+		uint32_t card_serial = 0;
+		uint32_t next_serial = 1;
 	};
 }

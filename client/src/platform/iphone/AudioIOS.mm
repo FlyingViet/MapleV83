@@ -1,0 +1,637 @@
+//////////////////////////////////////////////////////////////////////////////////
+//	This file is part of the continued Journey MMORPG client					//
+//	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
+//																				//
+//	This program is free software: you can redistribute it and/or modify		//
+//	it under the terms of the GNU Affero General Public License as published by	//
+//	the Free Software Foundation, either version 3 of the License, or			//
+//	(at your option) any later version.											//
+//////////////////////////////////////////////////////////////////////////////////
+// Apple headers first: MapleStory.h defines an empty DEBUG, which the macOS
+// SDK's CarbonCore headers (pulled in by AVFoundation there) test with #if.
+#import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
+
+#include "Audio/Audio.h"
+
+#include "Configuration.h"
+
+
+#include <cctype>
+#include <cmath>
+#include <string>
+
+#ifdef USE_NX
+#include <nlnx/audio.hpp>
+#include <nlnx/nx.hpp>
+#endif
+
+#include <vector>
+
+// iOS replacement for the BASS backend in src/Audio/Audio.cpp: everything
+// above the BASS calls is the same code. Sound effects are decoded once to
+// PCM and mixed by AVAudioEngine; music streams from the memory-mapped NX data
+// through AVAudioPlayer. The session is "ambient": it follows the silent
+// switch and lets other apps' audio keep playing.
+namespace
+{
+	AVAudioEngine* engine = nil;
+	AVAudioFormat* format = nil;
+	NSMutableArray<AVAudioPlayerNode*>* voices = nil;
+	NSUInteger next_voice = 0;
+	std::vector<AVAudioPCMBuffer*> buffers;
+	float sfx_volume = 1.0f;
+	float stream_volume = 1.0f;
+	AVAudioPlayer* streams[2] = { nil, nil };
+
+	constexpr NSUInteger VOICES = 24;
+
+	// Voices are started once and stay playing (silent when idle): starting or
+	// stopping a player node waits for an audio I/O cycle, which stalled the
+	// game for 10-20 ms per sound effect.
+	void start_voices(bool restart)
+	{
+		for (AVAudioPlayerNode* node in voices)
+		{
+			// After the engine restarts (an interruption), isPlaying can be stale.
+			if (restart)
+				[node stop];
+
+			if (restart || !node.isPlaying)
+				[node play];
+		}
+	}
+
+	bool engine_running()
+	{
+		if (!engine)
+			return false;
+
+		if (!engine.isRunning)
+		{
+			NSError* error = nil;
+
+			if ([engine startAndReturnError:&error])
+				start_voices(true);
+		}
+
+		return engine.isRunning;
+	}
+
+	bool backend_start()
+	{
+		@autoreleasepool
+		{
+#if TARGET_OS_IPHONE
+			AVAudioSession* session = [AVAudioSession sharedInstance];
+			[session setCategory:AVAudioSessionCategoryAmbient error:nil];
+			[session setActive:YES error:nil];
+#endif
+
+			engine = [[AVAudioEngine alloc] init];
+			format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100.0 channels:2];
+			voices = [NSMutableArray arrayWithCapacity:VOICES];
+
+			for (NSUInteger i = 0; i < VOICES; i++)
+			{
+				AVAudioPlayerNode* node = [[AVAudioPlayerNode alloc] init];
+				[engine attachNode:node];
+				[engine connect:node to:engine.mainMixerNode format:format];
+				[voices addObject:node];
+			}
+
+			[engine prepare];
+
+			NSError* error = nil;
+
+			if (![engine startAndReturnError:&error])
+				return false;
+
+			start_voices(false);
+			return true;
+		}
+	}
+
+	void backend_stop()
+	{
+		for (AVAudioPlayer* __strong& player : streams)
+		{
+			[player stop];
+			player = nil;
+		}
+
+		[engine stop];
+	}
+
+	// The WZ sound header (media-type GUIDs and a WAVEFORMATEX) precedes the
+	// MP3 frames. Find the first frame whose successor is also a frame.
+	size_t mp3_start(const uint8_t* data, size_t size)
+	{
+		static const int bitrates[16] = { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0 };
+		static const int rates[4] = { 44100, 48000, 32000, 0 };
+
+		auto frame_length = [&](size_t i) -> size_t
+		{
+			if (i + 4 > size || data[i] != 0xFF || (data[i + 1] & 0xE0) != 0xE0)
+				return 0;
+
+			int version = (data[i + 1] >> 3) & 3;
+			int layer = (data[i + 1] >> 1) & 3;
+			int bitrate = (data[i + 2] >> 4) & 15;
+			int rate = (data[i + 2] >> 2) & 3;
+			int padding = (data[i + 2] >> 1) & 1;
+
+			if (version == 1 || layer != 1 || bitrate == 0 || bitrate == 15 || rate == 3)
+				return 0;
+
+			// MPEG-1 layer III; MPEG-2/2.5 halve the rate and the frame size.
+			int kbps = bitrates[bitrate];
+			int hz = rates[rate];
+
+			if (version == 3)
+				return static_cast<size_t>(144000 * kbps / hz + padding);
+
+			static const int lsf[16] = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0 };
+			hz /= (version == 2) ? 2 : 4;
+			return static_cast<size_t>(72000 * lsf[bitrate] / hz + padding);
+		};
+
+		for (size_t i = 0; i + 4 < size && i < 4096; i++)
+		{
+			size_t length = frame_length(i);
+
+			if (length > 0 && (i + length >= size || frame_length(i + length) > 0))
+				return i;
+		}
+
+		return size;
+	}
+
+	struct Memory
+	{
+		const uint8_t* data;
+		SInt64 size;
+	};
+
+	OSStatus read_memory(void* client, SInt64 position, UInt32 request, void* buffer, UInt32* actual)
+	{
+		auto* m = static_cast<Memory*>(client);
+		SInt64 available = position < m->size ? m->size - position : 0;
+		UInt32 count = static_cast<UInt32>(std::min<SInt64>(request, available));
+		memcpy(buffer, m->data + position, count);
+		*actual = count;
+		return noErr;
+	}
+
+	SInt64 memory_size(void* client)
+	{
+		return static_cast<Memory*>(client)->size;
+	}
+
+	bool decode_sample(const uint8_t* data, size_t size, uint64_t& handle)
+	{
+		size_t start = mp3_start(data, size);
+
+		if (start >= size)
+			return false;
+
+		Memory memory{ data + start, static_cast<SInt64>(size - start) };
+		AudioFileID file = nullptr;
+
+		if (AudioFileOpenWithCallbacks(&memory, read_memory, nullptr, memory_size, nullptr, kAudioFileMP3Type, &file) != noErr)
+			return false;
+
+		ExtAudioFileRef ext = nullptr;
+
+		if (ExtAudioFileWrapAudioFileID(file, false, &ext) != noErr)
+		{
+			AudioFileClose(file);
+			return false;
+		}
+
+		AudioStreamBasicDescription client = *format.streamDescription;
+		ExtAudioFileSetProperty(ext, kExtAudioFileProperty_ClientDataFormat, sizeof(client), &client);
+
+		AVAudioPCMBuffer* buffer = nil;
+		std::vector<float> left, right;
+		const UInt32 CHUNK = 4096;
+		std::vector<float> l(CHUNK), r(CHUNK);
+
+		while (true)
+		{
+			AudioBufferList* list = (AudioBufferList*)alloca(sizeof(AudioBufferList) + sizeof(AudioBuffer));
+			list->mNumberBuffers = 2;
+			list->mBuffers[0] = { 1, CHUNK * sizeof(float), l.data() };
+			list->mBuffers[1] = { 1, CHUNK * sizeof(float), r.data() };
+
+			UInt32 frames = CHUNK;
+
+			if (ExtAudioFileRead(ext, &frames, list) != noErr || frames == 0)
+				break;
+
+			left.insert(left.end(), l.begin(), l.begin() + frames);
+			right.insert(right.end(), r.begin(), r.begin() + frames);
+		}
+
+		ExtAudioFileDispose(ext);
+		AudioFileClose(file);
+
+		if (left.empty())
+			return false;
+
+		buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:static_cast<AVAudioFrameCount>(left.size())];
+		buffer.frameLength = static_cast<AVAudioFrameCount>(left.size());
+		memcpy(buffer.floatChannelData[0], left.data(), left.size() * sizeof(float));
+		memcpy(buffer.floatChannelData[1], right.data(), right.size() * sizeof(float));
+
+		buffers.push_back(buffer);
+		handle = buffers.size();
+		return true;
+	}
+
+	void play_buffer(uint64_t handle, float volume, float pan)
+	{
+		if (handle == 0 || handle > buffers.size() || sfx_volume <= 0.0f || !engine_running())
+			return;
+
+		AVAudioPlayerNode* node = voices[next_voice++ % VOICES];
+
+		if (!node.isPlaying)
+			[node play];
+
+		// Replaces whatever this voice was playing, without stopping the node.
+		node.volume = volume * sfx_volume;
+		node.pan = pan;
+		[node scheduleBuffer:buffers[handle - 1] atTime:nil options:AVAudioPlayerNodeBufferInterrupts completionHandler:nil];
+	}
+
+	bool play_stream(int slot, const uint8_t* data, size_t size, bool loop)
+	{
+		size_t start = mp3_start(data, size);
+
+		if (start >= size)
+			return false;
+
+		// The NX file stays mapped for the whole run, so no copy is needed.
+		NSData* bytes = [NSData dataWithBytesNoCopy:const_cast<uint8_t*>(data + start) length:size - start freeWhenDone:NO];
+		NSError* error = nil;
+		AVAudioPlayer* player = [[AVAudioPlayer alloc] initWithData:bytes fileTypeHint:AVFileTypeMPEGLayer3 error:&error];
+
+		if (!player)
+			return false;
+
+		[streams[slot] stop];
+		streams[slot] = player;
+		player.numberOfLoops = loop ? -1 : 0;
+		player.volume = stream_volume;
+		[player play];
+		return true;
+	}
+
+	void set_stream_volume(float volume)
+	{
+		stream_volume = volume;
+
+		for (AVAudioPlayer* player : streams)
+			player.volume = volume;
+	}
+}
+
+namespace ms
+{
+	namespace
+	{
+		bool name_iequals(const std::string& a, const std::string& b)
+		{
+			if (a.size() != b.size())
+				return false;
+
+			for (size_t i = 0; i < a.size(); i++)
+			{
+				auto left = std::tolower(static_cast<unsigned char>(a[i]));
+				auto right = std::tolower(static_cast<unsigned char>(b[i]));
+
+				if (left != right)
+					return false;
+			}
+
+			return true;
+		}
+
+		// Resolve a '/'-separated node path, falling back to a case-insensitive
+		// scan of a level's children whenever the exact name is not there.
+		//
+		// For example, Map.nx names BGM06.img/FinalFight while Sound.nx
+		// stores Bgm06.img/FinalFight. Scan siblings only after an exact miss.
+		nl::node resolve_relaxed(nl::node root, const std::string& path)
+		{
+			nl::node exact = root.resolve(path);
+
+			if (exact)
+				return exact;
+
+			nl::node current = root;
+
+			for (size_t pos = 0; pos < path.size(); )
+			{
+				size_t slash = path.find('/', pos);
+				size_t len = (slash == std::string::npos) ? path.size() - pos : slash - pos;
+				std::string segment = path.substr(pos, len);
+
+				pos = (slash == std::string::npos) ? path.size() : slash + 1;
+
+				if (segment.empty())
+					continue;
+
+				nl::node child = current[segment];
+
+				if (!child)
+				{
+					for (nl::node candidate : current)
+					{
+						if (name_iequals(candidate.name(), segment))
+						{
+							child = candidate;
+							break;
+						}
+					}
+				}
+
+				// Still nothing: the path genuinely is not in this NX file.
+				// GMS v83 Sound.nx has no "Bgm20.img/Subway" and no "BgmTH.img"
+				// at all, and both are referenced by Map.nx. Returning the null
+				// node is deliberate -- node/audio conversions on a null node
+				// yield audio{nullptr, 0}, so the callers below see a null data
+				// pointer and simply keep the current track. No crash, no log.
+				if (!child)
+					return nl::node();
+
+				current = child;
+			}
+
+			return current;
+		}
+	}
+
+	Sound::Sound(Name name)
+	{
+		id = soundids[name];
+	}
+
+	Sound::Sound(int32_t itemid)
+	{
+		auto fitemid = format_id(itemid);
+
+		if (itemids.find(fitemid) != itemids.end())
+		{
+			id = itemids.at(fitemid);
+		}
+		else
+		{
+			auto pid = (10000 * (itemid / 10000));
+			auto fpid = format_id(pid);
+
+			if (itemids.find(fpid) != itemids.end())
+				id = itemids.at(fpid);
+			else
+				id = itemids.at("02000000");
+		}
+	}
+
+	Sound::Sound(nl::node src)
+	{
+		id = add_sound(src);
+	}
+
+	Sound::Sound()
+	{
+		id = 0;
+	}
+
+	void Sound::play() const
+	{
+		if (id > 0)
+			play(id);
+	}
+
+	void Sound::play(Point<int16_t> world_position) const
+	{
+		if (id == 0)
+			return;
+
+		// Distance from the listener (local player). Within FULL_RANGE the
+		// sound is at full volume; it then fades linearly to silence at
+		// MAX_RANGE and is skipped entirely beyond it.
+		constexpr double FULL_RANGE = 400.0;
+		constexpr double MAX_RANGE = 1200.0;
+		// Horizontal offset that maps to hard-left / hard-right panning.
+		constexpr double PAN_RANGE = 800.0;
+
+		double dx = static_cast<double>(world_position.x() - listener_position.x());
+		double dy = static_cast<double>(world_position.y() - listener_position.y());
+		double distance = std::sqrt(dx * dx + dy * dy);
+
+		if (distance >= MAX_RANGE)
+			return; // too far to hear at all
+
+		float volume = 1.0f;
+
+		if (distance > FULL_RANGE)
+			volume = static_cast<float>((MAX_RANGE - distance) / (MAX_RANGE - FULL_RANGE));
+
+		float pan = static_cast<float>(dx / PAN_RANGE);
+
+		if (pan < -1.0f)
+			pan = -1.0f;
+		else if (pan > 1.0f)
+			pan = 1.0f;
+
+		play(id, volume, pan);
+	}
+
+	Error Sound::init()
+	{
+		if (!backend_start())
+			return Error::Code::AUDIO;
+
+		nl::node uisrc = nl::nx::sound["UI.img"];
+
+		add_sound(Sound::Name::BUTTONCLICK, uisrc["BtMouseClick"]);
+		add_sound(Sound::Name::BUTTONOVER, uisrc["BtMouseOver"]);
+		add_sound(Sound::Name::CHARSELECT, uisrc["CharSelect"]);
+		add_sound(Sound::Name::DLGNOTICE, uisrc["DlgNotice"]);
+		add_sound(Sound::Name::MENUDOWN, uisrc["MenuDown"]);
+		add_sound(Sound::Name::MENUUP, uisrc["MenuUp"]);
+		add_sound(Sound::Name::RACESELECT, uisrc["RaceSelect"]);
+		add_sound(Sound::Name::SCROLLUP, uisrc["ScrollUp"]);
+		add_sound(Sound::Name::SELECTMAP, uisrc["SelectMap"]);
+		add_sound(Sound::Name::TAB, uisrc["Tab"]);
+		add_sound(Sound::Name::WORLDSELECT, uisrc["WorldSelect"]);
+		add_sound(Sound::Name::DRAGSTART, uisrc["DragStart"]);
+		add_sound(Sound::Name::DRAGEND, uisrc["DragEnd"]);
+		add_sound(Sound::Name::WORLDMAPOPEN, uisrc["WorldmapOpen"]);
+		add_sound(Sound::Name::WORLDMAPCLOSE, uisrc["WorldmapClose"]);
+
+		nl::node gamesrc = nl::nx::sound["Game.img"];
+
+		add_sound(Sound::Name::GAMESTART, gamesrc["GameIn"]);
+		add_sound(Sound::Name::JUMP, gamesrc["Jump"]);
+		add_sound(Sound::Name::DROP, gamesrc["DropItem"]);
+		add_sound(Sound::Name::PICKUP, gamesrc["PickUpItem"]);
+		add_sound(Sound::Name::PORTAL, gamesrc["Portal"]);
+		add_sound(Sound::Name::LEVELUP, gamesrc["LevelUp"]);
+		add_sound(Sound::Name::HURTDAMAGE, gamesrc["Damage"]);
+		add_sound(Sound::Name::QUESTCOMPLETE, gamesrc["QuestClear"]);
+		add_sound(Sound::Name::QUESTALERT, gamesrc["QuestAlert"]);
+		add_sound(Sound::Name::QUESTCOUNT, gamesrc["questCount"]);
+		add_sound(Sound::Name::TOMBSTONE, gamesrc["Tombstone"]);
+
+		nl::node itemsrc = nl::nx::sound["Item.img"];
+
+		for (auto node : itemsrc)
+			add_sound(node.name(), node["Use"]);
+
+		uint8_t volume = Setting<SFXVolume>::get().load();
+
+		if (!set_sfxvolume(volume))
+			return Error::Code::AUDIO;
+
+		return Error::Code::NONE;
+	}
+
+	void Sound::close()
+	{
+		backend_stop();
+	}
+
+	bool Sound::set_sfxvolume(uint8_t vol)
+	{
+		sfx_volume = vol / 100.0f;
+		return true;
+	}
+
+	void Sound::play(size_t id)
+	{
+		play(id, 1.0f, 0.0f);
+	}
+
+	void Sound::play(size_t id, float volume, float pan)
+	{
+		if (!samples.count(id))
+			return;
+
+		play_buffer(samples.at(id), volume, pan);
+	}
+
+	size_t Sound::add_sound(nl::node src)
+	{
+		nl::audio ad = src;
+
+		auto data = reinterpret_cast<const void*>(ad.data());
+
+		if (data)
+		{
+			size_t id = ad.id();
+
+			if (samples.find(id) != samples.end())
+				return id;
+
+			uint64_t buffer = 0;
+
+			if (!decode_sample(static_cast<const uint8_t*>(data), ad.length(), buffer))
+				return 0;
+
+			samples[id] = buffer;
+
+			return id;
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	void Sound::add_sound(Name name, nl::node src)
+	{
+		size_t id = add_sound(src);
+
+		if (id)
+			soundids[name] = id;
+	}
+
+	void Sound::add_sound(std::string itemid, nl::node src)
+	{
+		size_t id = add_sound(src);
+
+		if (id)
+			itemids[itemid] = id;
+	}
+
+	std::string Sound::format_id(int32_t itemid)
+	{
+		std::string strid = std::to_string(itemid);
+		if (strid.size() < 8)
+			strid.insert(0, 8 - strid.size(), '0');
+
+		return strid;
+	}
+
+	void Sound::set_listener_position(Point<int16_t> position)
+	{
+		listener_position = position;
+	}
+
+	std::unordered_map<size_t, uint64_t> Sound::samples;
+	EnumMap<Sound::Name, size_t> Sound::soundids;
+	std::unordered_map<std::string, size_t> Sound::itemids;
+	Point<int16_t> Sound::listener_position;
+
+	Music::Music(std::string p)
+	{
+		path = p;
+	}
+
+	void Music::play() const
+	{
+		static std::string bgmpath = "";
+
+		if (path == bgmpath)
+			return;
+
+		nl::audio ad = resolve_relaxed(nl::nx::sound, path);
+		auto data = reinterpret_cast<const uint8_t*>(ad.data());
+
+		if (data && play_stream(0, data, ad.length(), true))
+			bgmpath = path;
+	}
+
+	void Music::play_once() const
+	{
+		static std::string bgmpath = "";
+
+		if (path == bgmpath)
+			return;
+
+		nl::audio ad = resolve_relaxed(nl::nx::sound, path);
+		auto data = reinterpret_cast<const uint8_t*>(ad.data());
+
+		if (data && play_stream(1, data, ad.length(), false))
+			bgmpath = path;
+	}
+
+	Error Music::init()
+	{
+		uint8_t volume = Setting<BGMVolume>::get().load();
+
+		if (!set_bgmvolume(volume))
+			return Error::Code::AUDIO;
+
+		return Error::Code::NONE;
+	}
+
+	bool Music::set_bgmvolume(uint8_t vol)
+	{
+		set_stream_volume(vol / 100.0f);
+		return true;
+	}
+}

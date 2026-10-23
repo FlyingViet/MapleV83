@@ -28,6 +28,7 @@
 #include "../../IO/UITypes/UIShop.h"
 #include "../../IO/UITypes/UIStorage.h"
 #include "../../IO/UITypes/UIChatBar.h"
+#include "../../IO/UITypes/UIMobileInventory.h"
 #include "../../IO/UITypes/UIQuestHelper.h"
 
 namespace ms
@@ -36,6 +37,9 @@ namespace ms
 	{
 		if (auto iteminventory = UI::get().get_element<UIItemInventory>())
 			iteminventory->set_sort(true);
+
+		if (auto mobile = UI::get().get_element<UIMobileInventory>())
+			mobile->on_gathered();
 	}
 
 	void SortResultHandler::handle(InPacket&) const
@@ -45,6 +49,9 @@ namespace ms
 			iteminventory->set_sort(false);
 			iteminventory->clear_new();
 		}
+
+		if (auto mobile = UI::get().get_element<UIMobileInventory>())
+			mobile->on_sorted();
 	}
 
 	void ModifyInventoryHandler::handle(InPacket& recv) const

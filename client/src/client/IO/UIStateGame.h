@@ -61,7 +61,50 @@ namespace ms
 		UIElement* get_front(std::list<UIElement::Type> types) override;
 		UIElement* get_front(Point<int16_t> pos) override;
 
+		bool side_panel_open() const override;
+		bool holds_press() const override;
+		Range<int16_t> free_span() const override;
+		bool npc_talk_open() const override;
+
 	private:
+		// On the iPhone the big windows open as side panels: docked to the
+		// left or right edge, drawn larger for fingers, sliding in over a
+		// dimmed game; a tap on the dimmed game closes them.
+		enum class Side
+		{
+			LEFT,
+			RIGHT,
+			// Enlarged in place in the middle (NPC conversations): no dimming,
+			// and a tap outside does not close it.
+			CENTER
+		};
+
+		struct Dock
+		{
+			UIElement::Type type;
+			Side side;
+			float progress = 0.0f;
+		};
+
+		struct DockGeometry
+		{
+			Point<int16_t> from;
+			Point<int16_t> to;
+			float scale = 1.0f;
+		};
+
+		bool docking() const;
+		const Dock* dock_for(UIElement::Type type) const;
+		bool dock_geometry(const UIElement& element, const Dock& dock, DockGeometry& geometry) const;
+		Point<int16_t> to_local(const UIElement* element, Point<int16_t> screen) const;
+		// The first open side panel in draw order, or end() when none is open.
+		std::list<UIElement::Type>::const_iterator first_open_dock() const;
+		bool scrim_covers(const UIElement* front) const;
+		void close_docks();
+		void update_docks();
+
+		std::vector<Dock> docks;
+
 		const CharStats& stats;
 
 		bool drop_icon(const Icon& icon, Point<int16_t> pos);
@@ -91,6 +134,7 @@ namespace ms
 		Tooltip::Parent tooltipparent;
 
 		Optional<Icon> draggedicon;
+		UIElement::Type icon_owner(Icon::IconType type);
 
 		std::map<Icon::IconType, UIElement::Type> icon_map =
 		{

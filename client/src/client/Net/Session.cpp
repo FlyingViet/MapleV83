@@ -19,10 +19,8 @@
 
 #include "../Configuration.h"
 
-#ifdef MS_PLATFORM_WASM
 #include <iostream>
 #include <string>
-#endif
 
 namespace ms
 {
@@ -41,6 +39,11 @@ namespace ms
 
 	bool Session::init(const char* host, const char* port)
 	{
+		// A connection that died mid-packet leaves nothing behind.
+		pos = 0;
+		length = 0;
+		awaiting_reply = false;
+
 #ifdef MS_PLATFORM_WASM
 		// The proxy opens the TCP connection on our behalf, so a wildcard host
 		// in the server's channel list means "the machine this page came from".
@@ -162,14 +165,35 @@ namespace ms
 		cryptography.create_header(header, packet_length);
 		cryptography.encrypt(packet_bytes, packet_length);
 
-		socket.dispatch(header, HEADER_LENGTH);
-		socket.dispatch(packet_bytes, packet_length);
+		if (!socket.dispatch(header, HEADER_LENGTH) || !socket.dispatch(packet_bytes, packet_length))
+		{
+			std::cout << "[Net] Sending failed, connection lost" << std::endl;
+			connected = false;
+		}
 	}
 
 	void Session::read()
 	{
 		// Check if a packet has arrived. Handle if data is sufficient: 4 bytes (header) + 2 bytes (opcode) = 6 bytes.
 		size_t result = socket.receive(&connected);
+
+		if (awaiting_reply)
+		{
+			if (result > 0)
+			{
+				awaiting_reply = false;
+			}
+			else if (std::chrono::steady_clock::now() > reply_deadline)
+			{
+				std::cout << "[Net] The server stopped answering" << std::endl;
+				awaiting_reply = false;
+				drop();
+				return;
+			}
+		}
+
+		if (!connected)
+			return;
 
 		if (result >= MIN_PACKET_LENGTH || length > 0)
 		{
@@ -190,5 +214,19 @@ namespace ms
 	bool Session::is_connected() const
 	{
 		return connected;
+	}
+
+	void Session::expect_reply(int32_t ms)
+	{
+		reply_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+		awaiting_reply = true;
+	}
+
+	void Session::drop()
+	{
+		socket.close();
+		connected = false;
+		pos = 0;
+		length = 0;
 	}
 }

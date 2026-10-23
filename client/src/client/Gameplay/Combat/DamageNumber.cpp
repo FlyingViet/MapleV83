@@ -23,7 +23,7 @@
 
 namespace ms
 {
-	DamageNumber::DamageNumber(Type t, int32_t damage, int16_t starty, int16_t x)
+	DamageNumber::DamageNumber(Type t, int64_t damage, int16_t starty, int16_t x)
 	{
 		type = t;
 

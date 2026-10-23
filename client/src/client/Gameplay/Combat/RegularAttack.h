@@ -36,7 +36,7 @@ namespace ms
 		bool is_skill() const override;
 		int32_t get_id() const override;
 
-		ForbidReason can_use(int32_t level, Weapon::Type weapon, const Job& job, uint16_t hp, uint16_t mp, uint16_t bullets) const override;
+		ForbidReason can_use(int32_t level, Weapon::Type weapon, const Job& job, int32_t hp, int32_t mp, uint16_t bullets) const override;
 
 	private:
 		RegularAction action;

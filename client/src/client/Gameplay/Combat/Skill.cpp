@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "Skill.h"
 
+#include <algorithm>
+
 #include "../../Character/SkillId.h"
 #include "../../Data/SkillData.h"
 #include "../../Util/Misc.h"
@@ -206,7 +208,8 @@ namespace ms
 		switch (attack.type)
 		{
 		case Attack::RANGED:
-			attack.hitcount = stats.bulletcount;
+			// Aran's combo skills go out as ranged attacks but count hits, not shots.
+			attack.hitcount = std::max(stats.bulletcount, stats.attackcount);
 			break;
 		default:
 			attack.hitcount = stats.attackcount;
@@ -276,13 +279,13 @@ namespace ms
 		return skillid;
 	}
 
-	SpecialMove::ForbidReason Skill::can_use(int32_t level, Weapon::Type weapon, const Job& job, uint16_t hp, uint16_t mp, uint16_t bullets) const
+	SpecialMove::ForbidReason Skill::can_use(int32_t level, Weapon::Type weapon, const Job& job, int32_t hp, int32_t mp, uint16_t bullets) const
 	{
 		if (level <= 0 || level > SkillData::get(skillid).get_masterlevel())
 			return FBR_OTHER;
 
-		if (job.can_use(skillid) == false)
-			return FBR_OTHER;
+		// MapleV83: any learned skill can be used, other jobs' included.
+		(void)job;
 
 		const SkillData::Stats stats = SkillData::get(skillid).get_stats(level);
 

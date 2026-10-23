@@ -122,10 +122,10 @@ namespace ms
 
 	StatsEntry LoginParser::parse_stats(InPacket& recv)
 	{
-		return parse_stats(recv, false, nullptr, nullptr, nullptr);
+		return parse_stats(recv, nullptr, nullptr, nullptr);
 	}
 
-	StatsEntry LoginParser::parse_stats(InPacket& recv, bool has_sp_table, uint8_t* skin, int32_t* faceid, int32_t* hairid)
+	StatsEntry LoginParser::parse_stats(InPacket& recv, uint8_t* skin, int32_t* faceid, int32_t* hairid)
 	{
 		StatsEntry statsentry;
 
@@ -148,32 +148,29 @@ namespace ms
 		for (size_t i = 0; i < 3; i++)
 			statsentry.petids.push_back(recv.read_long());
 
-		statsentry.stats[MapleStat::Id::LEVEL] = recv.read_byte(); // v83 uses byte for level (max 200)
+		statsentry.stats[MapleStat::Id::LEVEL] = static_cast<uint16_t>(recv.read_short()); // MapleV83: short (levels to 300)
 
 		auto job = recv.read_short();
 
 		statsentry.stats[MapleStat::Id::JOB] = job;
-		statsentry.stats[MapleStat::Id::STR] = recv.read_short();
-		statsentry.stats[MapleStat::Id::DEX] = recv.read_short();
-		statsentry.stats[MapleStat::Id::INT] = recv.read_short();
-		statsentry.stats[MapleStat::Id::LUK] = recv.read_short();
-		statsentry.stats[MapleStat::Id::HP] = recv.read_short();
-		statsentry.stats[MapleStat::Id::MAXHP] = recv.read_short();
-		statsentry.stats[MapleStat::Id::MP] = recv.read_short();
-		statsentry.stats[MapleStat::Id::MAXMP] = recv.read_short();
-		statsentry.stats[MapleStat::Id::AP] = recv.read_short();
+		// MapleV83: 32-bit stats, HP/MP and AP (v83 sent shorts).
+		statsentry.stats[MapleStat::Id::STR] = recv.read_int();
+		statsentry.stats[MapleStat::Id::DEX] = recv.read_int();
+		statsentry.stats[MapleStat::Id::INT] = recv.read_int();
+		statsentry.stats[MapleStat::Id::LUK] = recv.read_int();
+		statsentry.stats[MapleStat::Id::HP] = recv.read_int();
+		statsentry.stats[MapleStat::Id::MAXHP] = recv.read_int();
+		statsentry.stats[MapleStat::Id::MP] = recv.read_int();
+		statsentry.stats[MapleStat::Id::MAXMP] = recv.read_int();
+		statsentry.stats[MapleStat::Id::AP] = recv.read_int();
 
-		if (has_sp_table)
-		{
-			if (CashShopParser::hasSPTable(job))
-				CashShopParser::parseRemainingSkillInfo(recv);
-			else
-				recv.read_short(); // remaining sp
-		}
+		// Evans get a per-advancement SP table; everyone else one 32-bit SP value
+		// (MapleV83). Every character-stats packet (char list, map entry, Cash Shop)
+		// is written the same way, so decide by job, never by packet.
+		if (CashShopParser::hasSPTable(job))
+			CashShopParser::parseRemainingSkillInfo(recv);
 		else
-		{
-			statsentry.stats[MapleStat::Id::SP] = recv.read_short();
-		}
+			statsentry.stats[MapleStat::Id::SP] = recv.read_int();
 
 		statsentry.exp = recv.read_int();
 		statsentry.stats[MapleStat::Id::FAME] = recv.read_short();

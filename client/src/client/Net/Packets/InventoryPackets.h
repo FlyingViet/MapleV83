@@ -69,6 +69,8 @@ namespace ms
 	{
 	public:
 		EquipItemPacket(int16_t src, EquipSlot::Id dest) : MoveItemPacket(InventoryType::Id::EQUIP, src, -dest, 1) {}
+		// dest is a worn slot, + EquipSlot::CASH_OFFSET for cash items
+		EquipItemPacket(int16_t src, int16_t dest) : MoveItemPacket(InventoryType::Id::EQUIP, src, static_cast<int16_t>(-dest), 1) {}
 	};
 
 	// Packet which requests that an item is unequipped
@@ -164,6 +166,18 @@ namespace ms
 				write_byte(0);
 
 			write_int(oid);
+		}
+	};
+
+	// Use a cash item that needs nothing else (a salon coupon opens its salon).
+	// Opcode: USE_CASH_ITEM(79) — short slot, int itemid
+	class UseCashItemPacket : public OutPacket
+	{
+	public:
+		UseCashItemPacket(int16_t slot, int32_t itemid) : OutPacket(OutPacket::Opcode::USE_CASH_ITEM)
+		{
+			write_short(slot);
+			write_int(itemid);
 		}
 	};
 

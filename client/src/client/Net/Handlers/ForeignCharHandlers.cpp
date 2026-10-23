@@ -139,6 +139,10 @@ namespace ms
 				if (ochar)
 					ochar->set_hidden(true);
 
+			if (code == Buffstat::second_codes.at(Buffstat::Id::SHADOWPARTNER))
+				if (ochar)
+					ochar->set_shadow_partner(true);
+
 			// Remaining foreign buffs Cosmic broadcasts (MORPH, GHOST_MORPH,
 			// SHADOWPARTNER, SOULARROW, COMBO, AURA, WK_CHARGE) have no
 			// working visual path on OtherChar in this client — morphs and
@@ -170,6 +174,9 @@ namespace ms
 			// If DARKSIGHT was cancelled, unhide
 			if (secondmask & Buffstat::second_codes.at(Buffstat::Id::DARKSIGHT))
 				ochar->set_hidden(false);
+
+			if (secondmask & Buffstat::second_codes.at(Buffstat::Id::SHADOWPARTNER))
+				ochar->set_shadow_partner(false);
 		}
 	}
 

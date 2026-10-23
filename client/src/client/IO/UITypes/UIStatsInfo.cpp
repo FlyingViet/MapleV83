@@ -22,10 +22,12 @@
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
+#include "../Components/TextButton.h"
 
 #include "../../Character/ExpTable.h"
 #include "../../Gameplay/Stage.h"
 
+#include "../../Net/Packets/MessagingPackets.h"
 #include "../../Net/Packets/PlayerPackets.h"
 
 #ifdef USE_NX
@@ -76,8 +78,11 @@ namespace ms
 		constexpr int16_t INT_APUP_Y = 283;
 		constexpr int16_t LUK_APUP_Y = 301;
 
-		// Bottom band y 323..341: BtDetail (47x18) on the right.
+		// Bottom band y 323..341: BtDetail (47x18) on the right, MapleV83's AP
+		// RESET on the left.
 		constexpr Point<int16_t> DETAIL_BT_POS = Point<int16_t>(119, 324);
+		constexpr Point<int16_t> RESET_POS = Point<int16_t>(9, 324);
+		constexpr Point<int16_t> RESET_DIM = Point<int16_t>(56, 17);
 
 		// ---- UIWindow.img/Stat/backgrnd2 (177x203): the detail pane ----
 		// Docked at the bottom-right, overlapping the 3 px window border and
@@ -112,6 +117,7 @@ namespace ms
 		buttons[Buttons::BT_LUK] = std::make_unique<MapleButton>(apup, Point<int16_t>(APUP_X, LUK_APUP_Y));
 		buttons[Buttons::BT_AUTO] = std::make_unique<MapleButton>(Stat["BtAuto"], AUTO_POS);
 		buttons[Buttons::BT_DETAIL] = std::make_unique<MapleButton>(Stat["BtDetail"], DETAIL_BT_POS);
+		buttons[Buttons::BT_RESET] = std::make_unique<TextButton>(RESET_POS, RESET_DIM, "RESET AP");
 
 		update_ap();
 
@@ -209,9 +215,9 @@ namespace ms
 			uint16_t level = stats.get_stat(MapleStat::Id::LEVEL);
 			std::string exptext = std::to_string(exp);
 
-			if (level < ExpTable::LEVELCAP && ExpTable::values[level] > 0)
+			if (ExpTable::need(level) > 0)
 			{
-				int64_t percent = exp * 100 / ExpTable::values[level];
+				int64_t percent = exp * 100 / ExpTable::need(level);
 				exptext += " (" + std::to_string(percent) + "%)";
 			}
 
@@ -292,57 +298,23 @@ namespace ms
 			}
 			case Buttons::BT_AUTO:
 			{
-				uint16_t autostr = 0;
-				uint16_t autodex = 0;
-				uint16_t autoint = 0;
-				uint16_t autoluk = 0;
-				uint16_t nowap = stats.get_stat(MapleStat::Id::AP);
+				int32_t nowap = stats.get_stat(MapleStat::Id::AP);
+
+				if (nowap <= 0)
+					break;
+
 				EquipStat::Id id = player.get_stats().get_job().get_primary(player.get_weapontype());
+				MapleStat::Id stat = id == EquipStat::Id::DEX ? MapleStat::Id::DEX
+					: id == EquipStat::Id::INT ? MapleStat::Id::INT
+					: id == EquipStat::Id::LUK ? MapleStat::Id::LUK : MapleStat::Id::STR;
 
-				switch (id)
-				{
-					case EquipStat::Id::STR:
-						autostr = nowap;
-						break;
-					case EquipStat::Id::DEX:
-						autodex = nowap;
-						break;
-					case EquipStat::Id::INT:
-						autoint = nowap;
-						break;
-					case EquipStat::Id::LUK:
-						autoluk = nowap;
-						break;
-				}
+				std::string message = "Put all " + std::to_string(nowap) + " AP into " + EquipStat::names[id] + "?";
 
-				std::string message =
-					"Your AP will be distributed as follows:\\r"
-					"\\nSTR : +" + std::to_string(autostr) +
-					"\\nDEX : +" + std::to_string(autodex) +
-					"\\nINT : +" + std::to_string(autoint) +
-					"\\nLUK : +" + std::to_string(autoluk) +
-					"\\r\\n";
-
-				std::function<void(bool)> yesnohandler = [&, autostr, autodex, autoint, autoluk](bool yes)
+				// One request for all of them (the server stops at the stat limit).
+				std::function<void(bool)> yesnohandler = [stat, nowap](bool yes)
 				{
 					if (yes)
-					{
-						if (autostr > 0)
-							for (size_t i = 0; i < autostr; i++)
-								send_apup(MapleStat::Id::STR);
-
-						if (autodex > 0)
-							for (size_t i = 0; i < autodex; i++)
-								send_apup(MapleStat::Id::DEX);
-
-						if (autoint > 0)
-							for (size_t i = 0; i < autoint; i++)
-								send_apup(MapleStat::Id::INT);
-
-						if (autoluk > 0)
-							for (size_t i = 0; i < autoluk; i++)
-								send_apup(MapleStat::Id::LUK);
-					}
+						AutoAssignApPacket(stat, nowap).dispatch();
 				};
 
 				UI::get().emplace<UIYesNo>(message, yesnohandler, Text::Alignment::LEFT);
@@ -352,6 +324,18 @@ namespace ms
 			{
 				// v83 has a single "DETAIL" button that opens and closes the pane
 				set_detail(!showdetail);
+				break;
+			}
+			case Buttons::BT_RESET:
+			{
+				// Cosmic's @resetap (MapleV83): stats back to the job minimum,
+				// the rest as AP to place again.
+				UI::get().emplace<UIYesNo>("Put all your ability points back so you can place them again?",
+					[](bool yes)
+					{
+						if (yes)
+							GeneralChatPacket("@resetap", false).dispatch();
+					});
 				break;
 			}
 			default:

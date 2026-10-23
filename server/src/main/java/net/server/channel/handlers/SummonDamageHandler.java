@@ -130,7 +130,7 @@ public final class SummonDamageHandler extends AbstractDealDamageHandler {
             int watk = Math.max(player.getTotalWatk(), 14);
             Item weapon_item = player.getInventory(InventoryType.EQUIPPED).getItem((short) -11);
 
-            int maxBaseDmg;  // thanks Conrad, Atoot for detecting some summons legitimately hitting over the calculated limit
+            long maxBaseDmg;  // thanks Conrad, Atoot for detecting some summons legitimately hitting over the calculated limit
             if (weapon_item != null) {
                 maxBaseDmg = player.calculateMaxBaseDamage(watk, ItemInformationProvider.getInstance().getWeaponType(weapon_item.getItemId()));
             } else {

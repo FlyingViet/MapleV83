@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UIChatBar.h"
 
+#include "../MobileUI.h"
+
 #include "../Window.h"
 
 #include "../UI.h"
@@ -163,29 +165,40 @@ namespace ms
 
 		chatbox = ColorBox(CHATLOG_W, 1 + chatrows * CHATROWHEIGHT, Color::Name::BLACK, 0.6f);
 
-		// A12M so the typed text sits centred in the 22 px input band.
-		chatfield = Textfield(Text::A12M, Text::LEFT, Color::Name::BLACK,
-			Rectangle<int16_t>(Point<int16_t>(FIELD_X, FIELD_Y), Point<int16_t>(FIELD_RIGHT, FIELD_BOTTOM)), 0);
+		mobile = MobileUI::enabled();
+
+		if (mobile)
+		{
+			// White on the chat window's dark input line; bounds are relative
+			// to that line (mobile_input()).
+			chatfield = Textfield(Text::A13M, Text::LEFT, Color::Name::WHITE, Color::Name::WHITE, 1.0f,
+				Rectangle<int16_t>(Point<int16_t>(12, 9), Point<int16_t>(static_cast<int16_t>(mobile_input_width() - 12), 27)), 0);
+		}
+		else
+		{
+			// A12M so the typed text sits centred in the 22 px input band.
+			chatfield = Textfield(Text::A12M, Text::LEFT, Color::Name::BLACK,
+				Rectangle<int16_t>(Point<int16_t>(FIELD_X, FIELD_Y), Point<int16_t>(FIELD_RIGHT, FIELD_BOTTOM)), 0);
+		}
 
 		set_chat_open(chatopen);
 
 		chatfield.set_enter_callback(
-			[&](std::string msg)
+			[&](std::string)
 			{
-				msg = trim(msg);
-				if (msg.empty())
+				bool sent = submit_chatfield();
+
+				// The phone puts its keyboard away after each line (it covers
+				// half the game); the window stays open to show the reply.
+				if (mobile)
 				{
-					// Empty Enter minimizes the whole chat window.
-					set_chat_open(false);
+					toggle_chatfield(false);
 					return;
 				}
 
-				if (!handle_party_command(msg))
-					send_chat_message(msg);
-
-				lastentered.push_back(msg);
-				lastpos = lastentered.size();
-				chatfield.change_text("");
+				// Empty Enter minimizes the whole chat window.
+				if (!sent)
+					set_chat_open(false);
 			}
 		);
 
@@ -232,10 +245,34 @@ namespace ms
 		);
 
 		send_line("[Welcome] Welcome to MapleStory!", YELLOW);
+		mobile_unread = 0;
+	}
+
+	bool UIChatBar::submit_chatfield()
+	{
+		std::string msg = trim(chatfield.get_text());
+
+		if (msg.empty())
+			return false;
+
+		if (!handle_party_command(msg))
+			send_chat_message(msg);
+
+		lastentered.push_back(msg);
+		lastpos = lastentered.size();
+		chatfield.change_text("");
+
+		return true;
 	}
 
 	void UIChatBar::set_chat_open(bool open)
 	{
+		if (open && mobile)
+		{
+			mobile_unread = 0;
+			mobile_scroll = 0;
+		}
+
 		chatopen = open;
 		buttons[BT_OPENCHAT]->set_active(!open);
 		buttons[BT_CLOSECHAT]->set_active(open);
@@ -278,6 +315,12 @@ namespace ms
 
 	void UIChatBar::draw(float inter) const
 	{
+		if (mobile)
+		{
+			mobile_draw(inter);
+			return;
+		}
+
 		// Target selector always shows on the input band (the band art itself
 		// is part of the status bar's backgrnd2).
 		if (target_box.is_valid())
@@ -435,6 +478,21 @@ namespace ms
 
 	void UIChatBar::update()
 	{
+		if (mobile)
+		{
+			Rectangle<int16_t> window = mobile_window();
+			position = window.get_left_top();
+			dimension = Point<int16_t>(window.width(), window.height());
+
+			UIElement::update();
+			chatfield.update(mobile_input().get_left_top());
+
+			// A tap elsewhere puts the keyboard away without telling us.
+			chatfieldopen = chatfield.get_state() == Textfield::State::FOCUSED;
+
+			return;
+		}
+
 		// Follow the status bar art (handles view resizes).
 		position = UIStatusBar::bar_origin();
 
@@ -449,6 +507,16 @@ namespace ms
 
 	void UIChatBar::send_key(int32_t keycode, bool pressed, bool escape)
 	{
+		if (mobile)
+		{
+			if (pressed && escape)
+				set_chat_open(false);
+			else if (pressed && keycode == KeyAction::Id::RETURN)
+				toggle_chatfield(true);
+
+			return;
+		}
+
 		if (pressed)
 		{
 			if (keycode == KeyAction::Id::RETURN)
@@ -464,6 +532,13 @@ namespace ms
 	{
 		if (!chatopen)
 			return;
+
+		if (mobile)
+		{
+			mobile_scroll = static_cast<int16_t>(mobile_scroll + yoffset * 48);
+			mobile_clamp_scroll();
+			return;
+		}
 
 		if (yoffset > 0)
 		{
@@ -504,6 +579,9 @@ namespace ms
 
 	bool UIChatBar::is_in_range(Point<int16_t> cursorpos) const
 	{
+		if (mobile)
+			return chatopen && mobile_window().contains(cursorpos);
+
 		// The input band on the status bar.
 		Rectangle<int16_t> band(
 			position + Point<int16_t>(0, BAND_TOP),
@@ -633,6 +711,9 @@ namespace ms
 
 	Cursor::State UIChatBar::send_cursor(bool clicking, Point<int16_t> cursorpos)
 	{
+		if (mobile)
+			return mobile_cursor(clicking, cursorpos);
+
 		// Custom button handling: break after a button press fires.
 		// UIElement::send_cursor iterates ALL buttons in one loop, so when
 		// BT_CLOSECHAT fires and activates BT_OPENCHAT, the loop immediately
@@ -834,6 +915,9 @@ namespace ms
 
 	void UIChatBar::send_line(const std::string& line, LineType type)
 	{
+		if (mobile)
+			mobile_add_line(line, type);
+
 		rowmax++;
 		rowpos = rowmax;
 
@@ -970,6 +1054,15 @@ namespace ms
 
 	void UIChatBar::toggle_chatfield(bool open)
 	{
+		// On the phone the window can stay open with its input line idle
+		// (keyboard away); only closing the window disables the line.
+		if (mobile && !open)
+		{
+			chatfieldopen = false;
+			chatfield.set_state(chatopen ? Textfield::State::NORMAL : Textfield::State::DISABLED);
+			return;
+		}
+
 		chatfieldopen = open;
 
 		if (chatfieldopen)
@@ -996,6 +1089,11 @@ namespace ms
 	bool UIChatBar::is_chatfieldopen()
 	{
 		return chatfieldopen;
+	}
+
+	uint16_t UIChatBar::unread() const
+	{
+		return mobile && !chatopen ? mobile_unread : 0;
 	}
 
 	void UIChatBar::set_chat_target(ChatTarget target)

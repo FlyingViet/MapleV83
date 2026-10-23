@@ -240,6 +240,7 @@ public final class PlayerLoggedinHandler extends AbstractPacketHandler {
                 player.silentApplyDiseases(diseases);
             }
 
+            player.maxJobSkills(false);
             c.sendPacket(PacketCreator.getCharInfo(player));
             if (!player.isHidden()) {
                 if (player.isGM() && YamlConfig.config.server.USE_AUTOHIDE_GM) {

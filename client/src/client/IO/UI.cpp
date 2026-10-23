@@ -1,3 +1,4 @@
+#include <iostream>
 //////////////////////////////////////////////////////////////////////////////////
 //	This file is part of the continued Journey MMORPG client					//
 //	Copyright (C) 2015-2019  Daniel Allendorf, Ryan Payton						//
@@ -22,7 +23,7 @@
 #include "UIStateLogin.h"
 #include "Window.h"
 
-#ifdef PLATFORM_IOS
+#ifdef PLATFORM_SDL
 #include "KeyCodes.h"
 #elif defined(__EMSCRIPTEN__)
 #ifndef GLFW_INCLUDE_NONE
@@ -112,6 +113,15 @@ namespace ms
 		enabled = false;
 	}
 
+	bool UI::focused_textfield_bounds(Rectangle<int16_t>& bounds) const
+	{
+		if (!focusedtextfield || focusedtextfield->get_state() != Textfield::State::FOCUSED)
+			return false;
+
+		bounds = focusedtextfield->get_bounds();
+		return true;
+	}
+
 	void UI::change_state(State id)
 	{
 		current_state = id;
@@ -183,11 +193,18 @@ namespace ms
 	void UI::send_cursor(bool pressed)
 	{
 		mouse_held = pressed;
+
+		if (pressed)
+			press_serial++;
+
 		Cursor::State cursorstate = (pressed && enabled) ? Cursor::State::CLICKING : Cursor::State::IDLE;
 		Point<int16_t> cursorpos = cursor.get_position();
+		Textfield* focused_before = focusedtextfield.get();
 		send_cursor(cursorpos, cursorstate);
 
-		if (focusedtextfield && pressed)
+		// A press that just focused a field (an OK that opens a name box, say)
+		// is not a press outside it.
+		if (focusedtextfield && pressed && focusedtextfield.get() == focused_before)
 		{
 			Cursor::State tstate = focusedtextfield->send_cursor(cursorpos, pressed);
 
@@ -203,6 +220,49 @@ namespace ms
 	void UI::send_cursor(Point<int16_t> pos)
 	{
 		send_cursor(pos, Cursor::State::IDLE);
+	}
+
+	void UI::send_cursor_drag(Point<int16_t> pos)
+	{
+		Cursor::State current = cursor.get_state();
+		bool dragging = mouse_held && (current == Cursor::State::VSCROLLIDLE
+			|| current == Cursor::State::HSCROLLIDLE || current == Cursor::State::GRABBING
+			|| current == Cursor::State::CHATBARVDRAG || current == Cursor::State::CHATBARHDRAG
+			|| current == Cursor::State::CHATBARBLTRDRAG || current == Cursor::State::CHATBARMOVE);
+
+		send_cursor(pos, dragging ? current : Cursor::State::IDLE);
+	}
+
+	bool UI::holds_press() const
+	{
+		return state && state->holds_press();
+	}
+
+	Range<int16_t> UI::free_span() const
+	{
+		return state ? state->free_span() : Range<int16_t>(0, 0);
+	}
+
+	bool UI::side_panel_open() const
+	{
+		return state && state->side_panel_open();
+	}
+
+	bool UI::npc_talk_open() const
+	{
+		return state && state->npc_talk_open();
+	}
+
+	bool UI::popover_open() const
+	{
+		// A notice is a card over the dimmed screen on a phone.
+		for (UIElement::Type type : { UIElement::Type::MOBILEITEMMENU, UIElement::Type::MOBILECONFIRM, UIElement::Type::NOTICE,
+			UIElement::Type::STYLEPICKER })
+			if (auto element = state ? const_cast<UIState*>(state.get())->get(type) : nullptr)
+				if (element->is_active())
+					return true;
+
+		return false;
 	}
 
 	bool UI::is_mouse_held() const
@@ -423,6 +483,11 @@ namespace ms
 					types.emplace_back(UIElement::Type::SOFTKEYBOARD);
 
 					// Game
+					types.emplace_back(UIElement::Type::MOBILECONFIRM);
+					types.emplace_back(UIElement::Type::STYLEPICKER);
+					types.emplace_back(UIElement::Type::MOBILEITEMMENU);
+					types.emplace_back(UIElement::Type::MOBILEINVENTORY);
+					types.emplace_back(UIElement::Type::MOBILEEQUIP);
 					types.emplace_back(UIElement::Type::NOTICE);
 					types.emplace_back(UIElement::Type::KEYCONFIG);
 					types.emplace_back(UIElement::Type::CHAT);
@@ -432,6 +497,18 @@ namespace ms
 					types.emplace_back(UIElement::Type::EQUIPINVENTORY);
 					types.emplace_back(UIElement::Type::SKILLBOOK);
 					types.emplace_back(UIElement::Type::QUESTLOG);
+					types.emplace_back(UIElement::Type::MOBILEKEYCONFIG);
+					types.emplace_back(UIElement::Type::MOBILESTATS);
+					types.emplace_back(UIElement::Type::MOBILESKILLS);
+					types.emplace_back(UIElement::Type::MOBILEMENU);
+					types.emplace_back(UIElement::Type::MOBILESTORE);
+					types.emplace_back(UIElement::Type::MOBILEADMIN);
+					types.emplace_back(UIElement::Type::MOBILEQUESTS);
+					types.emplace_back(UIElement::Type::MOBILESOCIAL);
+					types.emplace_back(UIElement::Type::MOBILEWORLDMAP);
+					types.emplace_back(UIElement::Type::MOBILECHANNEL);
+					types.emplace_back(UIElement::Type::MOBILEOPTIONS);
+					types.emplace_back(UIElement::Type::MOBILEINBOX);
 					types.emplace_back(UIElement::Type::USERLIST);
 					types.emplace_back(UIElement::Type::NPCTALK);
 					types.emplace_back(UIElement::Type::CHARINFO);

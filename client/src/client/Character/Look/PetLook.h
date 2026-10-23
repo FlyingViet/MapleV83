@@ -67,6 +67,16 @@ namespace ms
 		void set_stance(uint8_t stancebyte);
 
 		int32_t get_itemid() const;
+		const std::string& get_name() const
+		{
+			return name;
+		}
+
+		const PhysicsObject& get_phobj() const
+		{
+			return phobj;
+		}
+
 		int32_t get_uniqueid() const
 		{
 			return uniqueid;

@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
+#include "../platform/shared/PlatformConfig.h"
+
 #include "Template/Singleton.h"
 
 #include <cstdint>
@@ -83,6 +85,22 @@ namespace ms
 			{
 				if (scale >= 1.0f && scale <= 4.0f)
 					UI_SCALE = scale;
+			}
+
+			// The scale for a window of this many physical pixels. Desktop keeps
+			// the logical view ~1280 wide. A phone is far wider than 16:9 and
+			// far smaller, so there the logical view is v83's native 600 high
+			// and the width follows the screen.
+			static float ui_scale_for(int physical_width, int physical_height)
+			{
+#ifdef PLATFORM_SDL
+				(void)physical_width;
+				float scale = physical_height / 600.0f;
+#else
+				(void)physical_height;
+				float scale = physical_width / 1280.0f;
+#endif
+				return scale < 1.0f ? 1.0f : (scale > 4.0f ? 4.0f : scale);
 			}
 
 		private:

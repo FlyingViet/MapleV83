@@ -52,13 +52,26 @@ namespace nl
 
 		uint64_t data_offset = m_offset + 4;
 
+#ifdef MS_PLATFORM_WASM
 		uint32_t read_len = l;
+#else
+		// The compressed size precedes the data. Reading the uncompressed size
+		// instead runs past the end of the file for its last bitmaps.
+		uint32_t read_len = 0;
+		if (!io_read(fd, &read_len, sizeof(read_len), m_offset) || read_len == 0)
+			return nullptr;
+#endif
 		std::vector<char> src_buf(read_len);
 
 		if (!io_read(fd, src_buf.data(), read_len, data_offset))
 			return nullptr;
 
+#ifdef MS_PLATFORM_WASM
 		::LZ4_decompress_fast(src_buf.data(), bitmap_buf.data(), static_cast<int>(l));
+#else
+		if (::LZ4_decompress_safe(src_buf.data(), bitmap_buf.data(), static_cast<int>(read_len), static_cast<int>(l)) < 0)
+			return nullptr;
+#endif
 		return bitmap_buf.data();
 	}
 	uint16_t bitmap::width() const
@@ -75,6 +88,18 @@ namespace nl
 	}
 	size_t bitmap::id() const
 	{
+#ifndef MS_PLATFORM_WASM
+		// The offset alone repeats across files (Map.nx and UI.nx both have a
+		// bitmap at some offset), and the renderer caches textures by this id.
+		// Every file is mapped at its own address, so base + offset is unique.
+		if (m_file)
+		{
+			auto const* fd = static_cast<_file_data const*>(m_file);
+
+			if (fd->base)
+				return reinterpret_cast<size_t>(static_cast<char const*>(fd->base) + m_offset);
+		}
+#endif
 		return static_cast<size_t>(m_offset);
 	}
 } // namespace nl

@@ -23,6 +23,8 @@
 #include "../Error.h"
 
 #include <array>
+#include <functional>
+#include <string>
 #include <stdint.h>
 
 namespace ms
@@ -55,6 +57,11 @@ namespace ms
 			"TamingMob.nx",
 			"UI.nx"			// From latest
 		};
+
+		// Where each file is read from (e.g. the copy built into the iOS app or
+		// a newer one downloaded beside it); "" when absent. Defaults to the
+		// bare name in the working directory.
+		void set_resolver(std::function<std::string(const std::string&)> resolver);
 
 		// Initialize NX
 		// When successful test if the UI file is the correct version

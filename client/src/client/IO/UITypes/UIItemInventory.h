@@ -61,7 +61,6 @@ namespace ms
 		void update_slot(int16_t slot);
 		bool is_visible(int16_t slot) const;
 		bool is_not_visible(int16_t slot) const;
-		bool can_wear_equip(int16_t slot) const;
 		int16_t slot_by_position(Point<int16_t> position) const;
 		uint16_t button_by_tab(InventoryType::Id tab) const;
 		// Top-left of a slot cell in the current view (regular or expanded)

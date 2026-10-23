@@ -58,6 +58,8 @@ namespace ms
 
 			/// Gameplay 1
 			CHANGEMAP = 38,
+			CHANGE_MAP_SPECIAL = 100, // 0x64: enter a scripted portal
+			ARAN_COMBO_COUNTER = 163, // 0xA3: an Aran hit a monster
 			CHANGE_CHANNEL = 39,
 			ENTER_CASHSHOP = 40,
 			MOVE_PLAYER = 41,
@@ -107,6 +109,7 @@ namespace ms
 
 			/// Player
 			SPEND_AP = 87,
+			AUTO_DISTRIBUTE_AP = 88,
 			HEAL_OVER_TIME = 89,
 			SPEND_SP = 90,
 			CHANGE_KEYMAP = 135,

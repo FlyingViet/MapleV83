@@ -33,9 +33,14 @@
 #endif
 #include <GLFW/glfw3.h>
 #else
+#include "../../platform/shared/PlatformConfig.h"
+#ifdef PLATFORM_SDL
+#include "../../platform/shared/KeyCodes.h"
+#else
 #define GLEW_STATIC
 #include <glew.h>
 #include <glfw3.h>
+#endif
 #endif
 
 namespace ms

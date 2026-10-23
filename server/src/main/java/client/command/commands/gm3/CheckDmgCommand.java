@@ -38,7 +38,7 @@ public class CheckDmgCommand extends Command {
         Character player = c.getPlayer();
         Character victim = c.getWorldServer().getPlayerStorage().getCharacterByName(params[0]);
         if (victim != null) {
-            int maxBase = victim.calculateMaxBaseDamage(victim.getTotalWatk());
+            long maxBase = victim.calculateMaxBaseDamage(victim.getTotalWatk());
             Integer watkBuff = victim.getBuffedValue(BuffStat.WATK);
             Integer matkBuff = victim.getBuffedValue(BuffStat.MATK);
             int blessing = victim.getSkillLevel(10000000 * player.getJobType() + 12);

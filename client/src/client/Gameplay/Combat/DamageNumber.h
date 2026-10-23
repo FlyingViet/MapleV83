@@ -38,7 +38,7 @@ namespace ms
 			HEAL
 		};
 
-		DamageNumber(Type type, int32_t damage, int16_t starty, int16_t x = 0);
+		DamageNumber(Type type, int64_t damage, int16_t starty, int16_t x = 0);
 		DamageNumber();
 
 		void draw(double viewx, double viewy, float alpha) const;

@@ -146,10 +146,36 @@ namespace ms
 
 	void Player::change_equip(int16_t slot)
 	{
-		if (int32_t itemid = inventory.get_item_id(InventoryType::Id::EQUIPPED, slot))
-			look.add_equip(itemid);
+		// The cash item worn in a slot is what shows; the gear under it counts
+		// for stats only.
+		int16_t base = EquipSlot::base_of(slot);
+
+		// Pet gear is the pet's, not part of the character's look.
+		if (EquipSlot::is_pet(slot) || EquipSlot::is_pet(static_cast<int16_t>(base + EquipSlot::CASH_OFFSET)))
+			return;
+
+		int32_t cashid = inventory.get_item_id(InventoryType::Id::EQUIPPED, static_cast<int16_t>(base + EquipSlot::CASH_OFFSET));
+		int32_t itemid = inventory.get_item_id(InventoryType::Id::EQUIPPED, base);
+
+		// A cash weapon is drawn in the real weapon's type; the real weapon
+		// still decides stances and attacks.
+		if (base == EquipSlot::Id::WEAPON)
+		{
+			if (itemid)
+				look.add_equip(itemid);
+			else
+				look.remove_equip(EquipSlot::Id::WEAPON);
+
+			look.set_weapon_skin(cashid);
+			refresh_ring_effect();
+
+			return;
+		}
+
+		if (int32_t shown = cashid ? cashid : itemid)
+			look.add_equip(shown);
 		else
-			look.remove_equip(EquipSlot::by_id(slot));
+			look.remove_equip(EquipSlot::by_id(base));
 
 		// An effect ring's aura loops while it's worn.
 		refresh_ring_effect();
@@ -208,6 +234,9 @@ namespace ms
 
 	int8_t Player::update(const Physics& physics)
 	{
+		if (phobj.onground)
+			air_jumped = false;
+
 		const PlayerState* pst = get_state(state);
 
 		if (pst)
@@ -256,7 +285,7 @@ namespace ms
 		// Also detect server-driven HP drops (DoT / magic / status) that
 		// never route through Player::damage() and would otherwise leave
 		// the invincible window un-set, letting regen fire during a hit.
-		int16_t observed_hp = stats.get_stat(MapleStat::Id::HP);
+		int32_t observed_hp = stats.get_stat(MapleStat::Id::HP);
 
 		if (last_seen_hp >= 0 && observed_hp < last_seen_hp)
 			hit_lockout_ticks = HIT_LOCKOUT_TICKS;
@@ -279,26 +308,26 @@ namespace ms
 		{
 			heal_tick_counter = 0;
 
-			int16_t cur_hp = stats.get_stat(MapleStat::Id::HP);
-			int16_t max_hp = stats.get_stat(MapleStat::Id::MAXHP);
-			int16_t cur_mp = stats.get_stat(MapleStat::Id::MP);
-			int16_t max_mp = stats.get_stat(MapleStat::Id::MAXMP);
+			int32_t cur_hp = stats.get_stat(MapleStat::Id::HP);
+			int32_t max_hp = stats.get_stat(MapleStat::Id::MAXHP);
+			int32_t cur_mp = stats.get_stat(MapleStat::Id::MP);
+			int32_t max_mp = stats.get_stat(MapleStat::Id::MAXMP);
 
 			if (cur_hp < max_hp || cur_mp < max_mp)
 			{
 				int16_t level = stats.get_stat(MapleStat::Id::LEVEL);
-				int16_t int_stat = stats.get_stat(MapleStat::Id::INT);
+				int32_t int_stat = stats.get_stat(MapleStat::Id::INT);
 
 				// Base regen formula: scales with level
 				// Chair regen is higher (server also has its own chair heal timer)
 				bool sitting = (chair_itemid > 0);
-				int16_t heal_hp = static_cast<int16_t>(std::max(1, level / 5 + 2));
-				int16_t heal_mp = static_cast<int16_t>(std::max(1, level / 5 + int_stat / 20 + 3));
+				int32_t heal_hp = std::max(1, level / 5 + 2);
+				int32_t heal_mp = std::max(1, level / 5 + std::min(int_stat / 20, 999) + 3);
 
 				// Mage Improving MP Recovery (skill 2000000): Level * SkillLevel / 10 extra MP
 				int32_t mp_recovery_level = get_skilllevel(SkillId::Id::IMPROVE_HP_RECOVERY);
 				if (mp_recovery_level > 0)
-					heal_mp += static_cast<int16_t>(level * mp_recovery_level / 10);
+					heal_mp += level * mp_recovery_level / 10;
 
 				if (sitting)
 				{
@@ -307,16 +336,16 @@ namespace ms
 				}
 
 				// Cap to not exceed max
-				heal_hp = std::min(heal_hp, static_cast<int16_t>(max_hp - cur_hp));
-				heal_mp = std::min(heal_mp, static_cast<int16_t>(max_mp - cur_mp));
+				heal_hp = std::min(heal_hp, max_hp - cur_hp);
+				heal_mp = std::min(heal_mp, max_mp - cur_mp);
 
 				if (heal_hp < 0) heal_hp = 0;
 				if (heal_mp < 0) heal_mp = 0;
 
 				// Cosmic drops any MP heal >= 1000 outright and autobans an HP heal
 				// above 77 * map recovery * 1.5, so stay inside both bounds.
-				heal_hp = std::min<int16_t>(heal_hp, 100);
-				heal_mp = std::min<int16_t>(heal_mp, 999);
+				heal_hp = std::min<int32_t>(heal_hp, 100);
+				heal_mp = std::min<int32_t>(heal_mp, 999);
 
 				if (heal_hp > 0 || heal_mp > 0)
 					HealOverTimePacket(heal_hp, heal_mp).dispatch();
@@ -377,6 +406,12 @@ namespace ms
 	{
 		if (!attacking)
 			Char::set_direction(flipped);
+	}
+
+	void Player::leave_prone()
+	{
+		if (state == Char::State::PRONE)
+			set_state(Char::State::STAND);
 	}
 
 	void Player::set_state(State st)
@@ -442,8 +477,8 @@ namespace ms
 		int32_t level = skillbook.get_level(moveid);
 		Weapon::Type weapon = get_weapontype();
 		const Job& job = stats.get_job();
-		uint16_t hp = stats.get_stat(MapleStat::Id::HP);
-		uint16_t mp = stats.get_stat(MapleStat::Id::MP);
+		int32_t hp = stats.get_stat(MapleStat::Id::HP);
+		int32_t mp = stats.get_stat(MapleStat::Id::MP);
 		uint16_t bullets = inventory.get_bulletcount();
 
 		return move.can_use(level, weapon, job, hp, mp, bullets);
@@ -558,7 +593,8 @@ namespace ms
 
 	bool Player::is_hidden() const
 	{
-		return Char::is_hidden();
+		// Dark Sight draws the player see-through, like GM hide.
+		return Char::is_hidden() || has_buff(Buffstat::Id::DARKSIGHT);
 	}
 
 	MobAttackResult Player::damage(const MobAttack& attack)
@@ -591,6 +627,9 @@ namespace ms
 		if (buff.stat == Buffstat::Id::MONSTER_RIDING)
 			set_riding(look.get_equips().get_equip(EquipSlot::Id::TAMEDMOB));
 
+		if (buff.stat == Buffstat::Id::SHADOWPARTNER)
+			set_shadow_partner(true);
+
 		buffs[buff.stat] = buff;
 	}
 
@@ -599,12 +638,37 @@ namespace ms
 		if (stat == Buffstat::Id::MONSTER_RIDING)
 			set_riding(0);
 
+		if (stat == Buffstat::Id::SHADOWPARTNER)
+			set_shadow_partner(false);
+
 		buffs[stat] = {};
 	}
 
 	bool Player::has_buff(Buffstat::Id stat) const
 	{
 		return buffs[stat].value > 0;
+	}
+
+	int32_t Player::air_jump_skill() const
+	{
+		if (state != Char::State::FALL || phobj.onground || air_jumped)
+			return 0;
+
+		for (int32_t id : { SkillId::Id::FLASH_JUMP, SkillId::Id::NW_FLASH_JUMP })
+			if (skillbook.get_level(id) > 0)
+				return id;
+
+		return 0;
+	}
+
+	bool Player::has_air_jumped() const
+	{
+		return air_jumped;
+	}
+
+	void Player::set_air_jumped()
+	{
+		air_jumped = true;
 	}
 
 	void Player::change_skill(int32_t skill_id, int32_t skill_level, int32_t masterlevel, int64_t expiration)

@@ -19,7 +19,15 @@
 #endif
 
 // Feature flags for iOS
-#ifdef PLATFORM_IOS
+// The SDL2 + OpenGL (ES) client: the iPhone app, and the native macOS app
+// (src/platform/macos, which defines PLATFORM_MACOS_SDL).
+#if defined(PLATFORM_IOS) || defined(PLATFORM_MACOS_SDL)
+	#ifndef PLATFORM_SDL
+		#define PLATFORM_SDL 1
+	#endif
+#endif
+
+#ifdef PLATFORM_SDL
 	#define USE_NX 1
 	#define USE_ASIO 1
 	#define USE_CRYPTO 1

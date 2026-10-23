@@ -21,6 +21,7 @@
 
 #include "Inventory/Weapon.h"
 #include <string>
+#include <vector>
 
 namespace ms
 {
@@ -57,6 +58,11 @@ namespace ms
 		void change_job(uint16_t id);
 		bool is_sub_job(uint16_t subid) const;
 		bool can_use(int32_t skill_id) const;
+		// Equip reqJob: 0 = anyone, -1 = beginners only, otherwise a class bitmask
+		// (1 warrior, 2 magician, 4 bowman, 8 thief, 16 pirate). GMs pass everything.
+		bool meets_req_job(int16_t reqjob) const;
+		// Tooltip class indices (0 beginner, 1 warrior .. 5 pirate) a reqJob allows
+		static std::vector<uint8_t> req_job_classes(int16_t reqjob);
 		uint16_t get_id() const;
 		uint16_t get_subjob(Level level) const;
 		Level get_level() const;

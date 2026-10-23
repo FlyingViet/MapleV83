@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "NotificationCenter.h"
 
+#include "../Constants.h"
+
 #include <algorithm>
 
 namespace ms
@@ -28,7 +30,7 @@ namespace ms
 	}
 
 	int32_t NotificationCenter::push(std::string title, std::string body,
-		std::function<void(bool)> resolver)
+		std::function<void(bool)> resolver, bool invite)
 	{
 		// Cap the queue. When pushing past MAX_ENTRIES, drop the oldest
 		// unresolved entry (auto-decline so any decline-side cleanup
@@ -48,6 +50,7 @@ namespace ms
 		e.body = std::move(body);
 		e.resolver = std::move(resolver);
 		e.age = 0;
+		e.invite = invite;
 		pending.push_back(std::move(e));
 		return pending.back().id;
 	}
@@ -59,8 +62,8 @@ namespace ms
 		// `pending` don't invalidate iterators.
 		for (size_t i = 0; i < pending.size();)
 		{
-			pending[i].age++;
-			if (pending[i].age >= TTL_TICKS)
+			pending[i].age += Constants::TIMESTEP;
+			if (pending[i].age >= TTL_MS)
 			{
 				auto resolver = std::move(pending[i].resolver);
 				pending.erase(pending.begin() + i);
@@ -97,6 +100,11 @@ namespace ms
 	void NotificationCenter::clear()
 	{
 		pending.clear();
+	}
+
+	bool NotificationCenter::has(int32_t id) const
+	{
+		return std::any_of(pending.begin(), pending.end(), [id](const Entry& e) { return e.id == id; });
 	}
 
 	bool NotificationCenter::empty() const

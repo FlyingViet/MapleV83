@@ -19,6 +19,7 @@
 
 #include "UITypes/UICashShop.h"
 #include "KeyAction.h"
+#include "UI.h"
 
 namespace ms
 {
@@ -53,7 +54,9 @@ namespace ms
 
 	Cursor::State UIStateCashShop::send_cursor(Cursor::State cursorstate, Point<int16_t> cursorpos)
 	{
-		bool clicked = cursorstate == Cursor::State::CLICKING || cursorstate == Cursor::State::VSCROLLIDLE;
+		// A finger or button still held keeps the press going through moves.
+		bool clicked = cursorstate == Cursor::State::CLICKING || cursorstate == Cursor::State::VSCROLLIDLE
+			|| UI::get().is_mouse_held();
 
 		if (auto focusedelement = get(focused))
 		{
@@ -89,8 +92,8 @@ namespace ms
 	{
 		if (pressed && escape)
 		{
-			if (auto cashshop = dynamic_cast<UICashShop*>(get(UIElement::Type::CASHSHOP)))
-				cashshop->exit_cashshop();
+			if (auto cashshop = get(UIElement::Type::CASHSHOP))
+				cashshop->send_key(action, pressed, escape);
 		}
 	}
 
@@ -98,6 +101,13 @@ namespace ms
 	{
 		if (auto front = get_front())
 			front->send_scroll(yoffset);
+	}
+
+	bool UIStateCashShop::holds_press() const
+	{
+		UIElement* front = const_cast<UIStateCashShop*>(this)->get_front();
+
+		return front && front->captures_hold();
 	}
 
 	UIState::Iterator UIStateCashShop::pre_add(UIElement::Type type, bool toggled, bool is_focused)

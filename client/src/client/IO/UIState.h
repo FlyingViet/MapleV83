@@ -60,6 +60,18 @@ namespace ms
 		virtual UIElement* get(UIElement::Type type) = 0;
 		virtual UIElement* get_front(std::list<UIElement::Type> types) = 0;
 		virtual UIElement* get_front(Point<int16_t> pos) = 0;
+
+		// Whether a window is open as an iPhone side panel (the touch controls
+		// step aside while one is).
+		virtual bool side_panel_open() const { return false; }
+		// Whether the element being pressed handles a long press itself.
+		virtual bool holds_press() const { return false; }
+		// The span of the screen's width the side panels leave uncovered,
+		// in view coordinates.
+		virtual Range<int16_t> free_span() const { return Range<int16_t>(0, 0); }
+
+		// Whether an NPC conversation is showing.
+		virtual bool npc_talk_open() const { return false; }
 	};
 
 	class UIStateNull : public UIState

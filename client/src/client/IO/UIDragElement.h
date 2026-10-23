@@ -42,6 +42,9 @@ namespace ms
 
 		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override
 		{
+			if (docked)
+				return UIElement::send_cursor(clicked, cursorpos);
+
 			if (clicked)
 			{
 				if (dragged)

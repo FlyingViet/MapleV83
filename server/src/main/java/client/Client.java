@@ -98,6 +98,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class Client extends ChannelInboundHandlerAdapter {
@@ -125,6 +126,8 @@ public class Client extends ChannelInboundHandlerAdapter {
     private String accountName = null;
     private int world;
     private volatile long lastPong;
+    // MapleV83: when the iPhone app went to the background (0 = not away).
+    private volatile long afkSince = 0;
     private int gmlevel;
     private Set<String> macs = new HashSet<>();
     private Map<String, ScriptEngine> engines = new HashMap<>();
@@ -199,6 +202,20 @@ public class Client extends ChannelInboundHandlerAdapter {
         }
 
         return remoteAddress;
+    }
+
+    // The server address this client reached us on (LAN, Tailscale, ...), so channel
+    // redirects send it back through the same route instead of a fixed config HOST.
+    public String getLocalAddress() {
+        try {
+            if (ioChannel != null && ioChannel.localAddress() instanceof InetSocketAddress local
+                    && !local.getAddress().isAnyLocalAddress()) {
+                return local.getAddress().getHostAddress();
+            }
+        } catch (Exception e) {
+            log.warn("Unable to get local address for client", e);
+        }
+        return null;
     }
 
     @Override
@@ -1161,7 +1178,88 @@ public class Client extends ChannelInboundHandlerAdapter {
         lastPong = System.currentTimeMillis();
     }
 
+    /**
+     * MapleV83: an app in the background can't answer pings. Its character
+     * stays in the world, marked AFK, for this long before the usual idle
+     * disconnect applies.
+     */
+    public static final long AFK_HOLD_MS = MINUTES.toMillis(15);
+    public static final String REPLACED_NOTICE = "[MV83] Signed in on another device.";
+
+    public void setAfk(boolean afk) {
+        afkSince = afk ? System.currentTimeMillis() : 0;
+    }
+
+    public boolean isAfk() {
+        return afkSince != 0;
+    }
+
+    private boolean isAfkHeld() {
+        return afkSince != 0 && System.currentTimeMillis() - afkSince < AFK_HOLD_MS;
+    }
+
+    /**
+     * MapleV83: the account is still marked online, usually by a phone whose
+     * connection died in the background. With the right password, close that
+     * old session so the new login can go ahead. Returns whether it did.
+     */
+    public boolean replaceStaleLogin(String login, String pwd) {
+        int id;
+
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement("SELECT id, password FROM accounts WHERE name = ?")) {
+            ps.setString(1, login);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return false;
+                }
+
+                id = rs.getInt("id");
+                String hash = rs.getString("password");
+                boolean matches = (hash.startsWith("$2") && BCrypt.checkpw(pwd, hash))
+                        || pwd.equals(hash) || checkHash(hash, "SHA-1", pwd) || checkHash(hash, "SHA-512", pwd);
+
+                if (!matches) {
+                    return false;
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("Couldn't check account {} for a stale login", login, e);
+            return false;
+        }
+
+        for (World w : Server.getInstance().getWorlds()) {
+            for (Character chr : w.getPlayerStorage().getAllCharacters()) {
+                if (chr.getAccountID() == id && chr.getClient() != null) {
+                    log.info("Replacing {}'s old session ({}) with a new login", chr.getName(), chr.getClient().getRemoteAddress());
+                    Client old = chr.getClient();
+                    // Tells a still-connected app not to sign straight back in.
+                    old.sendPacket(PacketCreator.serverNotice(5, REPLACED_NOTICE));
+                    old.forceDisconnect();
+                    old.closeSession();
+                }
+            }
+        }
+
+        // Whatever is left (a session sitting at the login screen) is let go.
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement("UPDATE accounts SET loggedin = 0 WHERE id = ?")) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.warn("Couldn't reset the login state of account {}", login, e);
+            return false;
+        }
+
+        return true;
+    }
+
     public void checkIfIdle(final IdleStateEvent event) {
+        if (isAfkHeld()) {
+            return;
+        }
+
         final long pingedAt = System.currentTimeMillis();
         sendPacket(PacketCreator.getPing());
         TimerManager.getInstance().schedule(() -> {

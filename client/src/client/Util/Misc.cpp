@@ -79,10 +79,36 @@ namespace ms
 	{
 		namespace Map
 		{
+			nl::node get_map_string_node(int32_t mapid)
+			{
+				nl::node maps = nl::nx::string["Map.img"];
+				std::string id = std::to_string(mapid);
+
+				if (nl::node guess = maps[get_map_category(mapid)][id])
+					return guess;
+
+				static std::unordered_map<int32_t, nl::node> cache;
+
+				if (cache.empty())
+					for (nl::node region : maps)
+						for (nl::node map : region)
+							cache.emplace(string_conversion::or_zero<int32_t>(map.name()), map);
+
+				auto iter = cache.find(mapid);
+
+				return iter != cache.end() ? iter->second : nl::node();
+			}
+
+			std::string get_map_name(int32_t mapid)
+			{
+				std::string name = get_map_string_node(mapid)["mapName"];
+
+				return name.empty() ? "Map " + std::to_string(mapid) : name;
+			}
+
 			MapInfo get_map_info_by_id(int32_t mapid)
 			{
-				std::string map_category = get_map_category(mapid);
-				nl::node map_info = nl::nx::string["Map.img"][map_category][mapid];
+				nl::node map_info = get_map_string_node(mapid);
 
 				return {
 					map_info["mapDesc"],

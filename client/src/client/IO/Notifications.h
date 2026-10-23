@@ -40,5 +40,15 @@ namespace ms
 		// Convenience: informational notification with no Accept action.
 		// Clicking the toast just dismisses it.
 		void info(std::string title, std::string body);
+
+		// Another player asking (party, trade, buddy...): the same, but the
+		// toast holds for 30 seconds, jumps ahead of plain alerts and offers
+		// Accept / Decline. Phones use this in place of UIAlarmInvite.
+		void invite(std::string title, std::string body,
+			std::function<void(bool yes)> resolver);
+
+		// A passing tip: the toast only, with no Inbox entry or bell badge.
+		// A tip already queued with the same title isn't added again.
+		void hint(std::string title, std::string body);
 	}
 }

@@ -25,6 +25,7 @@ package client.command.commands.gm2;
 
 import client.Character;
 import client.Client;
+import client.Stat;
 import client.command.Command;
 import config.YamlConfig;
 
@@ -41,8 +42,23 @@ public class LevelCommand extends Command {
             return;
         }
 
-        player.loseExp(player.getExp(), false, false);
-        player.setLevel(Math.min(Integer.parseInt(params[0]), player.getMaxClassLevel()) - 1);
+        int target;
+        try {
+            target = Math.max(1, Math.min(Integer.parseInt(params[0]), player.getMaxClassLevel()));
+        } catch (NumberFormatException nfe) {
+            player.yellowMessage("Syntax: !level <newlevel> (1-" + player.getMaxClassLevel() + ")");
+            return;
+        }
+
+        player.setExp(0);
+        player.updateSingleStat(Stat.EXP, 0);
+
+        if (target == 1) {
+            player.setLevel(1);
+            player.updateSingleStat(Stat.LEVEL, 1);
+        } else {
+            player.setLevel(target - 1);
+        }
 
         player.resetPlayerRates();
         if (YamlConfig.config.server.USE_ADD_RATES_BY_LEVEL) {
@@ -50,6 +66,8 @@ public class LevelCommand extends Command {
         }
         player.setWorldRates();
 
-        player.levelUp(false);
+        if (target > 1) {
+            player.levelUp(false);
+        }
     }
 }

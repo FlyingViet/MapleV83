@@ -184,6 +184,8 @@ namespace ms
 		MapWeather weather;
 
 		Combat combat;
+		// The attack skill whose key is held down, recast as attacks end.
+		int32_t held_skill = 0;
 
 		std::chrono::time_point<std::chrono::steady_clock> start;
 		uint16_t levelBefore;

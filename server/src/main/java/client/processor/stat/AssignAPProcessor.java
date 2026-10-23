@@ -80,9 +80,9 @@ public class AssignAPProcessor {
                 byte opt = inPacket.readByte();     // useful for pirate autoassigning
 
                 int str = 0, dex = 0, luk = 0, int_ = 0;
-                List<Short> eqpStrList = new ArrayList<>();
-                List<Short> eqpDexList = new ArrayList<>();
-                List<Short> eqpLukList = new ArrayList<>();
+                List<Integer> eqpStrList = new ArrayList<>();
+                List<Integer> eqpDexList = new ArrayList<>();
+                List<Integer> eqpLukList = new ArrayList<>();
 
                 Equip nEquip;
 
@@ -399,10 +399,19 @@ public class AssignAPProcessor {
                     return;
                 }
 
+                // MapleV83: start from the current stats, so a stat near the limit
+                // takes only what still fits instead of failing the whole request.
+                statUpdate[0] = chr.getStr();
+                statUpdate[1] = chr.getDex();
+                statUpdate[2] = chr.getLuk();
+                statUpdate[3] = chr.getInt();
+
+                int requested = 0;
                 for (int i = 0; i < 2; i++) {
                     int type = inPacket.readInt();
                     int tempVal = inPacket.readInt();
-                    if (tempVal < 0 || tempVal > remainingAp) {
+                    requested += Math.max(0, tempVal);
+                    if (tempVal < 0 || tempVal > remainingAp || requested > remainingAp) {
                         return;
                     }
 
@@ -417,7 +426,7 @@ public class AssignAPProcessor {
         }
     }
 
-    private static int getNthHighestStat(List<Short> statList, short rank) {    // ranks from 0
+    private static int getNthHighestStat(List<Integer> statList, short rank) {    // ranks from 0
         return (statList.size() <= rank ? 0 : statList.get(rank));
     }
 
@@ -426,52 +435,52 @@ public class AssignAPProcessor {
             return 0;
         }
 
-        int newVal = 0;
+        long newVal = 0;
         switch (type) {
         case STR:
-            newVal = statUpdate[0] + gain;
+            newVal = (long) statUpdate[0] + gain;
             if (newVal > YamlConfig.config.server.MAX_AP) {
-                statGain[0] += (gain - (newVal - YamlConfig.config.server.MAX_AP));
+                statGain[0] += (int) (gain - (newVal - YamlConfig.config.server.MAX_AP));
                 statUpdate[0] = YamlConfig.config.server.MAX_AP;
             } else {
                 statGain[0] += gain;
-                statUpdate[0] = newVal;
+                statUpdate[0] = (int) newVal;
             }
             break;
         case INT:
-            newVal = statUpdate[3] + gain;
+            newVal = (long) statUpdate[3] + gain;
             if (newVal > YamlConfig.config.server.MAX_AP) {
-                statGain[3] += (gain - (newVal - YamlConfig.config.server.MAX_AP));
+                statGain[3] += (int) (gain - (newVal - YamlConfig.config.server.MAX_AP));
                 statUpdate[3] = YamlConfig.config.server.MAX_AP;
             } else {
                 statGain[3] += gain;
-                statUpdate[3] = newVal;
+                statUpdate[3] = (int) newVal;
             }
             break;
         case LUK:
-            newVal = statUpdate[2] + gain;
+            newVal = (long) statUpdate[2] + gain;
             if (newVal > YamlConfig.config.server.MAX_AP) {
-                statGain[2] += (gain - (newVal - YamlConfig.config.server.MAX_AP));
+                statGain[2] += (int) (gain - (newVal - YamlConfig.config.server.MAX_AP));
                 statUpdate[2] = YamlConfig.config.server.MAX_AP;
             } else {
                 statGain[2] += gain;
-                statUpdate[2] = newVal;
+                statUpdate[2] = (int) newVal;
             }
             break;
         case DEX:
-            newVal = statUpdate[1] + gain;
+            newVal = (long) statUpdate[1] + gain;
             if (newVal > YamlConfig.config.server.MAX_AP) {
-                statGain[1] += (gain - (newVal - YamlConfig.config.server.MAX_AP));
+                statGain[1] += (int) (gain - (newVal - YamlConfig.config.server.MAX_AP));
                 statUpdate[1] = YamlConfig.config.server.MAX_AP;
             } else {
                 statGain[1] += gain;
-                statUpdate[1] = newVal;
+                statUpdate[1] = (int) newVal;
             }
             break;
         }
 
         if (newVal > YamlConfig.config.server.MAX_AP) {
-            return newVal - YamlConfig.config.server.MAX_AP;
+            return (int) (newVal - YamlConfig.config.server.MAX_AP);
         }
         return 0;
     }

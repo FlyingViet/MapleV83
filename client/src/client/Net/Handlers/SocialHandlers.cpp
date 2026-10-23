@@ -26,7 +26,6 @@
 #include "../../IO/UITypes/UINotice.h"
 #include "../../IO/UITypes/UIStatusBar.h"
 #include "../../IO/UITypes/UIStatusMessenger.h"
-#include "../../IO/Notifications.h"
 
 #include "../Packets/GameplayPackets.h"
 #include "../Packets/SocialPackets.h"
@@ -97,7 +96,7 @@ namespace ms
 			int32_t from_cid = recv.read_int();
 			std::string from_name = recv.read_string();
 
-			UI::get().emplace<UIAlarmInvite>(
+			UIAlarmInvite::show(
 				from_name + " wants to be your buddy.",
 				[from_cid](bool yes)
 				{
@@ -106,18 +105,6 @@ namespace ms
 					// Decline = do nothing (request stays pending)
 				}
 			);
-
-			// Mirror into the toast/drawer so the user can re-resolve
-			// from BT_NOTICE on the status bar if the modal got
-			// dismissed without action.
-			Notifications::notify(
-				"Buddy Invite",
-				from_name + " wants to be your buddy.",
-				[from_cid](bool yes)
-				{
-					if (yes)
-						AcceptBuddyPacket(from_cid).dispatch();
-				});
 
 			break;
 		}
@@ -343,7 +330,7 @@ namespace ms
 			if (display_name.substr(0, 4) == "PS: ")
 				display_name = display_name.substr(4);
 
-			UI::get().emplace<UIAlarmInvite>(
+			UIAlarmInvite::show(
 				display_name + " has invited you to their party.",
 				[partyid, from_name](bool yes)
 				{
@@ -662,7 +649,7 @@ namespace ms
 
 			int32_t my_cid = Stage::get().get_player().get_oid();
 
-			UI::get().emplace<UIAlarmInvite>(
+			UIAlarmInvite::show(
 				inviter + " has invited you to their guild.",
 				[guild_id, my_cid, inviter](bool yes)
 				{
@@ -1046,7 +1033,7 @@ namespace ms
 				std::string inviter = recv.read_string();
 				recv.skip(2); // padding short
 
-				UI::get().emplace<UIAlarmInvite>(
+				UIAlarmInvite::show(
 					inviter + " has invited your guild to join their alliance.",
 					[alliance_id](bool yes)
 					{
@@ -1413,7 +1400,7 @@ namespace ms
 			int32_t messenger_id = recv.read_int();
 			recv.read_byte(); // 0
 
-			UI::get().emplace<UIAlarmInvite>(
+			UIAlarmInvite::show(
 				from + " has invited you to a Messenger conversation.",
 				[from](bool yes)
 				{
@@ -1579,7 +1566,7 @@ namespace ms
 			int32_t cid = recv.read_int();
 			int32_t parent_id = recv.read_int();
 			int16_t job = recv.read_short();
-			int8_t level = recv.read_byte();
+			int16_t level = recv.read_short();	// MapleV83: short (levels to 300)
 			bool online = recv.read_bool();
 			int32_t current_rep_e = recv.read_int();
 			int32_t total_rep_e = recv.read_int();
@@ -1669,7 +1656,7 @@ namespace ms
 		int32_t player_id = recv.read_int();
 		std::string name = recv.read_string();
 
-		UI::get().emplace<UIAlarmInvite>(
+		UIAlarmInvite::show(
 			name + " wants to join your family.",
 			[player_id](bool yes)
 			{
@@ -1678,15 +1665,6 @@ namespace ms
 				// Decline = do nothing; server times out the request.
 			}
 		);
-
-		Notifications::notify(
-			"Family Join Request",
-			name + " wants to join your family.",
-			[player_id](bool yes)
-			{
-				if (yes)
-					FamilyAcceptPacket(player_id).dispatch();
-			});
 
 		chat::log("[Family] " + name + " wants to join your family!", chat::LineType::YELLOW);
 	}
@@ -1738,21 +1716,13 @@ namespace ms
 		std::string from = recv.read_string();
 		std::string family_name = recv.read_string();
 
-		UI::get().emplace<UIAlarmInvite>(
+		UIAlarmInvite::show(
 			from + " from the " + family_name + " family is summoning you. Accept?",
 			[family_name](bool yes)
 			{
 				FamilySummonResponsePacket(family_name, yes).dispatch();
 			}
 		);
-
-		Notifications::notify(
-			"Family Summon",
-			from + " from the " + family_name + " family is summoning you.",
-			[family_name](bool yes)
-			{
-				FamilySummonResponsePacket(family_name, yes).dispatch();
-			});
 
 		chat::log("[Family] " + from + " is summoning you!", chat::LineType::YELLOW);
 	}

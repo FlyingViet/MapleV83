@@ -80,6 +80,8 @@ namespace ms
 
 	void Stage::clear()
 	{
+		held_skill = 0;
+
 		MiniRooms::get().clear_all();
 		HiredMerchants::get().clear_all();
 		state = State::INACTIVE;
@@ -266,6 +268,8 @@ namespace ms
 
 			if (player.is_key_down(KeyAction::Id::ATTACK))
 				combat.use_move(0);
+			else if (held_skill)
+				combat.repeat_move(held_skill);
 
 			if (player.is_key_down(KeyAction::Id::PICKUP))
 				check_drops();
@@ -299,7 +303,12 @@ namespace ms
 		Point<int16_t> playerpos = player.get_position();
 		Portal::WarpInfo warpinfo = portals.find_warp_at(playerpos);
 
-		if (warpinfo.intramap)
+		if (warpinfo.scripted)
+		{
+			// The server runs the portal's script (it plays the portal sound itself).
+			ChangeMapSpecialPacket(warpinfo.name).dispatch();
+		}
+		else if (warpinfo.intramap)
 		{
 			Point<int16_t> spawnpoint = portals.get_portal_by_name(warpinfo.toname);
 			Point<int16_t> startpos = physics.get_y_below(spawnpoint);
@@ -353,10 +362,47 @@ namespace ms
 		switch (type)
 		{
 			case KeyType::Id::ACTION:
-				playable->send_action(KeyAction::actionbyid(action), down);
+			{
+				KeyAction::Id ka = KeyAction::actionbyid(action);
+
+				// Jump again in the air: Flash Jump, for characters who have it.
+				if (down && ka == KeyAction::Id::JUMP && playable.get() == &player)
+					if (int32_t skill = player.air_jump_skill())
+						combat.use_move(skill);
+
+				playable->send_action(ka, down);
+
+				if (down && playable.get() == &player)
+				{
+					switch (ka)
+					{
+					case KeyAction::Id::LEFT:
+					case KeyAction::Id::RIGHT:
+					case KeyAction::Id::UP:
+					case KeyAction::Id::DOWN:
+						combat.send_direction(ka);
+						break;
+					case KeyAction::Id::ATTACK:
+						combat.attack_pressed();
+						break;
+					default:
+						break;
+					}
+				}
 				break;
+			}
 			case KeyType::Id::SKILL:
-				combat.use_move(action);
+				// Cast on the press; holding the key (a touch button bound
+				// to an attack skill) keeps casting from update().
+				if (down)
+				{
+					combat.use_move(action);
+					held_skill = action;
+				}
+				else if (held_skill == action)
+				{
+					held_skill = 0;
+				}
 				break;
 			case KeyType::Id::MACRO:
 				if (down)

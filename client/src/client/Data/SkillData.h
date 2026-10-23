@@ -103,6 +103,7 @@ namespace ms
 		SkillData(int32_t id);
 
 		// Get some hard-coded information
+		static bool looks_like_attack(nl::node src);
 		int32_t flags_of(int32_t id) const;
 
 		std::unordered_map<int32_t, Stats> stats;

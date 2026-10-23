@@ -26,6 +26,7 @@ package client.command.commands.gm2;
 import client.Character;
 import client.Client;
 import client.command.Command;
+import config.YamlConfig;
 
 public class SetStatCommand extends Command {
     {
@@ -43,8 +44,8 @@ public class SetStatCommand extends Command {
         try {
             int x = Integer.parseInt(params[0]);
 
-            if (x > Short.MAX_VALUE) {
-                x = Short.MAX_VALUE;
+            if (x > YamlConfig.config.server.MAX_AP) {
+                x = YamlConfig.config.server.MAX_AP;
             } else if (x < 4) {
                 x = 4;  // thanks Vcoc for pointing the minimal allowed stat value here
             }

@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "Keyboard.h"
 
-#ifdef PLATFORM_IOS
+#ifdef PLATFORM_SDL
 #include "KeyCodes.h"
 #elif defined(__EMSCRIPTEN__)
 #ifndef GLFW_INCLUDE_NONE

@@ -32,7 +32,7 @@ namespace ms
 	class OtherChar : public Char
 	{
 	public:
-		OtherChar(int32_t charid, const CharLook& look, uint8_t level, int16_t job, const std::string& name, int8_t stance, Point<int16_t> position);
+		OtherChar(int32_t charid, const CharLook& look, uint16_t level, int16_t job, const std::string& name, int8_t stance, Point<int16_t> position);
 
 		// Update the character.
 		int8_t update(const Physics& physics) override;

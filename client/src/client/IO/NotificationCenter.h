@@ -39,22 +39,28 @@ namespace ms
 			std::string title;
 			std::string body;
 			std::function<void(bool yes)> resolver;
-			// Frames since push (advanced by tick()). At ~60Hz, 7200
-			// ticks = 2 minutes, after which the entry auto-declines.
+			// Milliseconds since push (advanced by tick()); at TTL_MS the
+			// entry auto-declines.
 			int32_t age = 0;
+			// Another player asking (party, trade, buddy...): Accept / Decline
+			// rather than View / Dismiss.
+			bool invite = false;
 		};
 
 		// Maximum entries kept simultaneously. Pushing past the cap
 		// drops the oldest unresolved entry to make room.
 		static constexpr size_t MAX_ENTRIES = 10;
-		// Auto-decline lifespan in update ticks (~60Hz). 3600 ≈ 1 min.
-		static constexpr int32_t TTL_TICKS = 3600;
+		// Auto-decline lifespan: 10 minutes.
+		static constexpr int32_t TTL_MS = 600000;
 
 		static NotificationCenter& get();
 
 		// Push a new notification. Returns the entry id.
 		int32_t push(std::string title, std::string body,
-			std::function<void(bool yes)> resolver);
+			std::function<void(bool yes)> resolver, bool invite = false);
+
+		// Whether the entry is still waiting (not answered or expired).
+		bool has(int32_t id) const;
 
 		// Resolve and remove an entry. `yes=true` invokes the Accept
 		// path, `yes=false` invokes Decline.
@@ -65,7 +71,7 @@ namespace ms
 		void clear();
 
 		// Advance entry ages by one tick. Auto-declines anything that
-		// reaches TTL_TICKS. Called once per frame from a UI element
+		// reaches TTL_MS. Called once per frame from a UI element
 		// that's always alive (UIToastStack).
 		void tick();
 

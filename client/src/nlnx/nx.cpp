@@ -28,12 +28,20 @@
 namespace nl {
     namespace nx {
         std::vector<std::unique_ptr<file>> files;
+        std::function<std::string(const std::string&)> path_resolver;
+        void set_path_resolver(std::function<std::string(const std::string&)> resolver) {
+            path_resolver = std::move(resolver);
+        }
+        std::string resolve(const std::string& name) {
+            return path_resolver ? path_resolver(name) : name;
+        }
         bool exists(std::string name) {
 #ifdef MS_PLATFORM_WASM
             // Ask the asset streamer; registration is idempotent and false for missing files.
             return LazyFS::RegisterFile(name, "/assets/" + name);
 #else
-            return std::ifstream(name).is_open();
+            std::string path = resolve(name);
+            return !path.empty() && std::ifstream(path).is_open();
 #endif
         }
         node add_file(std::string name) {
@@ -42,7 +50,7 @@ namespace nl {
 #ifdef MS_PLATFORM_WASM
             files.emplace_back(new file(name));
 #else
-            files.emplace_back(new file(name));
+            files.emplace_back(new file(resolve(name)));
 #endif
             return *files.back();
         }

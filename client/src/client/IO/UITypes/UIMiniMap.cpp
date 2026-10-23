@@ -19,6 +19,7 @@
 
 #include "UIWorldMap.h"
 
+#include "../MobileUI.h"
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
@@ -41,6 +42,7 @@
 
 namespace ms
 {
+
 	UIMiniMap::UIMiniMap(const CharStats& stats) : UIDragElement<PosMINIMAP>(Point<int16_t>(128, 20)), stats(stats)
 	{
 		scroll_locked = false;
@@ -61,6 +63,12 @@ namespace ms
 		map_draw_origin_y = NORMAL_TOP_H + CANVAS_PAD;
 
 		type = Setting<MiniMapType>::get().load();
+		mobile = MobileUI::enabled();
+
+		// The phone starts on its small map.
+		if (mobile && type > Type::MAX)
+			type = Type::NORMAL;
+
 		user_type = type;
 
 		// v83: frame pieces and the world-map button live in UIWindow.img/MiniMap,
@@ -88,6 +96,12 @@ namespace ms
 
 	void UIMiniMap::draw(float alpha) const
 	{
+		if (mobile)
+		{
+			mobile_draw(alpha);
+			return;
+		}
+
 		if (type == Type::MIN)
 		{
 			for (auto sprite : min_sprites)
@@ -162,10 +176,16 @@ namespace ms
 			{
 				has_map = true;
 
+#ifdef PLATFORM_IOS
+				// A phone has no room for the big town map over the game: keep
+				// the size the player picked.
+				type = user_type;
+#else
 				if (town && town.get_bool())
 					type = Type::MAX;
 				else
 					type = user_type;
+#endif
 			}
 
 			scale = std::pow(2, (int)miniMap["mag"]);
@@ -197,6 +217,19 @@ namespace ms
 		if (quest_npc_id > 0)
 			quest_npc_marker.update();
 
+		// The phone's card sits under the HUD, sized by its mode.
+		if (mobile)
+		{
+			Rectangle<int16_t> f = mobile_frame();
+			position = f.get_left_top();
+			dimension = Point<int16_t>(f.width(), f.height());
+
+			if (picked_ticks > 0)
+				picked_ticks--;
+
+			mobile_tick++;
+		}
+
 		UIElement::update();
 	}
 
@@ -209,6 +242,9 @@ namespace ms
 
 	Cursor::State UIMiniMap::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
+		if (mobile)
+			return mobile_cursor(clicked, cursorpos);
+
 		// Handle drag-to-resize on edges (only in NORMAL/MAX mode)
 		if (type != Type::MIN && has_map)
 		{
@@ -328,8 +364,7 @@ namespace ms
 				if (marker_spot.contains(cursor_relative))
 				{
 					nl::node portal_tm = Map["portal"][sprite.first]["tm"];
-					std::string portal_cat = NxHelper::Map::get_map_category(portal_tm);
-					nl::node portal_name = nl::nx::string["Map.img"][portal_cat][portal_tm]["mapName"];
+					nl::node portal_name = NxHelper::Map::get_map_string_node(portal_tm)["mapName"];
 
 					if (portal_name)
 					{
@@ -352,6 +387,14 @@ namespace ms
 
 	void UIMiniMap::send_key(int32_t keycode, bool pressed, bool escape)
 	{
+		if (mobile)
+		{
+			if (pressed && !escape)
+				mobile_set_type(type < Type::MAX ? type + 1 : Type::MIN);
+
+			return;
+		}
+
 		if (has_map)
 		{
 			if (type < Type::MAX)
@@ -462,6 +505,8 @@ namespace ms
 	{
 		NxHelper::Map::MapInfo map_info = NxHelper::Map::get_map_info_by_id(mapid);
 		combined_text.change_text(map_info.full_name);
+		mobile_name = map_info.name.empty() ? map_info.full_name : map_info.name;
+		mobile_street = map_info.street_name;
 		region_text.change_text(map_info.name);
 		town_text.change_text(map_info.street_name);
 	}
@@ -773,6 +818,7 @@ namespace ms
 	void UIMiniMap::update_static_markers()
 	{
 		static_marker_info.clear();
+		mobile_portals.clear();
 
 		if (!has_map)
 			return;
@@ -787,6 +833,8 @@ namespace ms
 
 			if (portal_type == 2)
 			{
+				mobile_portals.emplace_back(Point<int16_t>(portal["x"], portal["y"]), static_cast<int32_t>(portal["tm"]));
+
 				Point<int16_t> marker_pos = scale_map_pos(Point<int16_t>(portal["x"], portal["y"])) - marker_offset + Point<int16_t>(map_draw_origin_x, map_draw_origin_y);
 				static_marker_info.emplace_back(portal.name(), marker_pos);
 			}

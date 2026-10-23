@@ -21,6 +21,15 @@
 
 namespace ms
 {
+	namespace
+	{
+		// MapleV83: stats run to the 32-bit limit; sums stop there instead of wrapping.
+		int32_t saturate(int64_t value)
+		{
+			return static_cast<int32_t>(std::max<int64_t>(INT32_MIN, std::min<int64_t>(INT32_MAX, value)));
+		}
+	}
+
 	CharStats::CharStats(const StatsEntry& s) : name(s.name), petids(s.petids), exp(s.exp), mapid(s.mapid), portal(s.portal), rank(s.rank), jobrank(s.jobrank), basestats(s.stats), female(s.female)
 	{
 		job = basestats[MapleStat::Id::JOB];
@@ -64,40 +73,41 @@ namespace ms
 
 	void CharStats::close_totalstats()
 	{
-		totalstats[EquipStat::Id::ACC] += calculateaccuracy();
+		totalstats[EquipStat::Id::ACC] = saturate(static_cast<int64_t>(totalstats[EquipStat::Id::ACC]) + calculateaccuracy());
 
 		for (auto iter : percentages)
 		{
 			EquipStat::Id stat = iter.first;
 			int32_t total = totalstats[stat];
-			total += static_cast<int32_t>(total * iter.second);
-			set_total(stat, total);
+			set_total(stat, saturate(total + static_cast<int64_t>(total * static_cast<double>(iter.second))));
 		}
 
-		int32_t primary = get_primary_stat();
-		int32_t secondary = get_secondary_stat();
+		double primary = get_primary_stat();
+		double secondary = get_secondary_stat();
 		int32_t attack = get_total(EquipStat::Id::WATK);
-		float multiplier = damagepercent + static_cast<float>(attack) / 100;
-		maxdamage = static_cast<int32_t>((primary + secondary) * multiplier);
-		mindamage = static_cast<int32_t>(((primary * 0.9f * mastery) + secondary) * multiplier);
+		double multiplier = damagepercent + attack / 100.0;
+		// MapleV83: no damage cap; damage is 64-bit (stop just under 2^63).
+		auto clamp64 = [](double v) { return static_cast<int64_t>(std::max(0.0, std::min(v, 9.2e18))); };
+		maxdamage = clamp64((primary + secondary) * multiplier);
+		mindamage = clamp64(((primary * 0.9 * mastery) + secondary) * multiplier);
 	}
 
-	int32_t CharStats::calculateaccuracy() const
+	int64_t CharStats::calculateaccuracy() const
 	{
-		int32_t totaldex = get_total(EquipStat::Id::DEX);
-		int32_t totalluk = get_total(EquipStat::Id::LUK);
+		int64_t totaldex = get_total(EquipStat::Id::DEX);
+		int64_t totalluk = get_total(EquipStat::Id::LUK);
 
-		return static_cast<int32_t>(totaldex * 0.8f + totalluk * 0.5f);
+		return static_cast<int64_t>(totaldex * 0.8 + totalluk * 0.5);
 	}
 
-	int32_t CharStats::get_primary_stat() const
+	double CharStats::get_primary_stat() const
 	{
 		EquipStat::Id primary = job.get_primary(weapontype);
 
-		return static_cast<int32_t>(get_multiplier() * get_total(primary));
+		return static_cast<double>(get_multiplier()) * get_total(primary);
 	}
 
-	int32_t CharStats::get_secondary_stat() const
+	double CharStats::get_secondary_stat() const
 	{
 		EquipStat::Id secondary = job.get_secondary(weapontype);
 
@@ -136,7 +146,7 @@ namespace ms
 		}
 	}
 
-	void CharStats::set_stat(MapleStat::Id stat, uint16_t value)
+	void CharStats::set_stat(MapleStat::Id stat, int32_t value)
 	{
 		basestats[stat] = value;
 	}
@@ -158,15 +168,13 @@ namespace ms
 
 	void CharStats::add_buff(EquipStat::Id stat, int32_t value)
 	{
-		int32_t current = get_total(stat);
-		set_total(stat, current + value);
+		set_total(stat, saturate(static_cast<int64_t>(get_total(stat)) + value));
 		buffdeltas[stat] += value;
 	}
 
 	void CharStats::add_value(EquipStat::Id stat, int32_t value)
 	{
-		int32_t current = get_total(stat);
-		set_total(stat, current + value);
+		set_total(stat, saturate(static_cast<int64_t>(get_total(stat)) + value));
 	}
 
 	void CharStats::add_percent(EquipStat::Id stat, float percent)
@@ -228,7 +236,7 @@ namespace ms
 		return get_buffdelta(EquipStat::Id::WATK) > 0 || get_buffdelta(EquipStat::Id::MAGIC) > 0;
 	}
 
-	uint16_t CharStats::get_stat(MapleStat::Id stat) const
+	int32_t CharStats::get_stat(MapleStat::Id stat) const
 	{
 		return basestats[stat];
 	}
@@ -333,12 +341,12 @@ namespace ms
 		return resiststatus;
 	}
 
-	int32_t CharStats::get_maxdamage() const
+	int64_t CharStats::get_maxdamage() const
 	{
 		return maxdamage;
 	}
 
-	int32_t CharStats::get_mindamage() const
+	int64_t CharStats::get_mindamage() const
 	{
 		return mindamage;
 	}

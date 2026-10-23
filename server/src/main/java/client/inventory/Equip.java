@@ -70,7 +70,9 @@ public class Equip extends Item {
     private byte upgradeSlots;
     private byte level, itemLevel;
     private short flag;
-    private short str, dex, _int, luk, hp, mp, watk, matk, wdef, mdef, acc, avoid, hands, speed, jump, vicious;
+    // MapleV83: 32-bit equipment stats (v83 stored and sent shorts, max 32767).
+    private int str, dex, _int, luk, hp, mp, watk, matk, wdef, mdef, acc, avoid, hands, speed, jump;
+    private short vicious;
     private float itemExp;
     private int ringid = -1;
     private boolean wear = false;
@@ -135,63 +137,63 @@ public class Equip extends Item {
         return upgradeSlots;
     }
 
-    public short getStr() {
+    public int getStr() {
         return str;
     }
 
-    public short getDex() {
+    public int getDex() {
         return dex;
     }
 
-    public short getInt() {
+    public int getInt() {
         return _int;
     }
 
-    public short getLuk() {
+    public int getLuk() {
         return luk;
     }
 
-    public short getHp() {
+    public int getHp() {
         return hp;
     }
 
-    public short getMp() {
+    public int getMp() {
         return mp;
     }
 
-    public short getWatk() {
+    public int getWatk() {
         return watk;
     }
 
-    public short getMatk() {
+    public int getMatk() {
         return matk;
     }
 
-    public short getWdef() {
+    public int getWdef() {
         return wdef;
     }
 
-    public short getMdef() {
+    public int getMdef() {
         return mdef;
     }
 
-    public short getAcc() {
+    public int getAcc() {
         return acc;
     }
 
-    public short getAvoid() {
+    public int getAvoid() {
         return avoid;
     }
 
-    public short getHands() {
+    public int getHands() {
         return hands;
     }
 
-    public short getSpeed() {
+    public int getSpeed() {
         return speed;
     }
 
-    public short getJump() {
+    public int getJump() {
         return jump;
     }
 
@@ -204,63 +206,63 @@ public class Equip extends Item {
         this.flag = flag;
     }
 
-    public void setStr(short str) {
+    public void setStr(int str) {
         this.str = str;
     }
 
-    public void setDex(short dex) {
+    public void setDex(int dex) {
         this.dex = dex;
     }
 
-    public void setInt(short _int) {
+    public void setInt(int _int) {
         this._int = _int;
     }
 
-    public void setLuk(short luk) {
+    public void setLuk(int luk) {
         this.luk = luk;
     }
 
-    public void setHp(short hp) {
+    public void setHp(int hp) {
         this.hp = hp;
     }
 
-    public void setMp(short mp) {
+    public void setMp(int mp) {
         this.mp = mp;
     }
 
-    public void setWatk(short watk) {
+    public void setWatk(int watk) {
         this.watk = watk;
     }
 
-    public void setMatk(short matk) {
+    public void setMatk(int matk) {
         this.matk = matk;
     }
 
-    public void setWdef(short wdef) {
+    public void setWdef(int wdef) {
         this.wdef = wdef;
     }
 
-    public void setMdef(short mdef) {
+    public void setMdef(int mdef) {
         this.mdef = mdef;
     }
 
-    public void setAcc(short acc) {
+    public void setAcc(int acc) {
         this.acc = acc;
     }
 
-    public void setAvoid(short avoid) {
+    public void setAvoid(int avoid) {
         this.avoid = avoid;
     }
 
-    public void setHands(short hands) {
+    public void setHands(int hands) {
         this.hands = hands;
     }
 
-    public void setSpeed(short speed) {
+    public void setSpeed(int speed) {
         this.speed = speed;
     }
 
-    public void setJump(short jump) {
+    public void setJump(int jump) {
         this.jump = jump;
     }
 
@@ -394,8 +396,8 @@ public class Equip extends Item {
         }
     }
 
-    public Map<StatUpgrade, Short> getStats() {
-        Map<StatUpgrade, Short> stats = new HashMap<>(5);
+    public Map<StatUpgrade, Integer> getStats() {
+        Map<StatUpgrade, Integer> stats = new HashMap<>(5);
 
         if (dex > 0) {
             stats.put(StatUpgrade.incDEX, dex);

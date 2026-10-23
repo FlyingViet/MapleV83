@@ -23,6 +23,16 @@
 
 namespace ms
 {
+	// MapleV83 wire protocol, appended to the login packet. Raise it whenever
+	// server <-> app packets change shape; the server turns older apps away
+	// with "update required" instead of loading a character they can't read.
+	//   3 = 0.19: 32-bit equipment stats (0.18 brought 32-bit stats and mesos)
+	constexpr int32_t MV83_PROTOCOL_MAGIC = 0x3338564D; // "MV83"
+	constexpr int16_t MV83_PROTOCOL = 6;	// 4: character level is a short; 5: SP is 32-bit; 6: 64-bit damage
+
+	// Login failure code for an app older than the server's protocol.
+	constexpr int32_t MV83_UPDATE_REQUIRED = 83;
+
 	// Opcode: LOGIN(1)
 	class LoginPacket : public OutPacket
 	{
@@ -55,6 +65,9 @@ namespace ms
 			write_byte(w);
 			write_byte(i);
 			write_byte(d);
+
+			write_int(MV83_PROTOCOL_MAGIC);
+			write_short(MV83_PROTOCOL);
 		}
 	};
 

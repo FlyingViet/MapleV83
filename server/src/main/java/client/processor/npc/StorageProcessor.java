@@ -201,7 +201,7 @@ public class StorageProcessor {
                 case 7: { // Mesos
                     int meso = p.readInt();
                     int storageMesos = storage.getMeso();
-                    int playerMesos = chr.getMeso();
+                    long playerMesos = chr.getMeso();
 
                     if (hasGMRestrictions(chr)) {
                         chr.dropMessage(1, gmBlockedStorageMessage);
@@ -210,20 +210,13 @@ public class StorageProcessor {
                         return;
                     }
 
-                    if ((meso > 0 && storageMesos >= meso) || (meso < 0 && playerMesos >= -meso)) {
-                        if (meso < 0 && (storageMesos - meso) < 0) {
-                            meso = Integer.MIN_VALUE + storageMesos;
-                            if (meso < playerMesos) {
-                                c.sendPacket(PacketCreator.enableActions());
-                                return;
-                            }
-                        } else if (meso > 0 && (playerMesos + meso) < 0) {
-                            meso = Integer.MAX_VALUE - playerMesos;
-                            if (meso > storageMesos) {
-                                c.sendPacket(PacketCreator.enableActions());
-                                return;
-                            }
-                        }
+                    // MapleV83: the wallet is 64-bit; storage stays 32-bit, so deposits stop at its cap.
+                    boolean ok = (meso > 0 && storageMesos >= meso && chr.canHoldMeso(meso)) || (meso < 0 && playerMesos >= -(long) meso);
+                    if (ok && meso < 0 && (long) storageMesos - meso > Integer.MAX_VALUE) {
+                        meso = storageMesos - Integer.MAX_VALUE;
+                        ok = meso < 0;
+                    }
+                    if (ok) {
                         storage.setMeso(storageMesos - meso);
                         chr.gainMeso(meso, false, true, false);
                         chr.setUsedStorage();

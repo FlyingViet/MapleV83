@@ -941,7 +941,9 @@ public class StatEffect {
         int hpchange = calcHPChange(applyfrom, primary, affectedPlayers);
         int mpchange = calcMPChange(applyfrom, primary);
         if (primary) {
-            if (itemConNo != 0) {
+            // MapleV83: skills don't use up items (Shadow Partner's Summoning Rocks,
+            // Mystic Door's Magic Rocks, ...); a missing rock silently cancelled the cast.
+            if (itemConNo != 0 && !skill) {
                 if (!applyto.getAbstractPlayerInteraction().hasItem(itemCon, itemConNo)) {
                     applyto.sendPacket(PacketCreator.enableActions());
                     return false;

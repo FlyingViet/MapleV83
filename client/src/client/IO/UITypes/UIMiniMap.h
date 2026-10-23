@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../UIDragElement.h"
+#include "../MobileUI.h"
 
 #include "../Components/Slider.h"
 
@@ -54,6 +55,11 @@ namespace ms
 
 		// Highlight an NPC on the minimap by its data ID (quest "Find NPC").
 		void set_quest_npc(int32_t npcid);
+
+		// The phone's large map and its chat window share the left side:
+		// whichever opens makes the other give way.
+		bool is_expanded() const;
+		void shrink();
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
@@ -170,5 +176,48 @@ namespace ms
 		float drag_start_zoom;
 
 		const CharStats& stats;
+
+		// ---- The phone's minimap (UIMiniMapMobile.cpp) ----
+		// A see-through card under the HUD in three sizes, kept in `type`:
+		// MIN a pill with the map's name, NORMAL a small map, MAX a larger
+		// map with buttons and tap-to-name NPCs and portals. Tapping the pill
+		// or the small map makes it bigger. Dots stand in for the sprites.
+		bool mobile = false;
+
+		struct MobileTargets
+		{
+			enum : int32_t
+			{
+				NONE = -1,
+				GROW,
+				SHRINK,
+				HIDE,
+				WORLD,
+				MAP
+			};
+		};
+
+		MobileUI::Rect mobile_frame() const;
+		MobileUI::Rect mobile_canvas() const;
+		MobileUI::Rect mobile_button(int32_t target) const;
+		Point<int16_t> mobile_point(Point<int16_t> world_pos) const;
+		int32_t mobile_hit(Point<int16_t> pos) const;
+		void mobile_set_type(int8_t next);
+		void mobile_pick(Point<int16_t> pos);
+		void mobile_draw(float alpha) const;
+		Cursor::State mobile_cursor(bool clicked, Point<int16_t> pos);
+
+		bool mobile_tracking = false;
+		uint32_t mobile_press = 0;
+		int32_t mobile_target = MobileTargets::NONE;
+		// What a tap on the large map named, and until when.
+		std::string picked_label;
+		Point<int16_t> picked_world;
+		int32_t picked_ticks = 0;
+		uint32_t mobile_tick = 0;
+		std::string mobile_name;
+		std::string mobile_street;
+		// Visible portals of this map: where they are and where they lead.
+		std::vector<std::pair<Point<int16_t>, int32_t>> mobile_portals;
 	};
 }

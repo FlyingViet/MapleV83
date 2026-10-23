@@ -31,7 +31,7 @@ namespace ms
 		CharStats();
 
 		void init_totalstats();
-		void set_stat(MapleStat::Id stat, uint16_t value);
+		void set_stat(MapleStat::Id stat, int32_t value);
 		void set_total(EquipStat::Id stat, int32_t value);
 		void add_buff(EquipStat::Id stat, int32_t value);
 		void add_value(EquipStat::Id stat, int32_t value);
@@ -50,7 +50,7 @@ namespace ms
 		int32_t calculate_damage(int32_t mobatk) const;
 
 		bool is_damage_buffed() const;
-		uint16_t get_stat(MapleStat::Id stat) const;
+		int32_t get_stat(MapleStat::Id stat) const;
 		int32_t get_total(EquipStat::Id stat) const;
 		int32_t get_buffdelta(EquipStat::Id stat) const;
 		Rectangle<int16_t> get_range() const;
@@ -72,8 +72,8 @@ namespace ms
 		void set_stance(float stance);
 		float get_stance() const;
 		float get_resistance() const;
-		int32_t get_maxdamage() const;
-		int32_t get_mindamage() const;
+		int64_t get_maxdamage() const;
+		int64_t get_mindamage() const;
 		uint16_t get_honor() const;
 		void set_attackspeed(int8_t speed);
 		int8_t get_attackspeed() const;
@@ -85,9 +85,9 @@ namespace ms
 		std::pair<int32_t, int8_t> get_jobrank() const { return jobrank; }
 
 	private:
-		int32_t calculateaccuracy() const;
-		int32_t get_primary_stat() const;
-		int32_t get_secondary_stat() const;
+		int64_t calculateaccuracy() const;
+		double get_primary_stat() const;
+		double get_secondary_stat() const;
 		float get_multiplier() const;
 
 		std::string name;
@@ -98,12 +98,12 @@ namespace ms
 		uint8_t portal;
 		std::pair<int32_t, int8_t> rank;
 		std::pair<int32_t, int8_t> jobrank;
-		EnumMap<MapleStat::Id, uint16_t> basestats;
+		EnumMap<MapleStat::Id, int32_t> basestats;
 		EnumMap<EquipStat::Id, int32_t> totalstats;
 		EnumMap<EquipStat::Id, int32_t> buffdeltas;
 		EnumMap<EquipStat::Id, float> percentages;
-		int32_t maxdamage;
-		int32_t mindamage;
+		int64_t maxdamage;
+		int64_t mindamage;
 		uint16_t honor;
 		int8_t attackspeed;
 		int16_t projectilerange;

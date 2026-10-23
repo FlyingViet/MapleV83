@@ -82,6 +82,7 @@ import provider.wz.WZFiles;
 import server.StatEffect;
 import server.life.Element;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -91,6 +92,10 @@ public class SkillFactory {
 
     public static Skill getSkill(int id) {
         return skills.get(id);
+    }
+
+    public static Collection<Skill> getAllSkills() {
+        return skills.values();
     }
 
     public static void loadAllSkills() {

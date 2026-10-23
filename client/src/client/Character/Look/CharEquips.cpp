@@ -21,6 +21,8 @@
 
 #include <nlnx/nx.hpp>
 
+#include <cstdlib>
+
 namespace ms
 {
 	CharEquips::CharEquips()
@@ -31,6 +33,12 @@ namespace ms
 
 	void CharEquips::draw(EquipSlot::Id slot, Stance::Id stance, Clothing::Layer layer, uint8_t frame, const DrawArgument& args) const
 	{
+		if (slot == EquipSlot::Id::WEAPON && skin)
+		{
+			skin->draw(stance, layer, frame, args);
+			return;
+		}
+
 		// Procedural weapons/hats render themselves (anchored + posed).
 		if (slot == EquipSlot::Id::WEAPON && procweapon.is_valid())
 		{
@@ -54,23 +62,83 @@ namespace ms
 		prochat.update();
 	}
 
-	void CharEquips::add_equip(int32_t itemid, const BodyDrawInfo& drawinfo)
+	const Clothing& CharEquips::cached(int32_t itemid, const BodyDrawInfo& drawinfo, int16_t weapon_type)
 	{
-		if (itemid <= 0)
-			return;
-
-		auto iter = cloth_cache.find(itemid);
+		int32_t key = weapon_type > 0 ? itemid * 100 + weapon_type : itemid;
+		auto iter = cloth_cache.find(key);
 
 		if (iter == cloth_cache.end())
 		{
 			iter = cloth_cache.emplace(
 				std::piecewise_construct,
-				std::forward_as_tuple(itemid),
-				std::forward_as_tuple(itemid, drawinfo)
+				std::forward_as_tuple(key),
+				std::forward_as_tuple(itemid, drawinfo, weapon_type)
 				).first;
 		}
 
-		const Clothing& cloth = iter->second;
+		return iter->second;
+	}
+
+	void CharEquips::set_weapon_skin(int32_t itemid, const BodyDrawInfo& drawinfo, bool any_type)
+	{
+		skin_id = itemid / 10000 == 170 ? itemid : 0;
+		skin_any_type = any_type;
+		skin_drawinfo = &drawinfo;
+		refresh_skin();
+	}
+
+	int32_t CharEquips::get_weapon_skin() const
+	{
+		return skin_id;
+	}
+
+	void CharEquips::refresh_skin()
+	{
+		skin = nullptr;
+		skin_forced = false;
+
+		if (!skin_id || !skin_drawinfo)
+			return;
+
+		nl::node src = nl::nx::character["Weapon"]["0" + std::to_string(skin_id) + ".img"];
+		int32_t weapon = get_weapon();
+		int16_t type = static_cast<int16_t>(weapon ? (weapon / 10000) % 100 : 0);
+
+		if (type > 0 && src[std::to_string(type)])
+		{
+			skin = &cached(skin_id, *skin_drawinfo, type);
+			return;
+		}
+
+		// Worn over a weapon it has no art for, the real weapon shows.
+		if (weapon && !skin_any_type)
+			return;
+
+		for (nl::node sub : src)
+		{
+			int16_t first = static_cast<int16_t>(std::atoi(sub.name().c_str()));
+
+			if (first >= 30 && first < 50)
+			{
+				skin = &cached(skin_id, *skin_drawinfo, first);
+				skin_forced = true;
+				return;
+			}
+		}
+	}
+
+	void CharEquips::add_equip(int32_t itemid, const BodyDrawInfo& drawinfo)
+	{
+		if (itemid <= 0)
+			return;
+
+		if (itemid / 10000 == 170)
+		{
+			set_weapon_skin(itemid, drawinfo, skin_any_type);
+			return;
+		}
+
+		const Clothing& cloth = cached(itemid, drawinfo, 0);
 
 		EquipSlot::Id slot = cloth.get_eqslot();
 		clothes[slot] = &cloth;
@@ -86,6 +154,9 @@ namespace ms
 				procweapon = ProceduralWeapon(src, itemid, drawinfo);
 			else
 				procweapon = ProceduralWeapon(); // authored — clear any prior procedural
+
+			// The cash weapon follows the real weapon's type.
+			refresh_skin();
 		}
 		else if (slot == EquipSlot::Id::HAT)
 		{
@@ -104,7 +175,10 @@ namespace ms
 		clothes[slot] = nullptr;
 
 		if (slot == EquipSlot::Id::WEAPON)
+		{
 			procweapon = ProceduralWeapon();
+			refresh_skin();
+		}
 		else if (slot == EquipSlot::Id::HAT)
 		{
 			prochat = ProceduralHat();
@@ -113,7 +187,7 @@ namespace ms
 
 	bool CharEquips::is_visible(EquipSlot::Id slot) const
 	{
-		if (const Clothing* cloth = clothes[slot])
+		if (const Clothing* cloth = slot == EquipSlot::Id::WEAPON && skin ? skin : clothes[slot])
 			return cloth->is_transparent() == false;
 		else
 			return false;
@@ -121,7 +195,7 @@ namespace ms
 
 	bool CharEquips::comparelayer(EquipSlot::Id slot, Stance::Id stance, Clothing::Layer layer) const
 	{
-		if (const Clothing* cloth = clothes[slot])
+		if (const Clothing* cloth = slot == EquipSlot::Id::WEAPON && skin ? skin : clothes[slot])
 			return cloth->contains_layer(stance, layer);
 		else
 			return false;
@@ -139,6 +213,9 @@ namespace ms
 
 	bool CharEquips::is_twohanded() const
 	{
+		if (skin_forced)
+			return skin->is_twohanded();
+
 		if (const Clothing* weapon = clothes[EquipSlot::Id::WEAPON])
 			return weapon->is_twohanded();
 		else
@@ -163,6 +240,11 @@ namespace ms
 			if (vslot.find("H5") != std::string::npos)
 				return CharEquips::CapType::HEADBAND;
 
+			// Covers no hair at all ("Cp": bunny ears, bows, crowns): the
+			// hair draws in full and the hat sits on top.
+			if (vslot.find('H') == std::string::npos)
+				return CharEquips::CapType::HEADBAND;
+
 			return CharEquips::CapType::HALFCOVER;
 		}
 		else
@@ -179,7 +261,7 @@ namespace ms
 
 	Stance::Id CharEquips::adjust_stance(Stance::Id stance) const
 	{
-		if (const Clothing* weapon = clothes[EquipSlot::Id::WEAPON])
+		if (const Clothing* weapon = skin_forced ? skin : clothes[EquipSlot::Id::WEAPON])
 		{
 			switch (stance)
 			{

@@ -453,7 +453,7 @@ namespace ms
 		return TYPE;
 	}
 
-	void UICharInfo::update_stats(int32_t character_id, int16_t job_id, int8_t lv, int16_t f, std::string g, std::string a)
+	void UICharInfo::update_stats(int32_t character_id, int16_t job_id, int16_t lv, int16_t f, std::string g, std::string a)
 	{
 		int32_t player_id = Stage::get().get_player().get_oid();
 

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
 
 namespace ms
 {
@@ -31,5 +32,9 @@ namespace ms
 
 	private:
 		int16_t loot_cd = 0;
+		// Drops already asked for, with the updates left (~1.2 s) before asking again:
+		// one the server refuses (someone else's, a full bag) mustn't hold the
+		// pet in place while other loot waits.
+		std::unordered_map<int32_t, int16_t> asked;
 	};
 }

@@ -52,23 +52,18 @@ public class GiveMesosCommand extends Command {
         }
 
         try {
-            mesos_ = Long.parseLong(value_);
-            if (mesos_ > Integer.MAX_VALUE) {
-                mesos_ = Integer.MAX_VALUE;
-            } else if (mesos_ < Integer.MIN_VALUE) {
-                mesos_ = Integer.MIN_VALUE;
-            }
+            mesos_ = Long.parseLong(value_.replace(",", ""));
         } catch (NumberFormatException nfe) {
             if (value_.contentEquals("max")) {  // "max" descriptor suggestion thanks to Vcoc
-                mesos_ = Integer.MAX_VALUE;
+                mesos_ = Character.MAX_MESO;
             } else if (value_.contentEquals("min")) {
-                mesos_ = Integer.MIN_VALUE;
+                mesos_ = -Character.MAX_MESO;
             }
         }
 
         Character victim = c.getWorldServer().getPlayerStorage().getCharacterByName(recv_);
         if (victim != null) {
-            victim.gainMeso((int) mesos_, true);
+            victim.gainMeso(mesos_, true);
             player.message("MESO given.");
         } else {
             player.message("Player '" + recv_ + "' could not be found.");

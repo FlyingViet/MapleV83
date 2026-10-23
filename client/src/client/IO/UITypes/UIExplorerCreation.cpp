@@ -20,6 +20,7 @@
 #include "../../Graphics/Geometry.h"
 
 #include <cmath>
+#include <iostream>
 #include <string>
 
 #include "UICharSelect.h"
@@ -45,98 +46,103 @@
 
 namespace ms
 {
+	// 800x600 design coordinates of one race's v83 boards (Login.img/NewChar,
+	// NewCharKnight, NewCharAran). Insets were measured on the v83 bitmaps.
+	struct UIExplorerCreation::Layout
+	{
+		const char* board;			// Login.img child holding the boards
+		const char* female_pool;	// Etc MakeCharInfo.img paths Cosmic validates against
+		const char* male_pool;
+		Color::Name name_color;		// name text on the board's name box
+		// charSet (CHARACTER SETTINGS) top-left; also the uniform-scale anchor
+		int16_t sign_x, sign_y;
+		// charName (NAME OF CHARACTER) top-left
+		int16_t name_x, name_y;
+		// name box text area, BtCheck, and BtYes/BtNo on the name sign
+		int16_t name_text_x, name_text_y, name_text_r, name_text_b;
+		int16_t check_x, check_y;
+		int16_t name_ok_x, name_no_x, name_ok_y;
+		// BtYes/BtNo on the settings sign
+		int16_t set_ok_x, set_no_x, set_ok_y;
+		// first avatarSel row (200x17) and the row pitch
+		int16_t row_x, row_y0, row_h;
+		// character feet; the stat table sits left of the character
+		int16_t feet_x, feet_y;
+
+		int16_t row_y(size_t row) const
+		{
+			return static_cast<int16_t>(row_y0 + row_h * static_cast<int16_t>(row));
+		}
+	};
+
 	namespace
 	{
-		// 800x600 design coordinates. Sign placement follows the v83
-		// HeavenClient reference; insets were measured on the v83 bitmaps.
+		using Layout = UIExplorerCreation::Layout;
 
-		// Login.img/NewChar/charSet (225x377) top-left; also the sign anchor
-		constexpr int16_t SIGN_X = 450;
-		constexpr int16_t SIGN_Y = 115;
-		// Login.img/NewChar/charName (201x224) top-left
-		constexpr int16_t NAME_X = 455;
-		constexpr int16_t NAME_Y = 115;
-		// charName's dark name box spans (28..176, 103..126) inside the sign:
-		// text starts a few px in, A13M sits centred in the 24px box
-		constexpr int16_t NAME_TEXT_X = NAME_X + 34;
-		constexpr int16_t NAME_TEXT_Y = NAME_Y + 107;
-		// field ends where BtCheck (50x24) fills the right end of the box
-		constexpr int16_t NAME_TEXT_R = NAME_X + 124;
-		constexpr int16_t NAME_TEXT_B = NAME_Y + 126;
-		constexpr int16_t CHECK_X = NAME_X + 126;
-		constexpr int16_t CHECK_Y = NAME_Y + 103;
-		// BtYes/BtNo (81x41) are cut from the bottom plank: 6px below the plank
-		// top, left one 12px in, right one overlapping it by 8px
-		constexpr int16_t NAME_OK_X = NAME_X + 27;
-		constexpr int16_t NAME_OK_Y = NAME_Y + 177;
-		constexpr int16_t NAME_NO_X = NAME_X + 100;
-		constexpr int16_t SET_OK_X = SIGN_X + 36;
-		constexpr int16_t SET_OK_Y = SIGN_Y + 330;
-		constexpr int16_t SET_NO_X = SIGN_X + 110;
-		// avatarSel rows (200x17) fill charSet's cream area (10..211, 100..271)
+		// Explorer: wooden signs, 9 rows at a 19px pitch in charSet's cream area
+		// (10..211, 100..271); BtYes/BtNo (81x41) cut from the bottom planks.
+		constexpr Layout EXPLORER_LAYOUT = {
+			"NewChar", "Info/CharFemale", "Info/CharMale", Color::Name::WHITE,
+			450, 115, 455, 115,
+			455 + 34, 115 + 107, 455 + 124, 115 + 126,
+			455 + 126, 115 + 103,
+			455 + 27, 455 + 100, 115 + 177,
+			450 + 36, 450 + 110, 115 + 330,
+			450 + 11, 115 + 102, 19,
+			360, 348
+		};
+
+		// Cygnus: lavender signs of the same shape; content (10..217, 108..277),
+		// name box (29..177, 103..127), BtYes/BtNo 67x38 on the planks.
+		constexpr Layout CYGNUS_LAYOUT = {
+			"NewCharKnight", "PremiumCharFemale", "PremiumCharMale", Color::Name::WHITE,
+			450, 115, 455, 115,
+			455 + 35, 115 + 107, 455 + 125, 115 + 127,
+			455 + 129, 115 + 105,
+			455 + 28, 455 + 106, 115 + 178,
+			450 + 40, 450 + 118, 115 + 328,
+			450 + 13, 115 + 111, 18,
+			394, 339
+		};
+
+		// Aran: snowy scrolls, settings content (30..245, 88..245), name box
+		// (30..180, 88..116); BtYes/BtNo are fish ornaments (75x125) hanging
+		// below each scroll.
+		constexpr Layout ARAN_LAYOUT = {
+			"NewCharAran", "OrientCharFemale", "OrientCharMale", Color::Name::BLACK,
+			440, 100, 471, 100,
+			471 + 36, 100 + 92, 471 + 126, 100 + 116,
+			471 + 128, 100 + 90,
+			471 + 30, 471 + 110, 100 + 133,
+			440 + 50, 440 + 150, 100 + 262,
+			440 + 37, 100 + 90, 17,
+			394, 339
+		};
+
 		constexpr size_t ROW_COUNT = 9;
-		constexpr int16_t ROW_X = SIGN_X + 11;
-		constexpr int16_t ROW_Y = SIGN_Y + 102;
-		// row pitch: 17px art plus the 2px cream gap
-		constexpr int16_t ROW_H = 19;
 		// BtLeft (15x16) just past the row's label divider (x=57), BtRight
 		// flush with the row's right edge; arrows are 1px shorter than the row
-		constexpr int16_t ROW_LEFT_X = ROW_X + 60;
-		constexpr int16_t ROW_RIGHT_X = ROW_X + 184;
+		constexpr int16_t ROW_LEFT_DX = 60;
+		constexpr int16_t ROW_RIGHT_DX = 184;
 		constexpr int16_t ROW_BT_DY = -1;
 		// option name centred between the arrows, A11M nudged up as in HeavenClient
-		constexpr int16_t ROW_NAME_X = ROW_X + 130;
+		constexpr int16_t ROW_NAME_DX = 130;
 		constexpr int16_t ROW_NAME_DY = -3;
-		// character feet on the platform (existing tuned position) — the stat
-		// table and dice are anchored here so they stay beside the preview
-		constexpr int16_t FEET_X = 360;
-		constexpr int16_t FEET_Y = 348;
-		// Login.img/NewChar/statTb (65x77) left of the character
-		constexpr int16_t STAT_X = 248;
-		constexpr int16_t STAT_Y = 262;
-		// value column (40..64) centre and the 20px label rows (first at y=4)
-		constexpr int16_t STAT_VAL_X = STAT_X + 52;
-		constexpr int16_t STAT_ROW_Y = STAT_Y + 2;
+		// Login.img/NewChar/statTb (65x77) left of the character: offset from
+		// the feet, value column (40..64) centre and the 20px label rows
+		constexpr int16_t STAT_DX = -112;
+		constexpr int16_t STAT_DY = -86;
+		constexpr int16_t STAT_VAL_DX = 52;
+		constexpr int16_t STAT_ROW_DY = 2;
 		constexpr int16_t STAT_ROW_H = 20;
-		// dice frames share a bottom edge at y+56 and bounce upward; the
-		// resting frame 0 (37x26, origin y -30) covers y+30..y+56
-		constexpr int16_t DICE_X = 262;
-		constexpr int16_t DICE_Y = 320;
-		constexpr int16_t DICE_REST_L = DICE_X;
-		constexpr int16_t DICE_REST_T = DICE_Y + 30;
-		constexpr int16_t DICE_REST_R = DICE_X + 37;
-		constexpr int16_t DICE_REST_B = DICE_Y + 56;
-		// bounces played per click
-		constexpr uint8_t DICE_CYCLES = 2;
-		// classic roll: 4..13 per stat, 25 in total
-		constexpr uint8_t STAT_MIN = 4;
-		constexpr uint8_t STAT_MAX = 13;
-		constexpr uint8_t STAT_TOTAL = 25;
+		// Every new character starts at 4/4/4/4 with 9 AP to place in game
+		// (Cosmic USE_AUTOASSIGN_STARTERS_AP off).
+		constexpr uint8_t STARTING_STAT = 4;
 		// Common/BtStart (back) and the version label keep their places
 		constexpr int16_t BACK_X = 0;
 		constexpr int16_t BACK_Y = 515;
 		constexpr int16_t VERSION_X = 707;
 		constexpr int16_t VERSION_Y = 4;
-
-		constexpr int16_t row_y(size_t row)
-		{
-			return static_cast<int16_t>(ROW_Y + ROW_H * static_cast<int16_t>(row));
-		}
-
-		constexpr int16_t row_button_y(size_t row)
-		{
-			return static_cast<int16_t>(row_y(row) + ROW_BT_DY);
-		}
-
-		constexpr int16_t row_name_y(size_t row)
-		{
-			return static_cast<int16_t>(row_y(row) + ROW_NAME_DY);
-		}
-
-		constexpr int16_t stat_row_y(size_t row)
-		{
-			return static_cast<int16_t>(STAT_ROW_Y + STAT_ROW_H * static_cast<int16_t>(row));
-		}
 
 		// Cyclic step through an option list; false when there is nothing to pick
 		bool step_index(size_t& index, size_t count, bool forward)
@@ -150,15 +156,40 @@ namespace ms
 		}
 	}
 
-	UIExplorerCreation::UIExplorerCreation() : UICreationBase(1)
+	const Layout& UIExplorerCreation::layout_for(Race race)
+	{
+		switch (race)
+		{
+			case Race::CYGNUS:
+				return CYGNUS_LAYOUT;
+			case Race::ARAN:
+				return ARAN_LAYOUT;
+			default:
+				return EXPLORER_LAYOUT;
+		}
+	}
+
+	uint16_t UIExplorerCreation::job_for(Race race)
+	{
+		// CreateChar job type: 0 Cygnus (Noblesse), 1 Explorer, 2 Aran (Legend)
+		switch (race)
+		{
+			case Race::CYGNUS:
+				return 0;
+			case Race::ARAN:
+				return 2;
+			default:
+				return 1;
+		}
+	}
+
+	UIExplorerCreation::UIExplorerCreation(Race race) : UICreationBase(job_for(race)), race(race), layout(layout_for(race))
 	{
 		// v83 has no gender board: gender is avatarSel row 8, so the base's
 		// gender step is always "done"
 		gender = true;
 		charSet = false;
 		named = false;
-		rolling = false;
-		roll_cycles = 0;
 
 		ui_scale = std::min(UIScale::scale_x(), UIScale::scale_y());
 		ui_scale_x = UIScale::scale_x();
@@ -169,11 +200,12 @@ namespace ms
 
 		nl::node Login = nl::nx::ui["Login.img"];
 		nl::node Common = Login["Common"];
-		nl::node NewChar = Login["NewChar"];
+		nl::node NewChar = Login[layout.board];
 		nl::node back = nl::nx::map["Back"]["login.img"]["back"];
 
 		// Reference v83 composition (HeavenClient): sky strip back/2 tiled,
-		// cloud back/27 drifting, scene pieces 15-18 and the Common frame.
+		// cloud back/27 drifting, the race's scene from the login map and the
+		// Common frame on top.
 		sky = Texture(back["2"]);
 		cloud = back["27"];
 
@@ -182,24 +214,56 @@ namespace ms
 			if (src)
 				scenery.emplace_back(Texture(src), Point<int16_t>(x, y));
 		};
-		scenepc(back["15"], 153, 685);
-		scenepc(back["16"], 200, 400);
-		scenepc(back["17"], 160, 263);
-		scenepc(back["18"], 349, 1220);
-		scenepc(Common["frame"], 400, 300);
+
+		// Gazebos keep their aspect: uniform scale at their map spot, pieces
+		// offset in uniform space so they stay glued together.
+		auto gazebo = [&](int16_t ax, int16_t ay, nl::node src, int16_t dx, int16_t dy)
+		{
+			Point<int16_t> anchor(
+				static_cast<int16_t>(std::lround(ax * UIScale::scale_x())),
+				static_cast<int16_t>(std::lround(ay * UIScale::scale_y())));
+
+			if (src)
+				sprites.emplace_back(src, UIScale::uniform_args(Texture(src), anchor, Point<int16_t>(0, 0), dx, dy, ui_scale));
+		};
+
+		switch (race)
+		{
+			case Race::CYGNUS:
+				// Ereve: the Cygnus gazebo (back/30) with its vines (31/32)
+				gazebo(265, 300, back["30"], 0, 0);
+				gazebo(265, 300, back["31"], 430, -221);
+				gazebo(265, 300, back["32"], 376, -150);
+				sprites.emplace_back(Common["frame"], UIScale::stretch_args(Texture(Common["frame"]), 400, 300));
+				break;
+			case Race::ARAN:
+				// Rien: the snowy gazebo (back/33) the new Aran stands on
+				gazebo(256, 299, back["33"], 0, 0);
+				sprites.emplace_back(Common["frame"], UIScale::stretch_args(Texture(Common["frame"]), 400, 300));
+				break;
+			default:
+				// Maple Island: scene pieces 15-18
+				scenepc(back["15"], 153, 685);
+				scenepc(back["16"], 200, 400);
+				scenepc(back["17"], 160, 263);
+				scenepc(back["18"], 349, 1220);
+				scenepc(Common["frame"], 400, 300);
+				break;
+		}
 
 		// CHARACTER SETTINGS sign with its nine option rows
-		sprites_lookboard.emplace_back(NewChar["charSet"], sign_args(Texture(NewChar["charSet"]), SIGN_X, SIGN_Y));
+		sprites_lookboard.emplace_back(NewChar["charSet"], sign_args(Texture(NewChar["charSet"]), layout.sign_x, layout.sign_y));
 
 		for (size_t i = 0; i < ROW_COUNT; i++)
-			sprites_lookboard.emplace_back(NewChar["avatarSel"][i]["normal"], DrawArgument(slay(ROW_X, row_y(i)), ui_scale, ui_scale));
+			sprites_lookboard.emplace_back(NewChar["avatarSel"][i]["normal"], DrawArgument(slay(layout.row_x, layout.row_y(i)), ui_scale, ui_scale));
 
 		// One BtLeft/BtRight pair per row: face, hair style, hair colour, skin,
 		// top, bottom, shoes, weapon, gender
 		auto arrows = [&](uint16_t leftid, uint16_t rightid, size_t row)
 		{
-			buttons[leftid] = std::make_unique<MapleButton>(NewChar["BtLeft"], slay(ROW_LEFT_X, row_button_y(row)));
-			buttons[rightid] = std::make_unique<MapleButton>(NewChar["BtRight"], slay(ROW_RIGHT_X, row_button_y(row)));
+			int16_t y = static_cast<int16_t>(layout.row_y(row) + ROW_BT_DY);
+			buttons[leftid] = std::make_unique<MapleButton>(NewChar["BtLeft"], slay(layout.row_x + ROW_LEFT_DX, y));
+			buttons[rightid] = std::make_unique<MapleButton>(NewChar["BtRight"], slay(layout.row_x + ROW_RIGHT_DX, y));
 		};
 		arrows(Buttons::BT_CHARC_FACEL, Buttons::BT_CHARC_FACER, 0);
 		arrows(Buttons::BT_CHARC_HAIRL, Buttons::BT_CHARC_HAIRR, 1);
@@ -211,9 +275,9 @@ namespace ms
 		arrows(Buttons::BT_CHARC_WEPL, Buttons::BT_CHARC_WEPR, 7);
 		arrows(BT_CHARC_GENDERL, BT_CHARC_GENDERR, 8);
 
-		buttons[Buttons::BT_CHARC_OK] = std::make_unique<MapleButton>(NewChar["BtYes"], slay(NAME_OK_X, NAME_OK_Y));
-		buttons[Buttons::BT_CHARC_CANCEL] = std::make_unique<MapleButton>(NewChar["BtNo"], slay(NAME_NO_X, NAME_OK_Y));
-		buttons[BT_CHARC_CHECK] = std::make_unique<MapleButton>(NewChar["BtCheck"], slay(CHECK_X, CHECK_Y));
+		buttons[Buttons::BT_CHARC_OK] = std::make_unique<MapleButton>(NewChar["BtYes"], slay(layout.name_ok_x, layout.name_ok_y));
+		buttons[Buttons::BT_CHARC_CANCEL] = std::make_unique<MapleButton>(NewChar["BtNo"], slay(layout.name_no_x, layout.name_ok_y));
+		buttons[BT_CHARC_CHECK] = std::make_unique<MapleButton>(NewChar["BtCheck"], slay(layout.check_x, layout.check_y));
 		buttons[Buttons::BT_BACK] = std::make_unique<MapleButton>(Common["BtStart"], lay(BACK_X, BACK_Y));
 
 		// Uniform-scale every button (draw + hit bounds).
@@ -222,7 +286,7 @@ namespace ms
 
 		// NAME OF CHARACTER sign; the field's top-left is where the text draws
 		nameboard = NewChar["charName"];
-		namechar = Textfield(Text::Font::A13M, Text::Alignment::LEFT, Color::Name::WHITE, Rectangle<int16_t>(slay(NAME_TEXT_X, NAME_TEXT_Y), slay(NAME_TEXT_R, NAME_TEXT_B)), 12);
+		namechar = Textfield(Text::Font::A13M, Text::Alignment::LEFT, layout.name_color, Rectangle<int16_t>(slay(layout.name_text_x, layout.name_text_y), slay(layout.name_text_r, layout.name_text_b)), 12);
 
 		namechar.set_enter_callback(
 			[&](std::string)
@@ -239,13 +303,9 @@ namespace ms
 			}
 		);
 
-		// Stat table and dice. The v83 CreateChar packet carries no stats, so
-		// the roll is display-only; the dice has no button node and is
-		// hit-tested on its resting frame in send_cursor().
+		// Stat table: the v83 CreateChar packet carries no stats and the server
+		// starts everyone at 4/4/4/4 with 9 AP, so there is no dice to roll.
 		stattable = NewChar["statTb"];
-		dice_idle = NewChar["dice"]["0"];
-		dice_roll = Animation(NewChar["dice"]);
-		dice_bounds = Rectangle<int16_t>(flay(DICE_REST_L, DICE_REST_T), flay(DICE_REST_R, DICE_REST_B));
 
 		facename = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::BLACK);
 		hairname = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::BLACK);
@@ -260,7 +320,7 @@ namespace ms
 		for (auto& stattext : stattexts)
 			stattext = Text(Text::Font::A11M, Text::Alignment::CENTER, Color::Name::BLACK);
 
-		nl::node mkinfo = nl::nx::etc["MakeCharInfo.img"]["Info"];
+		nl::node mkinfo = nl::nx::etc["MakeCharInfo.img"];
 
 		for (size_t i = 0; i < 2; i++)
 		{
@@ -270,12 +330,12 @@ namespace ms
 			if (i == 0)
 			{
 				f = true;
-				CharGender = mkinfo["CharFemale"];
+				CharGender = mkinfo.resolve(layout.female_pool);
 			}
 			else
 			{
 				f = false;
-				CharGender = mkinfo["CharMale"];
+				CharGender = mkinfo.resolve(layout.male_pool);
 			}
 
 			for (auto node : CharGender)
@@ -319,7 +379,9 @@ namespace ms
 
 		female = false;
 		randomize_look();
-		roll_stats();
+
+		for (auto& stattext : stattexts)
+			stattext.change_text(std::to_string(STARTING_STAT));
 
 		newchar.set_direction(true);
 
@@ -347,17 +409,17 @@ namespace ms
 
 	Point<int16_t> UIExplorerCreation::slay(int16_t x, int16_t y) const
 	{
-		return alay(Point<int16_t>(SIGN_X, SIGN_Y), x, y);
+		return alay(Point<int16_t>(layout.sign_x, layout.sign_y), x, y);
 	}
 
 	DrawArgument UIExplorerCreation::sign_args(const Texture& t, int16_t x, int16_t y) const
 	{
-		return aargs(t, Point<int16_t>(SIGN_X, SIGN_Y), x, y);
+		return aargs(t, Point<int16_t>(layout.sign_x, layout.sign_y), x, y);
 	}
 
 	Point<int16_t> UIExplorerCreation::flay(int16_t x, int16_t y) const
 	{
-		return alay(Point<int16_t>(FEET_X, FEET_Y), x, y);
+		return alay(Point<int16_t>(layout.feet_x, layout.feet_y), x, y);
 	}
 
 	void UIExplorerCreation::draw(float inter) const
@@ -380,7 +442,7 @@ namespace ms
 
 		if (!named)
 		{
-			nameboard.draw(sign_args(nameboard, NAME_X, NAME_Y));
+			nameboard.draw(sign_args(nameboard, layout.name_x, layout.name_y));
 			namechar.draw(Point<int16_t>(0, 0));
 		}
 		else
@@ -393,23 +455,18 @@ namespace ms
 			};
 
 			for (size_t i = 0; i < ROW_COUNT; i++)
-				names[i]->draw(slay(ROW_NAME_X, row_name_y(i)));
+				names[i]->draw(slay(layout.row_x + ROW_NAME_DX, static_cast<int16_t>(layout.row_y(i) + ROW_NAME_DY)));
 
-			stattable.draw(aargs(stattable, Point<int16_t>(FEET_X, FEET_Y), STAT_X, STAT_Y));
+			int16_t stat_x = static_cast<int16_t>(layout.feet_x + STAT_DX);
+			int16_t stat_y = static_cast<int16_t>(layout.feet_y + STAT_DY);
+			stattable.draw(aargs(stattable, Point<int16_t>(layout.feet_x, layout.feet_y), stat_x, stat_y));
 
 			for (size_t i = 0; i < stattexts.size(); i++)
-				stattexts[i].draw(flay(STAT_VAL_X, stat_row_y(i)));
-
-			DrawArgument diceargs(flay(DICE_X, DICE_Y), ui_scale, ui_scale);
-
-			if (rolling)
-				dice_roll.draw(diceargs, inter);
-			else
-				dice_idle.draw(diceargs);
+				stattexts[i].draw(flay(stat_x + STAT_VAL_DX, static_cast<int16_t>(stat_y + STAT_ROW_DY + STAT_ROW_H * static_cast<int16_t>(i))));
 		}
 
-		// feet on the mushroom platform, reference position
-		newchar.draw(DrawArgument(lay(FEET_X, FEET_Y), ui_scale_x, ui_scale_y), inter);
+		// feet on the scene's platform, at uniform scale like the boards
+		newchar.draw(DrawArgument(lay(layout.feet_x, layout.feet_y), ui_scale, ui_scale), inter);
 
 		UIElement::draw_buttons(inter);
 
@@ -426,19 +483,6 @@ namespace ms
 		{
 			for (auto& sprite : sprites_lookboard)
 				sprite.update();
-
-			// Animation::update() reports true when the frame loop wraps, i.e.
-			// the die is back on its resting frame; roll once the last bounce lands
-			if (rolling && dice_roll.update())
-			{
-				roll_cycles--;
-
-				if (roll_cycles == 0)
-				{
-					rolling = false;
-					roll_stats();
-				}
-			}
 		}
 
 		// BtCheck mirrors BtYes: the base name helpers only know OK/Cancel, so
@@ -455,27 +499,6 @@ namespace ms
 		UIElement::update();
 
 		cloudfx += 0.25f;
-	}
-
-	Cursor::State UIExplorerCreation::send_cursor(bool clicked, Point<int16_t> cursorpos)
-	{
-		// The dice has no button node in v83: hit-test its resting frame while
-		// the look sign is up and no creation is pending
-		if (named && !charSet && dice_bounds.contains(cursorpos))
-		{
-			if (clicked && !rolling)
-			{
-				Sound(Sound::Name::BUTTONCLICK).play();
-
-				rolling = true;
-				roll_cycles = DICE_CYCLES;
-				dice_roll.reset();
-			}
-
-			return clicked ? Cursor::State::CLICKING : Cursor::State::CANCLICK;
-		}
-
-		return UICreationBase::send_cursor(clicked, cursorpos);
 	}
 
 	void UIExplorerCreation::send_naming_result(bool nameused)
@@ -655,9 +678,9 @@ namespace ms
 
 		buttons[BT_CHARC_CHECK]->set_active(true);
 		buttons[BT_CHARC_CHECK]->set_state(Button::State::NORMAL);
-		buttons[Buttons::BT_CHARC_OK]->set_position(slay(NAME_OK_X, NAME_OK_Y));
+		buttons[Buttons::BT_CHARC_OK]->set_position(slay(layout.name_ok_x, layout.name_ok_y));
 		buttons[Buttons::BT_CHARC_OK]->set_state(Button::State::NORMAL);
-		buttons[Buttons::BT_CHARC_CANCEL]->set_position(slay(NAME_NO_X, NAME_OK_Y));
+		buttons[Buttons::BT_CHARC_CANCEL]->set_position(slay(layout.name_no_x, layout.name_ok_y));
 		buttons[Buttons::BT_CHARC_CANCEL]->set_state(Button::State::NORMAL);
 
 		namechar.set_state(Textfield::State::FOCUSED);
@@ -672,9 +695,9 @@ namespace ms
 		set_look_buttons(true);
 
 		// naming_ok_pressed() disabled OK/Cancel while the check was pending
-		buttons[Buttons::BT_CHARC_OK]->set_position(slay(SET_OK_X, SET_OK_Y));
+		buttons[Buttons::BT_CHARC_OK]->set_position(slay(layout.set_ok_x, layout.set_ok_y));
 		buttons[Buttons::BT_CHARC_OK]->set_state(Button::State::NORMAL);
-		buttons[Buttons::BT_CHARC_CANCEL]->set_position(slay(SET_NO_X, SET_OK_Y));
+		buttons[Buttons::BT_CHARC_CANCEL]->set_position(slay(layout.set_no_x, layout.set_ok_y));
 		buttons[Buttons::BT_CHARC_CANCEL]->set_state(Button::State::NORMAL);
 	}
 
@@ -736,29 +759,6 @@ namespace ms
 		newchar.add_equip(weapons[female][weapon]);
 
 		refresh_names();
-	}
-
-	void UIExplorerCreation::roll_stats()
-	{
-		// Every point above the floor goes one at a time to a random stat
-		// that still has room, so any 4..13 split summing to 25 can come up
-		stats.fill(STAT_MIN);
-
-		uint8_t left = static_cast<uint8_t>(STAT_TOTAL - STAT_MIN * stats.size());
-
-		while (left > 0)
-		{
-			size_t i = randomizer.next_int(stats.size());
-
-			if (stats[i] < STAT_MAX)
-			{
-				stats[i]++;
-				left--;
-			}
-		}
-
-		for (size_t i = 0; i < stats.size(); i++)
-			stattexts[i].change_text(std::to_string(stats[i]));
 	}
 
 	const std::string& UIExplorerCreation::hair_color_name(uint8_t color)

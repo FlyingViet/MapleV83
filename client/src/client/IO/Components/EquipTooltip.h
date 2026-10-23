@@ -37,6 +37,8 @@ namespace ms
 		void set_equip(Tooltip::Parent parent, int16_t invpos);
 		void draw(Point<int16_t> position) const override;
 		void draw_preview(Point<int16_t> position) const;
+		// Drawn width, including the worn-item comparison when shown
+		int16_t get_width() const { return invpos_preview ? WIDTH * 2 : WIDTH; }
 
 	private:
 		void draw_jobs(Point<int16_t> position, const std::vector<uint8_t>& allowed, bool jobok) const;

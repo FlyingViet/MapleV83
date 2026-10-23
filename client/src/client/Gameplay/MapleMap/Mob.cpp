@@ -658,7 +658,7 @@ namespace ms
 		return maxdamage < 1.0 ? 1.0 : maxdamage;
 	}
 
-	std::vector<std::pair<int32_t, bool>> Mob::calculate_damage(const Attack& attack)
+	std::vector<std::pair<int64_t, bool>> Mob::calculate_damage(const Attack& attack)
 	{
 		double mindamage;
 		double maxdamage;
@@ -688,29 +688,32 @@ namespace ms
 			break;
 		}
 
-		std::vector<std::pair<int32_t, bool>> result(attack.hitcount);
+		std::vector<std::pair<int64_t, bool>> result;
+		result.reserve(attack.hitcount);
 
-		std::generate(
-			result.begin(), result.end(),
-			[&]()
-			{
-				return next_damage(mindamage, maxdamage, hitchance, critical);
-			}
-		);
+		// Shadow Partner's copies (the second half) hit for half damage.
+		uint8_t own = attack.shadow ? attack.hitcount / 2 : attack.hitcount;
+
+		for (uint8_t i = 0; i < attack.hitcount; i++)
+		{
+			double scale = i < own ? 1.0 : 0.5;
+			result.push_back(next_damage(mindamage * scale, maxdamage * scale, hitchance, critical));
+		}
 
 		update_movement();
 
 		return result;
 	}
 
-	std::pair<int32_t, bool> Mob::next_damage(double mindamage, double maxdamage, float hitchance, float critical) const
+	std::pair<int64_t, bool> Mob::next_damage(double mindamage, double maxdamage, float hitchance, float critical) const
 	{
 		bool hit = randomizer.below(hitchance);
 
 		if (!hit)
-			return std::pair<int32_t, bool>(0, false);
+			return std::pair<int64_t, bool>(0, false);
 
-		constexpr double DAMAGECAP = 999999.0;
+		// MapleV83: v83 capped hits at 999,999; lines are 64-bit now (just under 2^63).
+		constexpr double DAMAGECAP = 9.2e18;
 
 		double damage = randomizer.next_real(mindamage, maxdamage);
 		bool iscritical = randomizer.below(critical);
@@ -723,12 +726,12 @@ namespace ms
 		else if (damage > DAMAGECAP)
 			damage = DAMAGECAP;
 
-		auto intdamage = static_cast<int32_t>(damage);
+		auto intdamage = static_cast<int64_t>(damage);
 
-		return std::pair<int32_t, bool>(intdamage, iscritical);
+		return std::pair<int64_t, bool>(intdamage, iscritical);
 	}
 
-	void Mob::apply_damage(int32_t damage, bool toleft)
+	void Mob::apply_damage(int64_t damage, bool toleft)
 	{
 		hitsound.play(get_position());
 

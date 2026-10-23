@@ -82,6 +82,8 @@ namespace ms
 		// Whether the character currently faces right (used to pick a default
 		// teleport direction when no arrow key is held).
 		bool is_facing_right() const;
+		// Stand up from lying down (Aran commands end with Down).
+		void leave_prone();
 
 		// Check whether the player is invincible
 		bool is_invincible() const override;
@@ -96,6 +98,11 @@ namespace ms
 		void cancel_buff(Buffstat::Id stat);
 		// Return whether the buff is active
 		bool has_buff(Buffstat::Id stat) const;
+
+		// Flash Jump: the skill id usable as a second jump right now, or 0.
+		int32_t air_jump_skill() const;
+		bool has_air_jumped() const;
+		void set_air_jumped();
 
 		// Change a skill
 		void change_skill(int32_t skill_id, int32_t level, int32_t masterlevel, int64_t expiration);
@@ -196,6 +203,7 @@ namespace ms
 		Point<int16_t> chair_pos_front;
 
 		int32_t heal_tick_counter = 0;
+		bool air_jumped = false;
 		static constexpr int32_t HEAL_TICK_INTERVAL = 300; // ~10 seconds at 30fps
 
 		int32_t auto_hp_pot_ticks = 0;
@@ -207,7 +215,7 @@ namespace ms
 		// therefore never sets the invincible window. When HP drops we start
 		// a lockout that blocks the regen tick — otherwise auto-heal can
 		// fire while the player is visibly being hit.
-		int16_t last_seen_hp = -1;
+		int32_t last_seen_hp = -1;
 		int32_t hit_lockout_ticks = 0;
 		static constexpr int32_t HIT_LOCKOUT_TICKS = 90; // ~3s at 30fps
 

@@ -44,8 +44,9 @@ public class SetEqStatCommand extends Command {
             return;
         }
 
-        short newStat = (short) Math.max(0, Integer.parseInt(params[0]));
-        short newSpdJmp = params.length >= 2 ? (short) Integer.parseInt(params[1]) : 0;
+        // MapleV83: equipment stats are 32-bit (speed/jump still stop at 140/123 in play).
+        int newStat = Math.max(0, Integer.parseInt(params[0]));
+        int newSpdJmp = params.length >= 2 ? Math.max(0, Integer.parseInt(params[1])) : 0;
         Inventory equip = player.getInventory(InventoryType.EQUIP);
 
         for (byte i = 1; i <= equip.getSlotLimit(); i++) {

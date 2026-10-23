@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "ExpTable.h"
 
+#include <algorithm>
+
 namespace ms
 {
 	const std::array<int64_t, ExpTable::LEVELCAP> ExpTable::values =
@@ -43,4 +45,20 @@ namespace ms
 		995373379,	1049919840,	1107455447,	1168144006,	1232158297,	1299680571,	1370903066,	1446028554,	1525246918,	1608855764,	// Levels 191 - 200
 		1697021059																												// Level  201
 	};
+
+	int64_t ExpTable::need(int32_t level)
+	{
+		if (level < 0 || level >= MAX_LEVEL)
+			return 0;
+
+		if (level < static_cast<int32_t>(LEVELCAP))
+			return values[level];
+
+		int64_t exp = values[LEVELCAP - 1];
+
+		for (int32_t l = static_cast<int32_t>(LEVELCAP); l <= level; l++)
+			exp = std::min<int64_t>(2000000000, exp * 10555 / 10000);
+
+		return exp;
+	}
 }

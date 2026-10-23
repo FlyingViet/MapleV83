@@ -22,6 +22,8 @@
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
+#include "../Components/TextButton.h"
+#include "UINotice.h"
 #include "../Components/TwoSpriteButton.h"
 
 #include "../../Character/SkillId.h"
@@ -82,6 +84,11 @@ namespace ms
 		// v83 Skill has no macro button; Basic.img/BtMacro (48x18) goes in the
 		// bottom band right of the SP box.
 		constexpr Point<int16_t> MACRO_BT_POS = Point<int16_t>(121, 264);
+		// MapleV83's SP RESET: the free strip between the red tab underline
+		// (y 44) and the job band (y 50) is too thin, so it sits on the right
+		// end of the dark job-name band.
+		constexpr Point<int16_t> RESET_POS = Point<int16_t>(110, 81);
+		constexpr Point<int16_t> RESET_DIM = Point<int16_t>(56, 13);
 
 		// ---- UIWindow.img/SkillMacro (207x289), docked at (175, 0) ----
 		// Title bar y 5..18, empty band y 20..38, white area x 14..203 / y 46..260,
@@ -213,6 +220,7 @@ namespace ms
 
 		buttons[Buttons::BT_CLOSE] = std::make_unique<MapleButton>(nl::nx::ui["Basic.img"]["BtClose"], CLOSE_POS);
 		buttons[Buttons::BT_MACRO] = std::make_unique<MapleButton>(nl::nx::ui["Basic.img"]["BtMacro"], MACRO_BT_POS);
+		buttons[Buttons::BT_RESET] = std::make_unique<TextButton>(RESET_POS, RESET_DIM, "RESET SP");
 
 		nl::node Tab = Skill["Tab"];
 		nl::node enabled = Tab["enabled"];
@@ -426,6 +434,15 @@ namespace ms
 		case Buttons::BT_MACRO:
 			set_macro(!macro_enabled);
 			break;
+		case Buttons::BT_RESET:
+			// Cosmic's @resetsp (MapleV83): SP spent on job skills comes back.
+			UI::get().emplace<UIYesNo>("Take back the skill points spent on your job skills so you can place them again?",
+				[](bool yes)
+				{
+					if (yes)
+						GeneralChatPacket("@resetsp", false).dispatch();
+				});
+			break;
 		case Buttons::BT_TAB0:
 		case Buttons::BT_TAB1:
 		case Buttons::BT_TAB2:
@@ -572,6 +589,8 @@ namespace ms
 				return dstate;
 			if (buttons[Buttons::BT_MACRO]->is_active() && buttons[Buttons::BT_MACRO]->bounds(position).contains(cursorpos))
 				return dstate;
+			if (buttons[Buttons::BT_RESET]->is_active() && buttons[Buttons::BT_RESET]->bounds(position).contains(cursorpos))
+				return dstate;
 		}
 
 		Point<int16_t> skill_position = position + SKILL_OFFSET;
@@ -687,7 +706,7 @@ namespace ms
 		return TYPE;
 	}
 
-	void UISkillBook::update_stat(MapleStat::Id stat, int16_t value)
+	void UISkillBook::update_stat(MapleStat::Id stat, int32_t value)
 	{
 		switch (stat)
 		{

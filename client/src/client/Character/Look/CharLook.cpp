@@ -31,6 +31,11 @@ namespace ms
 
 		for (auto& equip : entry.equips)
 			add_equip(equip.second);
+
+		auto cash_weapon = entry.maskedequips.find(-111);
+
+		if (cash_weapon != entry.maskedequips.end())
+			set_weapon_skin(cash_weapon->second);
 	}
 
 	CharLook::CharLook()
@@ -178,9 +183,11 @@ namespace ms
 					case CharEquips::CapType::HALFCOVER:
 						hair->draw(interstance, Hair::Layer::DEFAULT, interframe, args);
 						equips.draw(EquipSlot::Id::HAT, interstance, Clothing::Layer::CAP, interframe, args);
+						equips.draw(EquipSlot::Id::HAT, interstance, Clothing::Layer::CAP_OVER_HAIR, interframe, args);
 						break;
 					case CharEquips::CapType::FULLCOVER:
 						equips.draw(EquipSlot::Id::HAT, interstance, Clothing::Layer::CAP, interframe, args);
+						equips.draw(EquipSlot::Id::HAT, interstance, Clothing::Layer::CAP_OVER_HAIR, interframe, args);
 						break;
 				}
 			}
@@ -395,6 +402,8 @@ namespace ms
 
 	void CharLook::set_body(int32_t skin_id)
 	{
+		this->skin_id = skin_id;
+
 		auto iter = bodytypes.find(skin_id);
 
 		if (iter == bodytypes.end())
@@ -411,6 +420,8 @@ namespace ms
 
 	void CharLook::set_hair(int32_t hair_id)
 	{
+		this->hair_id = hair_id;
+
 		auto iter = hairstyles.find(hair_id);
 
 		if (iter == hairstyles.end())
@@ -427,6 +438,8 @@ namespace ms
 
 	void CharLook::set_face(int32_t face_id)
 	{
+		this->face_id = face_id;
+
 		auto iter = facetypes.find(face_id);
 
 		if (iter == facetypes.end())
@@ -444,6 +457,22 @@ namespace ms
 	void CharLook::add_equip(int32_t itemid)
 	{
 		equips.add_equip(itemid, drawinfo);
+		updatetwohanded();
+	}
+
+	void CharLook::set_weapon_skin(int32_t itemid)
+	{
+		equips.set_weapon_skin(itemid, drawinfo, false);
+		updatetwohanded();
+	}
+
+	void CharLook::try_on(int32_t itemid)
+	{
+		if (itemid / 10000 == 170)
+			equips.set_weapon_skin(itemid, drawinfo, true);
+		else
+			equips.add_equip(itemid, drawinfo);
+
 		updatetwohanded();
 	}
 

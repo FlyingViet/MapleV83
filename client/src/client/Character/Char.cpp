@@ -62,6 +62,12 @@ namespace ms
 			color = Color::Code::CWHITE;
 		}
 
+		if (shadow_partner && state != State::DIED && !mount.is_active() && !is_hidden())
+		{
+			Point<int16_t> behind(facing_right ? -28 : 28, -4);
+			look.draw(DrawArgument(absp + behind, Color(0.22f, 0.18f, 0.32f, 0.62f)), alpha);
+		}
+
 		if (mount.is_active() && state != State::DIED)
 			mount.draw(absp, mount_gait(), facing_right, alpha);
 
@@ -133,6 +139,11 @@ namespace ms
 
 		for (auto& number : damagenumbers)
 			number.draw(viewx, viewy, alpha);
+	}
+
+	void Char::set_shadow_partner(bool active)
+	{
+		shadow_partner = active;
 	}
 
 	void Char::draw_preview(Point<int16_t> position, float alpha) const

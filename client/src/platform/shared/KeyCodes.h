@@ -5,7 +5,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
-#ifdef PLATFORM_IOS
+#ifdef PLATFORM_SDL
 
 #define GLFW_KEY_SPACE              32
 #define GLFW_KEY_APOSTROPHE         39
@@ -90,6 +90,13 @@
 #define GLFW_KEY_RIGHT_SHIFT        344
 #define GLFW_KEY_RIGHT_CONTROL      345
 #define GLFW_KEY_RIGHT_ALT          346
+#define GLFW_KEY_UNKNOWN            -1
+#define GLFW_KEY_LEFT_SUPER         343
+#define GLFW_KEY_RIGHT_SUPER        347
+
+// Gamepad and joystick API, backed by SDL's game controller support
+// (platform/iphone/GamepadSDL.cpp).
+#include "../iphone/GLFWGamepadShim.h"
 
 #else
 #include <glfw3.h>

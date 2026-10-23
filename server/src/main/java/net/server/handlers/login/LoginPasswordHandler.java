@@ -32,6 +32,8 @@ import tools.BCrypt;
 import tools.DatabaseConnection;
 import tools.HexTool;
 import tools.PacketCreator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +54,16 @@ public final class LoginPasswordHandler implements PacketHandler {
     public boolean validateState(Client c) {
         return !c.isLoggedIn();
     }
+
+    private static final Logger log = LoggerFactory.getLogger(LoginPasswordHandler.class);
+
+    // MapleV83: the app appends "MV83" + its wire protocol to the login packet (see the
+    // client's LoginPackets.h). Older apps can't read this server's packets (32-bit stats,
+    // 64-bit mesos, 32-bit equipment stats), so they're asked to update instead of loading
+    // an empty-looking character. Raise MIN_CLIENT_PROTOCOL with the client's MV83_PROTOCOL.
+    private static final int MV83_MAGIC = 0x3338564D;
+    private static final int MIN_CLIENT_PROTOCOL = 6; // 6: 64-bit attack damage
+    private static final int UPDATE_REQUIRED = 83;
 
     private static String hashpwSHA512(String pwd) throws NoSuchAlgorithmException, UnsupportedEncodingException {
         MessageDigest digester = MessageDigest.getInstance("SHA-512");
@@ -74,8 +86,25 @@ public final class LoginPasswordHandler implements PacketHandler {
         p.skip(6);   // localhost masked the initial part with zeroes...
         byte[] hwidNibbles = p.readBytes(4);
         Hwid hwid = new Hwid(HexTool.toCompactHexString(hwidNibbles));
+
+        int protocol = 0;
+        if (p.available() >= 6 && p.readInt() == MV83_MAGIC) {
+            protocol = p.readShort();
+        }
+        if (protocol < MIN_CLIENT_PROTOCOL) {
+            log.info("Login for {} from an outdated app (protocol {}, need {})", login, protocol, MIN_CLIENT_PROTOCOL);
+            // No popup for pre-marker apps: their lobby draws over it, and the hidden dialog
+            // swallows taps. They show "Couldn't log in (code 83)"; 0.19.2+ explain it.
+            c.sendPacket(PacketCreator.getLoginFailed(UPDATE_REQUIRED));
+            return;
+        }
         int loginok = c.login(login, pwd, hwid);
 
+        // MapleV83: a new login replaces a session left behind by an app that
+        // lost its connection in the background.
+        if (loginok == 7 && c.replaceStaleLogin(login, pwd)) {
+            loginok = c.login(login, pwd, hwid);
+        }
 
         if (YamlConfig.config.server.AUTOMATIC_REGISTER && loginok == 5) {
             try (Connection con = DatabaseConnection.getConnection();

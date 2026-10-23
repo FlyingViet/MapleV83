@@ -18,18 +18,154 @@
 #include "CashShopHandlers.h"
 
 #include "Helpers/CashShopParser.h"
+#include "Helpers/ItemParser.h"
 
+#include "../../Data/ItemData.h"
 #include "../../Gameplay/Stage.h"
+#include "../Packets/CashShopPackets.h"
 #include "../../IO/UI.h"
 #include "../../IO/UITypes/UIChatBar.h"
 #include "../../IO/UITypes/UIStatusMessenger.h"
 #include "../../IO/UITypes/UIMTS.h"
 #include "../../IO/Window.h"
 
+#include <algorithm>
+#include <chrono>
+
 namespace ms
 {
+	namespace
+	{
+		using Clock = std::chrono::steady_clock;
+
+		std::vector<CashLockerItem> s_locker;
+		CashShopData::Notice s_notice;
+		bool s_buying = false;
+		Clock::time_point s_buy_at;
+		int64_t s_taking = 0;
+		int32_t s_taking_item = 0;
+		Clock::time_point s_take_at;
+
+		// Cosmic's addCashItemInformation, outside gifts.
+		CashLockerItem read_cash_item(InPacket& recv)
+		{
+			CashLockerItem item;
+			item.cash_id = recv.read_long();
+			recv.skip_int();	// account id
+			recv.skip_int();
+			item.item_id = recv.read_int();
+			item.sn = recv.read_int();
+			item.count = recv.read_short();
+			recv.skip(13);		// gift sender
+			item.expiration = recv.read_long();
+			recv.skip_long();
+
+			return item;
+		}
+
+		std::string message_for(uint8_t code)
+		{
+			switch (code)
+			{
+				case 0xA3: return "The request timed out. Please try again.";
+				case 0xA5: return "You don't have enough NX for that.";
+				case 0xAA: return "That item is for the other gender.";
+				case 0xAC: return "Your Locker is full. Move some items to your inventory first.";
+				case 0xBB: return "Your inventory is full.";
+				case 0xBF: return "That item isn't for sale right now.";
+				case 0xC0: return "That item is sold out.";
+				case 0xC1: return "You've reached your NX spending limit.";
+				case 0xB0: return "That coupon code is wrong.";
+				case 0xB2: return "That coupon has expired.";
+				case 0xB3: return "That coupon has already been used.";
+				default:
+				{
+					static const char* HEX = "0123456789ABCDEF";
+					std::string hex = { HEX[code >> 4], HEX[code & 15] };
+
+					return "The Cash Shop couldn't do that (code " + hex + ").";
+				}
+			}
+		}
+	}
+
+	namespace CashShopData
+	{
+		const std::vector<CashLockerItem>& locker()
+		{
+			return s_locker;
+		}
+
+		void buy(int32_t sn, int32_t item_id, int32_t currency)
+		{
+			if (s_buying)
+				return;
+
+			s_buying = true;
+			s_buy_at = Clock::now();
+			BuyCashItemPacket(static_cast<int8_t>(currency), sn, item_id / 1000000 == 9).dispatch();
+		}
+
+		bool buying()
+		{
+			return s_buying;
+		}
+
+		void take_out(const CashLockerItem& item)
+		{
+			if (s_taking)
+				return;
+
+			InventoryType::Id type = InventoryType::by_item_id(item.item_id);
+			s_taking = item.cash_id;
+			s_taking_item = item.item_id;
+			s_take_at = Clock::now();
+			TakeFromCashInventoryPacket(item.cash_id, type).dispatch();
+		}
+
+		bool taking_out(int64_t cash_id)
+		{
+			return s_taking != 0 && s_taking == cash_id;
+		}
+
+		const Notice& notice()
+		{
+			return s_notice;
+		}
+
+		void post(const std::string& text, bool error)
+		{
+			s_notice.text = text;
+			s_notice.error = error;
+			s_notice.serial++;
+		}
+
+		void expire_requests()
+		{
+			Clock::time_point now = Clock::now();
+
+			// Cosmic answers a refused take-out (no room) with nothing at all.
+			if (s_taking && now - s_take_at > std::chrono::seconds(4))
+			{
+				s_taking = 0;
+				s_taking_item = 0;
+				post("Couldn't move it. Make room in that inventory tab and try again.", true);
+			}
+
+			if (s_buying && now - s_buy_at > std::chrono::seconds(8))
+			{
+				s_buying = false;
+				post("The Cash Shop didn't answer. Check your Locker before buying again.", true);
+			}
+		}
+	}
 	void SetCashShopHandler::handle(InPacket& recv) const
 	{
+		s_locker.clear();
+		s_buying = false;
+		s_taking = 0;
+		s_taking_item = 0;
+
 		CashShopParser::parseCharacterInfo(recv);
 
 		recv.skip_byte();	// Not MTS
@@ -70,57 +206,76 @@ namespace ms
 
 	void CashShopOperationHandler::handle(InPacket& recv) const
 	{
-		int8_t operation = recv.read_byte();
+		uint8_t operation = static_cast<uint8_t>(recv.read_byte());
 
 		switch (operation)
 		{
-		case 0x4A:
-		{
-			// Buy item success
-			chat::log("[Cash Shop] Item purchased successfully!", chat::LineType::YELLOW);
-			break;
-		}
-		case 0x4C:
-		{
-			int8_t reason = recv.read_byte();
-			std::string msg;
-			switch (reason)
+			case 0x4B:
 			{
-			case 0: msg = "Unknown error."; break;
-			case 1: msg = "You don't have enough NX."; break;
-			case 2: msg = "Item is out of stock."; break;
-			case 3: msg = "Your cash inventory is full."; break;
-			case 4: msg = "This item is not available for purchase."; break;
-			case 5: msg = "You have exceeded the purchase limit."; break;
-			case 6: msg = "You are under the required level."; break;
-			case 7: msg = "You already have this item."; break;
-			default: msg = "Purchase failed (code: " + std::to_string(reason) + ")"; break;
+				// The locker, sent on entering
+				s_locker.clear();
+				int16_t count = recv.read_short();
+
+				for (int16_t i = 0; i < count; i++)
+					s_locker.push_back(read_cash_item(recv));
+
+				break;
 			}
-			chat::log("[Cash Shop] " + msg, chat::LineType::RED);
-			break;
-		}
-		case 0x59:
-		{
-			chat::log("[Cash Shop] Coupon redeemed successfully!", chat::LineType::YELLOW);
-			break;
-		}
-		case 0x5C:
-		{
-			int8_t reason = recv.read_byte();
-			std::string msg;
-			switch (reason)
+			case 0x57:
 			{
-			case 0: msg = "Invalid coupon code."; break;
-			case 1: msg = "This coupon has expired."; break;
-			case 2: msg = "This coupon has already been used."; break;
-			case 3: msg = "This coupon is for a different server."; break;
-			default: msg = "Coupon error (code: " + std::to_string(reason) + ")"; break;
+				CashLockerItem item = read_cash_item(recv);
+				s_locker.push_back(item);
+				s_buying = false;
+				CashShopData::post("Bought " + ItemData::get(item.item_id).get_name() + ". It's in your Locker.", false);
+				break;
 			}
-			chat::log("[Cash Shop] " + msg, chat::LineType::RED);
-			break;
-		}
-		default:
-			break;
+			case 0x89:
+			{
+				int8_t count = recv.read_byte();
+
+				for (int8_t i = 0; i < count; i++)
+					s_locker.push_back(read_cash_item(recv));
+
+				s_buying = false;
+				CashShopData::post("Bought a package of " + std::to_string(count) + " items. They're in your Locker.", false);
+				break;
+			}
+			case 0x68:
+			{
+				// Moved to the inventory: its slot, then the item as the inventory holds it
+				int16_t slot = recv.read_short();
+				int32_t item_id = s_taking_item;
+				InventoryType::Id type = InventoryType::by_item_id(item_id);
+
+				if (item_id && type != InventoryType::Id::NONE)
+					ItemParser::parse_item(recv, type, slot, Stage::get().get_player().get_inventory());
+
+				int64_t cash_id = s_taking;
+				s_locker.erase(std::remove_if(s_locker.begin(), s_locker.end(),
+					[cash_id](const CashLockerItem& item) { return item.cash_id == cash_id; }), s_locker.end());
+
+				s_taking = 0;
+				s_taking_item = 0;
+
+				if (item_id)
+					CashShopData::post("Moved " + ItemData::get(item_id).get_name() + " to your inventory.", false);
+
+				break;
+			}
+			case 0x59:
+			{
+				CashShopData::post("Coupon redeemed!", false);
+				break;
+			}
+			case 0x5C:
+			{
+				uint8_t code = static_cast<uint8_t>(recv.read_byte());
+				s_buying = false;
+				CashShopData::post(message_for(code), true);
+				break;
+			}
+			default:
+				break;
 		}
 	}
 
@@ -139,32 +294,13 @@ namespace ms
 		UI::get().emplace<UIMTS>();
 	}
 
-	// Holds the UI scale that was active immediately before the cash shop
-	// transition forced scale=1.0. UICashShop reads this back via
-	// get_pre_cashshop_ui_scale() when the player leaves the shop.
-	static float s_pre_cashshop_ui_scale = 1.0f;
-
-	float get_pre_cashshop_ui_scale()
-	{
-		return s_pre_cashshop_ui_scale;
-	}
-
 	void SetCashShopHandler::transition() const
 	{
-		// The cash shop UI is authored at 1:1 for a 1024x768 physical window.
-		// Setting UI_SCALE to 1.0 makes the logical view match the physical
-		// window so the hard-coded button positions line up with the cursor
-		// (cursor_callback divides physical coords by get_viewwidth() /
-		// get_viewheight(), which at scale=1.0 equal the physical size).
-		s_pre_cashshop_ui_scale = Constants::Constants::get().get_ui_scale();
-		Constants::Constants::get().set_ui_scale(1.0f);
+		// The shop lays itself out in the game's own view, so the view
+		// size and UI scale stay as they are.
 
-		// Drop any focused textfield (e.g. the chat bar) so the arrow
-		// keys reach the cash shop stage character
+		// Drop any focused textfield (e.g. the chat bar)
 		UI::get().remove_textfield();
-
-		Constants::Constants::get().set_viewwidth(1024);
-		Constants::Constants::get().set_viewheight(768);
 
 		float fadestep = 0.025f;
 
@@ -205,6 +341,13 @@ namespace ms
 			s_cash_balances[0] = recv.read_int(); // NX credit
 			s_cash_balances[1] = recv.read_int(); // maple points
 			s_cash_balances[2] = recv.read_int(); // NX prepaid
+		}
+
+		// A purchase answers with the item first; a refusal with only this.
+		if (s_buying)
+		{
+			s_buying = false;
+			CashShopData::post("That purchase didn't go through. Some items need a higher level.", true);
 		}
 	}
 

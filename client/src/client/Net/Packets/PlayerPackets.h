@@ -37,6 +37,23 @@ namespace ms
 		}
 	};
 
+	// Puts many ability points into one stat in a single request (v83's
+	// auto-assign). Opcode: AUTO_DISTRIBUTE_AP(88) - time, int, then two
+	// (stat code, amount) pairs; the second is left empty.
+	class AutoAssignApPacket : public OutPacket
+	{
+	public:
+		AutoAssignApPacket(MapleStat::Id stat, int32_t amount) : OutPacket(OutPacket::Opcode::AUTO_DISTRIBUTE_AP)
+		{
+			write_time();
+			write_int(0);
+			write_int(MapleStat::codes[stat]);
+			write_int(amount);
+			write_int(MapleStat::codes[stat]);
+			write_int(0);
+		}
+	};
+
 	// Requests a skill level increase by spending SP
 	// Opcode: SPEND_SP(90)
 	class SpendSpPacket : public OutPacket

@@ -26,5 +26,13 @@ namespace ms
 	{
 		constexpr size_t LEVELCAP = 201;
 		extern const std::array<int64_t, LEVELCAP> values;
+
+		// MapleV83: the highest level (a level 300 character can be reborn).
+		constexpr int32_t MAX_LEVEL = 300;
+
+		// EXP to pass a level: v83's table to 200, then 5.55% more per level up
+		// to 2,000,000,000 (EXP is a 32-bit count). 0 at MAX_LEVEL. Matches the
+		// server's ExpTable.getExpNeededForLevel.
+		int64_t need(int32_t level);
 	}
 }

@@ -46,13 +46,30 @@ namespace ms
 		// Which top-level state is active (login / game / cash shop); used by the web overlay.
 		State get_state_id() const { return current_state; }
 
+		// The focused, editable text field's bounds in logical pixels, if any -
+		// a touchscreen raises its keyboard for it and keeps it in view.
+		bool focused_textfield_bounds(Rectangle<int16_t>& bounds) const;
+
 		void quit();
 		bool not_quitted() const;
 
 		void send_cursor(Point<int16_t> pos);
+
+		// A move while the button (or finger) is down: keeps whatever drag the
+		// press started - a scroll thumb, a window, a grabbed icon - going.
+		void send_cursor_drag(Point<int16_t> pos);
 		void send_cursor(bool pressed);
 		void send_cursor(Point<int16_t> cursorpos, Cursor::State cursorstate);
 		bool is_mouse_held() const;
+		// Counts presses (mouse button or finger down); a window button fires
+		// once per press even when moves while held re-send the press.
+		uint32_t get_press_serial() const { return press_serial; }
+		bool side_panel_open() const;
+		Range<int16_t> free_span() const;
+		bool holds_press() const;
+		bool npc_talk_open() const;
+		// An item menu or a mobile question is showing.
+		bool popover_open() const;
 		// Current mouse-cursor position (used by scroll dispatch so
 		// the wheel routes to the UI under the cursor).
 		Point<int16_t> get_cursor_position() const;
@@ -123,5 +140,6 @@ namespace ms
 		bool quitted;
 		bool caps_lock_enabled = false;
 		bool mouse_held = false;
+		uint32_t press_serial = 0;
 	};
 }

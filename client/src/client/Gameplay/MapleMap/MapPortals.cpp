@@ -40,6 +40,7 @@ namespace ms
 			std::string name = (std::string)sub["pn"];
 			std::string target_name = (std::string)sub["tn"];
 			int32_t target_id = sub["tm"];
+			bool scripted = !((std::string)sub["script"]).empty();
 			Point<int16_t> position = { sub["x"], sub["y"] };
 
 			const Animation* animation = &animations[type];
@@ -48,7 +49,7 @@ namespace ms
 			portals_by_id.emplace(
 				std::piecewise_construct,
 				std::forward_as_tuple(portal_id),
-				std::forward_as_tuple(animation, type, name, intramap, position, target_id, target_name)
+				std::forward_as_tuple(animation, type, name, intramap, position, target_id, target_name, scripted)
 			);
 
 			portal_ids_by_name.emplace(name, portal_id);
@@ -119,14 +120,17 @@ namespace ms
 	{
 		if (cooldown == 0)
 		{
-			cooldown = WARPCD;
-
 			for (auto& iter : portals_by_id)
 			{
 				const Portal& portal = iter.second;
 
-				if (portal.bounds().contains(playerpos))
+				// Spawn points and other markers overlap real portals; skip them so
+				// they can't hide the portal the player is standing in.
+				if (portal.bounds().contains(playerpos) && portal.getwarpinfo().usable())
+				{
+					cooldown = WARPCD;
 					return portal.getwarpinfo();
+				}
 			}
 		}
 

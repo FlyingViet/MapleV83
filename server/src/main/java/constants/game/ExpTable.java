@@ -27,8 +27,24 @@ public final class ExpTable {
     private static final int[] pet = {1, 1, 3, 6, 14, 31, 60, 108, 181, 287, 434, 632, 891, 1224, 1642, 2161, 2793, 3557, 4467, 5542, 6801, 8263, 9950, 11882, 14084, 16578, 19391, 22547, 26074, 30000, 2147483647};
     private static final int[] mount = {1, 24, 50, 105, 134, 196, 254, 263, 315, 367, 430, 543, 587, 679, 725, 897, 1146, 1394, 1701, 2247, 2543, 2898, 3156, 3313, 3584, 3923, 4150, 4305, 4550};
 
+    // MapleV83: past v83's table (level 200) each level needs 5.55% more, up to
+    // 2,000,000,000 (EXP is a 32-bit count). The client's ExpTable::need matches.
+    private static final int[] EXTENDED = new int[101];
+
+    static {
+        long need = exp[exp.length - 1];
+        for (int i = 0; i < EXTENDED.length; i++) {
+            need = Math.min(2000000000L, need * 10555 / 10000);
+            EXTENDED[i] = (int) need;
+        }
+    }
+
     public static int getExpNeededForLevel(int level) {
-        return level > 200 ? 2000000000 : exp[level];
+        if (level < exp.length) {
+            return exp[Math.max(level, 0)];
+        }
+        int i = level - exp.length;
+        return i < EXTENDED.length ? EXTENDED[i] : 2000000000;
     }
 
     public static int getTamenessNeededForLevel(int level) {

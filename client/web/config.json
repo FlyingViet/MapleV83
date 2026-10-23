@@ -6,7 +6,7 @@
   "ProxyIP": null,
   "ProxyPort": "443",
   "ProxyPath": "/maple-ws",
-  "MapleStoryServerIp": "100.87.228.68",
+  "MapleStoryServerIp": "127.0.0.1",
   "MapleStoryServerPort": "8484",
   "Width": "1280",
   "Height": "720"

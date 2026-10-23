@@ -33,6 +33,7 @@ namespace ms
 		void draw(Point<int16_t> position) const override;
 
 		bool set_item(int32_t itemid);
+		int16_t get_width() const { return static_cast<int16_t>(fillwidth + 32); }
 
 	private:
 		int32_t itemid;

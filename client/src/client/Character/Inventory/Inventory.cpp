@@ -42,8 +42,10 @@ namespace ms
 			{
 				const Equip& equip = equip_iter->second;
 
+				// Saturate: stats run to the 32-bit limit.
 				for (auto stat_iter : totalstats)
-					stat_iter.second += equip.get_stat(stat_iter.first);
+					stat_iter.second = static_cast<int32_t>(std::min<int64_t>(INT32_MAX,
+						static_cast<int64_t>(stat_iter.second) + equip.get_stat(stat_iter.first)));
 			}
 		}
 
@@ -85,7 +87,8 @@ namespace ms
 		}
 
 		if (int32_t bulletid = get_bulletid())
-			totalstats[EquipStat::Id::WATK] += BulletData::get(bulletid).get_watk();
+			totalstats[EquipStat::Id::WATK] = static_cast<int32_t>(std::min<int64_t>(INT32_MAX,
+				static_cast<int64_t>(totalstats[EquipStat::Id::WATK]) + BulletData::get(bulletid).get_watk()));
 	}
 
 	void Inventory::set_meso(int64_t m)
@@ -116,7 +119,7 @@ namespace ms
 			);
 	}
 
-	void Inventory::add_equip(InventoryType::Id invtype, int16_t slot, int32_t item_id, bool cash, int64_t expire, uint8_t slots, uint8_t level, const EnumMap<EquipStat::Id, uint16_t>& stats, const std::string& owner, int16_t flag, uint8_t ilevel, uint16_t iexp, int32_t vicious)
+	void Inventory::add_equip(InventoryType::Id invtype, int16_t slot, int32_t item_id, bool cash, int64_t expire, uint8_t slots, uint8_t level, const EnumMap<EquipStat::Id, int32_t>& stats, const std::string& owner, int16_t flag, uint8_t ilevel, uint16_t iexp, int32_t vicious)
 	{
 		equips.emplace(
 			std::piecewise_construct,
@@ -221,7 +224,7 @@ namespace ms
 		return slotmaxima[type];
 	}
 
-	uint16_t Inventory::get_stat(EquipStat::Id type) const
+	int32_t Inventory::get_stat(EquipStat::Id type) const
 	{
 		return totalstats[type];
 	}

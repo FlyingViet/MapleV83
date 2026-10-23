@@ -15,9 +15,7 @@
 #include "UIRaceSelect.h"
 
 
-#include "UIAranCreation.h"
 #include "UICharSelect.h"
-#include "UICygnusCreation.h"
 #include "UIExplorerCreation.h"
 
 #include "../UI.h"
@@ -237,21 +235,8 @@ namespace ms
 
 	void UIRaceSelect::send_naming_result(bool nameused)
 	{
-		if (selected == Classes::EXPLORER)
-		{
-			if (auto explorercreation = UI::get().get_element<UIExplorerCreation>())
-				explorercreation->send_naming_result(nameused);
-		}
-		else if (selected == Classes::CYGNUSKNIGHTS)
-		{
-			if (auto cygnuscreation = UI::get().get_element<UICygnusCreation>())
-				cygnuscreation->send_naming_result(nameused);
-		}
-		else if (selected == Classes::ARAN)
-		{
-			if (auto arancreation = UI::get().get_element<UIAranCreation>())
-				arancreation->send_naming_result(nameused);
-		}
+		if (auto creation = UI::get().get_element<UIExplorerCreation>())
+			creation->send_naming_result(nameused);
 	}
 
 	Button::State UIRaceSelect::button_pressed(uint16_t buttonid)
@@ -297,11 +282,11 @@ namespace ms
 		deactivate();
 
 		if (cls == Classes::EXPLORER)
-			UI::get().emplace<UIExplorerCreation>();
+			UI::get().emplace<UIExplorerCreation>(UIExplorerCreation::Race::EXPLORER);
 		else if (cls == Classes::CYGNUSKNIGHTS)
-			UI::get().emplace<UICygnusCreation>();
+			UI::get().emplace<UIExplorerCreation>(UIExplorerCreation::Race::CYGNUS);
 		else if (cls == Classes::ARAN)
-			UI::get().emplace<UIAranCreation>();
+			UI::get().emplace<UIExplorerCreation>(UIExplorerCreation::Race::ARAN);
 	}
 
 	void UIRaceSelect::show_charselect()

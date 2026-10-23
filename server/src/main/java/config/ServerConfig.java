@@ -119,6 +119,7 @@ public class ServerConfig {
     //Announcement Configuration
     public boolean USE_ANNOUNCE_SHOPITEMSOLD;
     public boolean USE_ANNOUNCE_CHANGEJOB;
+    public boolean USE_AUTO_MAX_SKILLS;
     public boolean USE_ANNOUNCE_NX_COUPON_LOOT;
 
     //Cash Shop Configuration

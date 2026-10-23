@@ -18,6 +18,8 @@
 
 #pragma once
 #include "nxfwd.hpp"
+#include <functional>
+#include <string>
 
 namespace nl {
     namespace nx {
@@ -27,5 +29,8 @@ namespace nl {
         //Loads the pre-defined nodes from a standard setup of nx files for MapleStory
         //Only call this function once
         void load_all();
+        //Maps a file name such as "Map.nx" to the path to open; an empty result
+        //means the file is absent. Without a resolver names are opened as is.
+        void set_path_resolver(std::function<std::string(const std::string&)> resolver);
     }
 }

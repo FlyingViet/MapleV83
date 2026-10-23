@@ -56,6 +56,18 @@ namespace ms
 		}
 	};
 
+	// Response for msgType 7 (sendStyle): [msgtype=7][response=1][index:int]
+	class NpcTalkStylePacket : public OutPacket
+	{
+	public:
+		NpcTalkStylePacket(int32_t index) : OutPacket(OutPacket::Opcode::NPC_TALK_MORE)
+		{
+			write_byte(7);
+			write_byte(1);
+			write_int(index);
+		}
+	};
+
 	// Response for msgType 3 (sendGetNumber): [msgtype=3][response=1][value:int]
 	class NpcTalkNumberPacket : public OutPacket
 	{

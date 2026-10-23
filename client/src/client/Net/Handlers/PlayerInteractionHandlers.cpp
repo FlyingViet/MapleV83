@@ -29,7 +29,7 @@ namespace ms
 	void CharInfoHandler::handle(InPacket& recv) const
 	{
 		int32_t character_id = recv.read_int();
-		int8_t character_level = recv.read_byte();
+		int16_t character_level = recv.read_short();	// MapleV83: short (levels to 300)
 		int16_t character_job_id = recv.read_short();
 		int16_t character_fame = recv.read_short();
 		recv.read_byte(); // married (0/1)

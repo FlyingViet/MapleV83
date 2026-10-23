@@ -143,7 +143,7 @@ namespace ms
 		}
 	}
 
-	void MapMobs::apply_damage(int32_t oid, int32_t damage, bool toleft, const AttackUser& user, const SpecialMove& move)
+	void MapMobs::apply_damage(int32_t oid, int64_t damage, bool toleft, const AttackUser& user, const SpecialMove& move)
 	{
 		if (Optional<Mob> mob = mobs.get(oid))
 		{

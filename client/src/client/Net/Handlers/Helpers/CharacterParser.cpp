@@ -23,7 +23,7 @@ namespace ms
 {
 	void CharacterParser::parse_inventory(InPacket& recv, Inventory& invent)
 	{
-		invent.set_meso(recv.read_int());
+		invent.set_meso(recv.read_long()); // MapleV83: 64-bit wallet
 		invent.set_slotmax(InventoryType::EQUIP, recv.read_byte());
 		invent.set_slotmax(InventoryType::USE, recv.read_byte());
 		invent.set_slotmax(InventoryType::SETUP, recv.read_byte());
@@ -32,14 +32,17 @@ namespace ms
 
 		recv.skip(8);
 
+		// Worn gear, worn cash items, then the Equip tab. Cash items are worn in
+		// their own slots (regular slot + 100, as the server keeps them) and
+		// show over the gear without replacing it.
 		for (size_t i = 0; i < 3; i++)
 		{
-			InventoryType::Id inv = (i == 0) ? InventoryType::EQUIPPED : InventoryType::EQUIP;
+			InventoryType::Id inv = (i < 2) ? InventoryType::EQUIPPED : InventoryType::EQUIP;
 			int16_t pos = recv.read_short();
 
 			while (pos != 0)
 			{
-				int16_t slot = (i == 1) ? -pos : pos;
+				int16_t slot = (i == 1) ? static_cast<int16_t>(pos + EquipSlot::CASH_OFFSET) : pos;
 				ItemParser::parse_item(recv, inv, slot, invent);
 				pos = recv.read_short();
 			}

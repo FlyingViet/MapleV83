@@ -135,7 +135,7 @@ public final class RangedAttackHandler extends AbstractDealDamageHandler {
                         int moneyMod = money / 2;
                         money += Randomizer.nextInt(moneyMod);
                         if (money > chr.getMeso()) {
-                            money = chr.getMeso();
+                            money = (int) chr.getMeso();
                         }
                         chr.gainMeso(-money, false);
                     }
@@ -155,22 +155,15 @@ public final class RangedAttackHandler extends AbstractDealDamageHandler {
                     boolean bow = ItemConstants.isArrowForBow(id);
                     boolean cbow = ItemConstants.isArrowForCrossBow(id);
                     if (item.getQuantity() >= bulletCount) { //Fixes the bug where you can't use your last arrow.
+                        // MapleV83: no level gates on stars/bullets (v83 required Lv 50 Ilbi, Lv 70 Hwabi/
+                        // Balanced Fury/capsules). The client throws them at any level, so a gate here
+                        // silently dropped the whole attack and mobs never took damage.
                         if (type == WeaponType.CLAW && ItemConstants.isThrowingStar(id) && weapon.getItemId() != ItemId.MAGICAL_MITTEN) {
-                            if (((id == ItemId.HWABI_THROWING_STARS || id == ItemId.BALANCED_FURY) && chr.getLevel() < 70) || (id == ItemId.CRYSTAL_ILBI_THROWING_STARS && chr.getLevel() < 50)) {
-                            } else {
-                                projectile = id;
-                                break;
-                            }
+                            projectile = id;
+                            break;
                         } else if ((type == WeaponType.GUN && ItemConstants.isBullet(id))) {
-                            if (id == ItemId.BLAZE_CAPSULE || id == ItemId.GLAZE_CAPSULE) {
-                                if (chr.getLevel() >= 70) {
-                                    projectile = id;
-                                    break;
-                                }
-                            } else if (chr.getLevel() > (id % 10) * 20 + 9) {
-                                projectile = id;
-                                break;
-                            }
+                            projectile = id;
+                            break;
                         } else if ((type == WeaponType.BOW && bow) || (type == WeaponType.CROSSBOW && cbow) || (weapon.getItemId() == ItemId.MAGICAL_MITTEN && (bow || cbow))) {
                             projectile = id;
                             break;

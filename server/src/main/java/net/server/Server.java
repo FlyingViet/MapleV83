@@ -59,6 +59,7 @@ import net.server.task.LoginStorageTask;
 import net.server.task.RankingCommandTask;
 import net.server.task.RankingLoginTask;
 import net.server.task.RespawnTask;
+import net.server.world.RateOverrides;
 import net.server.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.slf4j.Logger;
@@ -322,7 +323,10 @@ public class Server {
         String remoteIp = client.getRemoteAddress();
 
         String[] hostAddress = getIP(world, channel).split(":");
-        if (IpAddresses.isLocalAddress(remoteIp)) {
+        String localIp = client.getLocalAddress();
+        if (localIp != null && !localIp.contains(":")) {
+            hostAddress[0] = localIp;
+        } else if (IpAddresses.isLocalAddress(remoteIp)) {
             hostAddress[0] = YamlConfig.config.server.LOCALHOST;
         } else if (IpAddresses.isLanAddress(remoteIp)) {
             hostAddress[0] = YamlConfig.config.server.LANHOST;
@@ -427,10 +431,11 @@ public class Server {
 
         log.info("Starting world {}", i);
 
-        int exprate = YamlConfig.config.worlds.get(i).exp_rate;
-        int mesorate = YamlConfig.config.worlds.get(i).meso_rate;
-        int droprate = YamlConfig.config.worlds.get(i).drop_rate;
-        int bossdroprate = YamlConfig.config.worlds.get(i).boss_drop_rate;
+        // MapleV83: rates set in game with @setrates take precedence.
+        int exprate = RateOverrides.get(i, "exp", YamlConfig.config.worlds.get(i).exp_rate);
+        int mesorate = RateOverrides.get(i, "meso", YamlConfig.config.worlds.get(i).meso_rate);
+        int droprate = RateOverrides.get(i, "drop", YamlConfig.config.worlds.get(i).drop_rate);
+        int bossdroprate = RateOverrides.get(i, "bossdrop", YamlConfig.config.worlds.get(i).boss_drop_rate);
         int questrate = YamlConfig.config.worlds.get(i).quest_rate;
         int travelrate = YamlConfig.config.worlds.get(i).travel_rate;
         int fishingrate = YamlConfig.config.worlds.get(i).fishing_rate;

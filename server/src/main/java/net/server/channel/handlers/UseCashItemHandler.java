@@ -57,6 +57,7 @@ import org.slf4j.LoggerFactory;
 import server.ItemInformationProvider;
 import server.Shop;
 import server.ShopFactory;
+import scripting.npc.NPCScriptManager;
 import server.TimerManager;
 import server.maps.AbstractMapObject;
 import server.maps.FieldLimit;
@@ -71,6 +72,7 @@ import tools.Pair;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -79,6 +81,35 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
     private static final Logger log = LoggerFactory.getLogger(UseCashItemHandler.class);
 
     private final NoteService noteService;
+
+    // MapleV83: the salon NPC whose script redeems each hair, face, lens and
+    // skin coupon (found by the gainItem(coupon, -1) in its script), so using
+    // a coupon from the inventory opens that salon wherever the player is.
+    private static final Map<Integer, Integer> COUPON_SALONS = Map.ofEntries(
+            Map.entry(5150000, 1012104), Map.entry(5150001, 1012103), Map.entry(5150002, 1052101), Map.entry(5150003, 1052100),
+            Map.entry(5150004, 2012007), Map.entry(5150005, 2010001), Map.entry(5150006, 2041009), Map.entry(5150007, 2041007),
+            Map.entry(5150008, 9120101), Map.entry(5150009, 9120100), Map.entry(5150010, 1012104), Map.entry(5150011, 1052101),
+            Map.entry(5150012, 2041009), Map.entry(5150013, 2012007), Map.entry(5150019, 9201016), Map.entry(5150020, 9201015),
+            Map.entry(5150024, 2090101), Map.entry(5150025, 2090100), Map.entry(5150026, 2100005), Map.entry(5150027, 2100006),
+            Map.entry(5150030, 9201063), Map.entry(5150031, 9201064), Map.entry(5150032, 9270037), Map.entry(5150033, 9270036),
+            Map.entry(5150040, 1012117), Map.entry(5150044, 1012117), Map.entry(5151000, 1012104), Map.entry(5151001, 1012103),
+            Map.entry(5151002, 1052101), Map.entry(5151003, 1052100), Map.entry(5151004, 2012007), Map.entry(5151005, 2010001),
+            Map.entry(5151006, 2041009), Map.entry(5151007, 2041007), Map.entry(5151008, 9120101), Map.entry(5151009, 9120100),
+            Map.entry(5151016, 9201016), Map.entry(5151017, 9201015), Map.entry(5151019, 2090101), Map.entry(5151020, 2090100),
+            Map.entry(5151021, 2100005), Map.entry(5151022, 2100006), Map.entry(5151025, 9201063), Map.entry(5151026, 9201064),
+            Map.entry(5151027, 9270037), Map.entry(5151028, 9270036), Map.entry(5152000, 1052005), Map.entry(5152001, 1052004),
+            Map.entry(5152004, 2012009), Map.entry(5152005, 2010002), Map.entry(5152006, 2040019), Map.entry(5152007, 2041010),
+            Map.entry(5152008, 9120103), Map.entry(5152009, 9120102), Map.entry(5152010, 9200100), Map.entry(5152011, 9200101),
+            Map.entry(5152012, 9200102), Map.entry(5152013, 9200100), Map.entry(5152014, 9200101), Map.entry(5152015, 9200102),
+            Map.entry(5152021, 9201019), Map.entry(5152022, 9201018), Map.entry(5152025, 9201017), Map.entry(5152026, 9201017),
+            Map.entry(5152027, 2090104), Map.entry(5152028, 2090103), Map.entry(5152029, 2100009), Map.entry(5152030, 2100008),
+            Map.entry(5152033, 9201070), Map.entry(5152034, 9201069), Map.entry(5152035, 9201061), Map.entry(5152036, 9201062),
+            Map.entry(5152037, 9270023), Map.entry(5152038, 9270024), Map.entry(5152039, 9270026), Map.entry(5152040, 9270026),
+            Map.entry(5152041, 2090103), Map.entry(5152042, 2090104), Map.entry(5152045, 9120102), Map.entry(5152046, 9120103),
+            Map.entry(5152047, 2100008), Map.entry(5152048, 2100009), Map.entry(5153000, 1012105), Map.entry(5153001, 2012008),
+            Map.entry(5153002, 2041013), Map.entry(5153006, 2090102), Map.entry(5153007, 2100007), Map.entry(5153009, 9201065),
+            Map.entry(5153010, 9270025), Map.entry(5154000, 2012007)
+    );
 
     public UseCashItemHandler(NoteService noteService) {
         this.noteService = noteService;
@@ -123,6 +154,20 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
         Item medalItem = player.getInventory(InventoryType.EQUIPPED).getItem((short) -49);
         if (medalItem != null) {
             medal = "<" + ii.getName(medalItem.getItemId()) + "> ";
+        }
+
+        if (itemType == 515) { // MapleV83: hair / face / lens / skin coupons
+            c.sendPacket(PacketCreator.enableActions());
+            Integer salon = COUPON_SALONS.get(itemId);
+            if (salon == null) {
+                player.dropMessage(1, "Take this coupon to the salon named in its description.");
+            } else if (c.getCM() != null || player.getTrade() != null || player.getMiniGame() != null
+                    || player.getPlayerShop() != null || player.getHiredMerchant() != null || player.getShop() != null) {
+                player.dropMessage(1, "Finish what you are doing before using this coupon.");
+            } else {
+                NPCScriptManager.getInstance().start(c, salon, player);
+            }
+            return;
         }
 
         if (itemType == 504) { // vip teleport rock

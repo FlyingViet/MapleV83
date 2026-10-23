@@ -17,13 +17,17 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "MessagingHandlers.h"
 
+#include "../Resume.h"
+
 #include "../../Audio/Audio.h"
 #include "../../Character/CharEffect.h"
 #include "../../Data/ItemData.h"
 #include "../../Character/QuestLog.h"
 #include "../../Gameplay/Stage.h"
 #include "../../IO/UI.h"
+#include "../../IO/ServerInfo.h"
 
+#include "../../IO/MobileUI.h"
 #include "../../IO/Notifications.h"
 #include "../../IO/UITypes/UIChatBar.h"
 #include "../../IO/UITypes/UINotice.h"
@@ -202,6 +206,11 @@ namespace ms
 						{
 							if (!yes)
 								return;
+							if (MobileUI::enabled())
+							{
+								MobileUI::open_quests();
+								return;
+							}
 							auto log = UI::get().get_element<UIQuestLog>();
 							if (!log)
 							{
@@ -238,6 +247,11 @@ namespace ms
 					{
 						if (!yes)
 							return;
+						if (MobileUI::enabled())
+						{
+							MobileUI::open_quests();
+							return;
+						}
 						auto log = UI::get().get_element<UIQuestLog>();
 						if (!log)
 						{
@@ -337,6 +351,12 @@ namespace ms
 			recv.skip(1);
 
 		std::string message = recv.read_string();
+
+		if (message == Resume::REPLACED_NOTICE)
+		{
+			Resume::replaced();
+			return;
+		}
 
 		auto chatbar = UI::get().get_element<UIChatBar>();
 
@@ -468,6 +488,10 @@ namespace ms
 		recv.read_byte(); // Always 0xFF (padding byte)
 
 		std::string message = recv.read_string();
+
+		// The server's answers to this client's own questions (@mv83info).
+		if (ServerInfo::consume(message))
+			return;
 
 		static const std::string MAPLETIP = "[MapleTip]";
 

@@ -75,6 +75,12 @@ namespace ms
 			type = "SADDLE";
 			eqslot = EquipSlot::Id::SADDLE;
 		}
+		else if (id / 10000 == 170)
+		{
+			// Worn in the cash weapon slot, drawn over the real weapon.
+			type = "CASH WEAPON";
+			eqslot = EquipSlot::Id::WEAPON;
+		}
 		else if (index < NON_WEAPON_TYPES)
 		{
 			constexpr char* types[NON_WEAPON_TYPES] =
@@ -165,7 +171,8 @@ namespace ms
 
 	bool EquipData::is_weapon() const
 	{
-		return eqslot == EquipSlot::Id::WEAPON;
+		// A cash weapon only changes the real weapon's look: no speed or type.
+		return eqslot == EquipSlot::Id::WEAPON && type != "CASH WEAPON";
 	}
 
 	int16_t EquipData::get_reqstat(MapleStat::Id stat) const

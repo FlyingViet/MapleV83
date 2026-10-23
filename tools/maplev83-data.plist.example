@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent for tools/data_server.py. Install (HOME_DIR = your home folder):
+     sed "s|HOME_DIR|$HOME|g" tools/maplev83-data.plist.example > ~/Library/LaunchAgents/local.maplev83-data.plist
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.maplev83-data.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.maplev83-data</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/python3</string><string>HOME_DIR/Coding/MapleV83/tools/data_server.py</string><string>8485</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>HOME_DIR/Library/Logs/maplev83-data.log</string>
+  <key>StandardErrorPath</key><string>HOME_DIR/Library/Logs/maplev83-data.log</string>
+</dict></plist>

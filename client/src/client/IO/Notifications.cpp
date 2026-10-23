@@ -26,42 +26,74 @@ namespace ms
 {
 	namespace Notifications
 	{
+		namespace
+		{
+			void post(std::string title, std::string body,
+				std::function<void(bool yes)> resolver, bool invite)
+			{
+				bool actionable = static_cast<bool>(resolver);
+
+				// Persistent drawer entry — kept until user clicks Accept or
+				// Decline in the bell-button popup (the phone's inbox). Returns
+				// an id we use to resolve the same entry from the toast.
+				int32_t entry_id = NotificationCenter::get().push(
+					title, body, resolver, invite);
+
+				// Transient toast — auto-dismisses, or sooner if the user
+				// clicks Accept/Decline. Either path routes through
+				// NotificationCenter::resolve so the drawer entry is removed
+				// in lockstep.
+				auto toasts = UI::get().get_element<UIToastStack>();
+				if (!toasts)
+				{
+					UI::get().emplace<UIToastStack>();
+					toasts = UI::get().get_element<UIToastStack>();
+				}
+				if (toasts)
+				{
+					toasts->push(std::move(title), std::move(body),
+						[entry_id](bool yes)
+						{
+							NotificationCenter::get().resolve(entry_id, yes);
+						},
+						actionable, entry_id, invite);
+				}
+
+				// Bell badge on the status bar.
+				if (auto statusbar = UI::get().get_element<UIStatusBar>())
+					statusbar->notify();
+			}
+		}
+
 		void notify(std::string title, std::string body,
 			std::function<void(bool yes)> resolver)
 		{
-			// Persistent drawer entry — kept until user clicks Accept or
-			// Decline in the bell-button popup. Returns an id we use to
-			// resolve the same entry from the toast.
-			int32_t entry_id = NotificationCenter::get().push(
-				title, body, resolver);
+			post(std::move(title), std::move(body), std::move(resolver), false);
+		}
 
-			// Transient toast — auto-dismisses after ~10s, or sooner if
-			// the user clicks Accept/Decline. Either path routes through
-			// NotificationCenter::resolve so the drawer entry is removed
-			// in lockstep.
-			auto toasts = UI::get().get_element<UIToastStack>();
-			if (!toasts)
-			{
-				UI::get().emplace<UIToastStack>();
-				toasts = UI::get().get_element<UIToastStack>();
-			}
-			if (toasts)
-			{
-				toasts->push(std::move(title), std::move(body),
-					[entry_id](bool yes)
-					{
-						NotificationCenter::get().resolve(entry_id, yes);
-					});
-			}
-
-			// Bell badge on the status bar.
-			if (auto statusbar = UI::get().get_element<UIStatusBar>())
-				statusbar->notify();
+		void invite(std::string title, std::string body,
+			std::function<void(bool yes)> resolver)
+		{
+			post(std::move(title), std::move(body), std::move(resolver), true);
 		}
 
 		void info(std::string title, std::string body)
 		{
 			notify(std::move(title), std::move(body), nullptr);
+		}
+
+		void hint(std::string title, std::string body)
+		{
+			auto toasts = UI::get().get_element<UIToastStack>();
+
+			if (!toasts)
+			{
+				UI::get().emplace<UIToastStack>();
+				toasts = UI::get().get_element<UIToastStack>();
+			}
+
+			if (toasts && !toasts->has(title))
+				toasts->push(std::move(title), std::move(body), nullptr, false);
 		}
 	}
 }

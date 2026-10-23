@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
+#include <chrono>
+
 #include "Cryptography.h"
 #include "PacketSwitch.h"
 
@@ -54,6 +56,12 @@ namespace ms
 		// Check if the connection is alive
 		bool is_connected() const;
 
+		// The connection counts as lost unless the server sends something
+		// within ms (checking a connection after the app was suspended).
+		void expect_reply(int32_t ms);
+		// Drop the connection now.
+		void drop();
+
 	private:
 		bool init(const char* host, const char* port);
 		void process(const int8_t* bytes, size_t available);
@@ -65,6 +73,8 @@ namespace ms
 		size_t length;
 		size_t pos;
 		bool connected;
+		std::chrono::steady_clock::time_point reply_deadline;
+		bool awaiting_reply = false;
 
 #ifdef MS_PLATFORM_WASM
 		SocketWeb socket;

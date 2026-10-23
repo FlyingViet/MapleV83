@@ -66,7 +66,9 @@ namespace ms
 		};
 
 		// Construct a new equip
-		Clothing(int32_t itemid, const BodyDrawInfo& drawinfo);
+		// weapon_type: a cash weapon's art for the weapon type it is worn
+		// over (30 one-handed sword ... 49 gun); its frames are grouped by it.
+		Clothing(int32_t itemid, const BodyDrawInfo& drawinfo, int16_t weapon_type = 0);
 
 		// Draw the equip
 		void draw(Stance::Id stance, Layer layer, uint8_t frame, const DrawArgument& args) const;

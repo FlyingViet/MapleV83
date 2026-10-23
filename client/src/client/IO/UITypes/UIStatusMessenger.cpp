@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UIStatusMessenger.h"
 
+#include "../MobileUI.h"
+
 #include "../../Constants.h"
 
 namespace ms
@@ -75,6 +77,11 @@ namespace ms
 		int16_t y_adj = (new_width > 800) ? 37 : 0;
 
 		position = Point<int16_t>(new_width - 6, new_height - 145 + y_adj);
+
+		// A phone has its action buttons in the bottom-right corner: the
+		// messages stack up from the bottom just left of them.
+		if (MobileUI::enabled())
+			position = Point<int16_t>(static_cast<int16_t>(new_width - 270), static_cast<int16_t>(new_height - 24));
 	}
 
 	UIElement::Type UIStatusMessenger::get_type() const

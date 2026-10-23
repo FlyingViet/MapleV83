@@ -19,11 +19,41 @@
 
 #include "../UIDragElement.h"
 
+#include "../Components/MobileNoticeCard.h"
 #include "../Components/Textfield.h"
 
 namespace ms
 {
-	class UINotice : public UIDragElement<PosNOTICE>
+	// The v83 notice art on a computer. On a phone a notice is a
+	// MobileNoticeCard over the dimmed screen instead: large text, full-width
+	// buttons, and a tap outside the card answers like Escape.
+	class UINoticeFrame : public UIDragElement<PosNOTICE>
+	{
+	public:
+		void update() override;
+		void update_screen(int16_t new_width, int16_t new_height) override;
+		bool is_in_range(Point<int16_t> cursorpos) const override;
+		Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos) override;
+		bool captures_hold() const override { return mobile; }
+
+	protected:
+		UINoticeFrame(Point<int16_t> dragarea) : UIDragElement<PosNOTICE>(dragarea) {}
+
+		// Switches to the phone's card; call from the constructor.
+		void use_card(MobileNoticeCard::Kind kind, const std::string& eyebrow, const std::string& message);
+
+		// A card button was tapped; by default its id is the v83 button's.
+		// It may close or replace this notice.
+		virtual void card_action(int32_t id);
+		virtual void card_field() {}
+		// A tap on the dimmed screen: Escape, for notices that take one.
+		virtual void card_outside();
+
+		bool mobile = false;
+		MobileNoticeCard card;
+	};
+
+	class UINotice : public UINoticeFrame
 	{
 	public:
 		static constexpr Type TYPE = UIElement::Type::NOTICE;
@@ -126,8 +156,11 @@ namespace ms
 			int16_t button_x_offset = 0,
 			int16_t button_y_offset = 0);
 
+		~UIEnterNumber();
+
 		void draw(float alpha) const override;
 		void update() override;
+		void deactivate() override;
 
 		Cursor::State send_cursor(bool pressed, Point<int16_t> cursorpos) override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
@@ -136,9 +169,12 @@ namespace ms
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
+		void card_action(int32_t id) override;
+		void card_field() override;
 
 	private:
 		void handlestring(std::string numstr);
+		void unfocus();
 
 		enum Buttons : int16_t
 		{
@@ -156,8 +192,11 @@ namespace ms
 		UIEnterText(std::string message, std::function<void(const std::string& text)> texthandler, int32_t maxlength = 15,
 			int16_t field_y_offset = 0, int16_t button_x_offset = 0, int16_t button_y_offset = 0);
 
+		~UIEnterText();
+
 		void draw(float alpha) const override;
 		void update() override;
+		void deactivate() override;
 
 		Cursor::State send_cursor(bool pressed, Point<int16_t> cursorpos) override;
 		void send_key(int32_t keycode, bool pressed, bool escape) override;
@@ -166,8 +205,11 @@ namespace ms
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
+		void card_field() override;
 
 	private:
+		void unfocus();
+
 		enum Buttons : int16_t
 		{
 			OK, CANCEL
@@ -181,7 +223,7 @@ namespace ms
 	// popup. Sources the backdrop from UIWindow.img/Notice/0 so the
 	// death dialog reads as a proper standalone panel instead of the
 	// small generic Basic.img/Notice3 frame used by UIOk.
-	class UIDeathNotice : public UIDragElement<PosNOTICE>
+	class UIDeathNotice : public UINoticeFrame
 	{
 	public:
 		static constexpr Type TYPE = UIElement::Type::NOTICE;
@@ -197,6 +239,8 @@ namespace ms
 
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
+		// Only the button revives.
+		void card_outside() override {}
 
 	private:
 		enum Buttons : int16_t { OK };
@@ -222,6 +266,11 @@ namespace ms
 		UIAlarmInvite(std::string message,
 			std::function<void(bool yes)> handler,
 			int variant = 0);
+
+		// Asks the player. A phone shows a banner across the top instead
+		// (Notifications::invite), so the game stays playable and a dialog
+		// opening meanwhile can't replace the question.
+		static void show(std::string message, std::function<void(bool yes)> handler, int variant = 0);
 
 		void draw(float alpha) const override;
 		void update() override;

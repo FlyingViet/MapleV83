@@ -28,8 +28,10 @@
 #include "../../IO/UITypes/UICharSelect.h"
 #include "../../Character/AccountCharStore.h"
 #include "../../IO/UITypes/UIGender.h"
+#include "../../IO/UITypes/UIMobileLobby.h"
 #include "../../IO/UITypes/UILoginNotice.h"
 #include "../../IO/UITypes/UILoginWait.h"
+#include "../../IO/UITypes/UINotice.h"
 #include "../../IO/UITypes/UIRaceSelect.h"
 #include "../../IO/UITypes/UITermsOfService.h"
 #include "../../IO/UITypes/UIWorldSelect.h"
@@ -39,8 +41,35 @@
 
 namespace ms
 {
+	namespace
+	{
+		// The phone's lobby takes every login answer while it shows.
+		UIMobileLobby* lobby()
+		{
+			auto element = UI::get().get_element<UIMobileLobby>();
+
+			return element && element->is_active() ? element.get() : nullptr;
+		}
+	}
+
 	void LoginResultHandler::handle(InPacket& recv) const
 	{
+		if (auto mobile = lobby())
+		{
+			if (int32_t reason = recv.read_int())
+			{
+				mobile->login_failed(reason);
+			}
+			else
+			{
+				Account account = LoginParser::parse_account(recv);
+				Configuration::get().set_admin(account.admin);
+				mobile->logged_in(account);
+			}
+
+			return;
+		}
+
 		auto loginwait = UI::get().get_element<UILoginWait>();
 
 		if (loginwait && loginwait->is_active())
@@ -74,6 +103,10 @@ namespace ms
 					break;
 				case 23:
 					UI::get().emplace<UITermsOfService>(okhandler);
+					break;
+				case MV83_UPDATE_REQUIRED:
+					UI::get().emplace<UIOk>("This app is out of date. Install the newest version, then log in again.",
+						[okhandler](bool) { okhandler(); });
 					break;
 				default:
 					// Other reasons
@@ -120,6 +153,14 @@ namespace ms
 		// 2 - Full
 		int16_t status = recv.read_short();
 
+		if (auto mobile = lobby())
+		{
+			if (status != 0)
+				mobile->show_error("That channel is too busy right now. Try another one.");
+
+			return;
+		}
+
 		// Cosmic also sends this as the error reply to a charlist request
 		// for a bad/full world or channel. Silently ignoring it left the
 		// UILoginWait spinner up forever — surface it and unwedge the UI.
@@ -134,6 +175,25 @@ namespace ms
 
 	void ServerlistHandler::handle(InPacket& recv) const
 	{
+		if (auto mobile = lobby())
+		{
+			while (recv.available())
+			{
+				World world = LoginParser::parse_world(recv);
+
+				if (world.wid == -1)
+				{
+					mobile->worlds_ready();
+					return;
+				}
+
+				ChannelLoadData::get().update(static_cast<int8_t>(world.wid), world.channelcount, world.chloads);
+				mobile->add_world(world);
+			}
+
+			return;
+		}
+
 		auto worldselect = UI::get().get_element<UIWorldSelect>();
 
 		if (!worldselect)
@@ -198,6 +258,12 @@ namespace ms
 			int8_t pic = recv.read_byte();
 			int32_t slots = recv.read_int();
 
+			if (auto mobile = lobby())
+			{
+				mobile->set_characters(std::move(characters), slots, pic);
+				return;
+			}
+
 			// Remove previous UIs
 			UI::get().remove(UIElement::Type::LOGINNOTICE);
 			UI::get().remove(UIElement::Type::LOGINWAIT);
@@ -227,6 +293,12 @@ namespace ms
 		std::string name = recv.read_string();
 		bool used = recv.read_bool();
 
+		if (auto mobile = lobby())
+		{
+			mobile->name_checked(used);
+			return;
+		}
+
 		// Notify the character creation screen
 		if (auto raceselect = UI::get().get_element<UIRaceSelect>())
 			raceselect->send_naming_result(used);
@@ -245,6 +317,12 @@ namespace ms
 		store_list.push_back({ character.id, character.stats.name });
 		AccountCharStore::get().set(std::move(store_list));
 
+		if (auto mobile = lobby())
+		{
+			mobile->character_added(std::move(character));
+			return;
+		}
+
 		// Read the updated character selection
 		if (auto charselect = UI::get().get_element<UICharSelect>())
 			charselect->add_character(std::move(character));
@@ -255,6 +333,20 @@ namespace ms
 		// Read the character id and if deletion was successful (PIC was correct)
 		int32_t cid = recv.read_int();
 		uint8_t state = recv.read_byte();
+
+		if (auto mobile = lobby())
+		{
+			if (state == 0)
+			{
+				auto store_list = AccountCharStore::get().list();
+				store_list.erase(std::remove_if(store_list.begin(), store_list.end(),
+					[cid](const AccountCharStore::Entry& e) { return e.cid == cid; }), store_list.end());
+				AccountCharStore::get().set(std::move(store_list));
+			}
+
+			mobile->delete_result(cid, state);
+			return;
+		}
 
 		// Extract information from the state byte
 		if (state)

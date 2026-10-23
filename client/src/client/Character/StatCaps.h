@@ -21,22 +21,11 @@
 
 namespace ms
 {
-	// Externalizing this for easier configurability
+	// MapleV83: power stats are uncapped (v83 stopped STR/DEX/INT/LUK/ATT at 999,
+	// HP/MP at 30000). Speed and jump keep their v83 limits because movement
+	// physics and the server's movement checks are built around them.
 	const std::unordered_map<EquipStat::Id, int32_t> EQSTAT_CAPS =
 	{
-		{ EquipStat::Id::STR,	999		},
-		{ EquipStat::Id::DEX,	999		},
-		{ EquipStat::Id::INT,	999		},
-		{ EquipStat::Id::LUK,	999		},
-		{ EquipStat::Id::HP,	500000	},
-		{ EquipStat::Id::MP,	500000	},
-		{ EquipStat::Id::WATK,	999		},
-		{ EquipStat::Id::MAGIC,	2000	},
-		{ EquipStat::Id::WDEF,	999		},
-		{ EquipStat::Id::MDEF,	999		},
-		{ EquipStat::Id::ACC,	999		},
-		{ EquipStat::Id::AVOID,	999		},
-		{ EquipStat::Id::HANDS,	999		},
 		{ EquipStat::Id::SPEED,	140		},
 		{ EquipStat::Id::JUMP,	123		},
 	};

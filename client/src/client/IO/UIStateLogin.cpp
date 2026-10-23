@@ -17,7 +17,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UIStateLogin.h"
 
+#include "MobileUI.h"
 #include "UITypes/UICharSelect.h"
+#include "UITypes/UIMobileLobby.h"
 #include "UITypes/UILogin.h"
 #include "UITypes/UILoginNotice.h"
 #include "UITypes/UILogo.h"
@@ -29,6 +31,14 @@ namespace ms
 	UIStateLogin::UIStateLogin()
 	{
 		focused = UIElement::Type::NONE;
+
+		// The phone signs in, picks a channel and a character in its own
+		// lobby.
+		if (MobileUI::enabled())
+		{
+			emplace<UIMobileLobby>();
+			return;
+		}
 
 		bool start_shown = Configuration::get().get_start_shown();
 

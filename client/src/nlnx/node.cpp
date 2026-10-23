@@ -17,6 +17,11 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include "node_impl.hpp"
+#include "nx.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <set>
+#include <string>
 #include "file_impl.hpp"
 #include "bitmap.hpp"
 #include "audio.hpp"
@@ -486,8 +491,22 @@ namespace nl {
         auto const b = reinterpret_cast<const char *>(m_file->base);
         auto const t = m_file->string_table;
         for (;;) {
-            if (!n)
+            if (!n) {
+#ifdef NLNX_LOG_UI_MISSES
+                // Which interface nodes the client asks for that this UI file
+                // lacks (set MV83_NXMISS=1) - a map of what a v83 UI.wz is missing.
+                static const bool enabled = std::getenv("MV83_NXMISS") != nullptr;
+
+                if (enabled && m_file == nx::ui.m_file) {
+                    static std::set<std::string> seen;
+                    std::string key = name() + "/" + std::string(o, l);
+
+                    if (seen.insert(key).second)
+                        std::printf("[NXMISS] %s\n", key.c_str());
+                }
+#endif
                 return {nullptr, m_file};
+            }
             auto const n2 = static_cast<decltype(n)>(n >> 1);
             auto const p2 = p + n2;
             auto const sl = b + t[p2->name];

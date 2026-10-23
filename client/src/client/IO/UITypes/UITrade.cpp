@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UITrade.h"
 
+#include "../MobileUI.h"
+
 #include "UINotice.h"
 #include "UIChatBar.h"
 #include "UIItemInventory.h"
@@ -496,21 +498,33 @@ namespace ms
 		switch (keycode)
 		{
 		case KeyAction::Id::ITEMS:
-			UI::get().emplace<UIItemInventory>(
-				Stage::get().get_player().get_inventory());
+			if (MobileUI::enabled())
+				MobileUI::open_items();
+			else
+				UI::get().emplace<UIItemInventory>(
+					Stage::get().get_player().get_inventory());
 			break;
 		case KeyAction::Id::EQUIPMENT:
-			UI::get().emplace<UIEquipInventory>(
-				Stage::get().get_player().get_inventory());
+			if (MobileUI::enabled())
+				MobileUI::open_equip();
+			else
+				UI::get().emplace<UIEquipInventory>(
+					Stage::get().get_player().get_inventory());
 			break;
 		case KeyAction::Id::STATS:
-			UI::get().emplace<UIStatsInfo>(
-				Stage::get().get_player().get_stats());
+			if (MobileUI::enabled())
+				MobileUI::open_stats();
+			else
+				UI::get().emplace<UIStatsInfo>(
+					Stage::get().get_player().get_stats());
 			break;
 		case KeyAction::Id::SKILLS:
-			UI::get().emplace<UISkillBook>(
-				Stage::get().get_player().get_stats(),
-				Stage::get().get_player().get_skills());
+			if (MobileUI::enabled())
+				MobileUI::open_skills();
+			else
+				UI::get().emplace<UISkillBook>(
+					Stage::get().get_player().get_stats(),
+					Stage::get().get_player().get_skills());
 			break;
 		default:
 			break;

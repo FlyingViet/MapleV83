@@ -54,7 +54,7 @@ namespace ms
 
 		UIElement::Type get_type() const override;
 
-		void update_stat(MapleStat::Id stat, int16_t value);
+		void update_stat(MapleStat::Id stat, int32_t value);
 		void update_skills(int32_t skill_id);
 
 		// Called by SkillMacrosHandler at login
@@ -166,7 +166,8 @@ namespace ms
 			BT_SPUP0,
 			BT_SPUP1,
 			BT_SPUP2,
-			BT_SPUP3
+			BT_SPUP3,
+			BT_RESET
 		};
 
 		static constexpr int16_t ROWS = 4;
@@ -184,7 +185,7 @@ namespace ms
 		Text splabel;
 
 		Job job;
-		int16_t sp;
+		int32_t sp;
 		int16_t beginner_sp;
 
 		uint16_t tab;

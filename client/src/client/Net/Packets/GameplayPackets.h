@@ -39,6 +39,19 @@ namespace ms
 		ChangeMapPacket() : OutPacket(OutPacket::Opcode::CHANGEMAP) {}
 	};
 
+	// Opcode: CHANGE_MAP_SPECIAL(100)
+	class ChangeMapSpecialPacket : public OutPacket
+	{
+	public:
+		// Enter a portal that runs a server script (Free Market entrances etc.)
+		ChangeMapSpecialPacket(const std::string& portal) : OutPacket(OutPacket::Opcode::CHANGE_MAP_SPECIAL)
+		{
+			write_byte(0);
+			write_string(portal);
+			write_short(0);
+		}
+	};
+
 	// Opcode: CHANGE_CHANNEL(39)
 	class ChangeChannelPacket : public OutPacket
 	{

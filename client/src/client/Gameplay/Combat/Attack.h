@@ -59,6 +59,10 @@ namespace ms
 		int32_t skill = 0;
 		int32_t bullet = 0;
 
+		// Shadow Partner: hitcount is doubled; the second half are the
+		// shadow's hits at half damage (what the server expects).
+		bool shadow = false;
+
 		Point<int16_t> origin;
 		Rectangle<int16_t> range;
 		float hrange = 1.0f;
@@ -108,6 +112,7 @@ namespace ms
 			stance = attack.stance;
 			bullet = attack.bullet;
 			toleft = attack.toleft;
+			shadow = attack.shadow;
 		}
 
 		Attack::Type type;
@@ -122,7 +127,9 @@ namespace ms
 		uint8_t stance = 0;
 		uint8_t speed = 0;
 		bool toleft = false;
-		std::unordered_map<int32_t, std::vector<std::pair<int32_t, bool>>> damagelines;
+		bool shadow = false;
+		// MapleV83: 64-bit damage lines (protocol 6).
+		std::unordered_map<int32_t, std::vector<std::pair<int64_t, bool>>> damagelines;
 		int32_t first_oid;
 		int32_t last_oid;
 	};

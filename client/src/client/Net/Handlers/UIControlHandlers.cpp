@@ -18,6 +18,7 @@
 #include "UIControlHandlers.h"
 #include "../../Gameplay/Stage.h"
 #include "../../IO/UI.h"
+#include "../../IO/MobileUI.h"
 #include "../../IO/UITypes/UIChatBar.h"
 #include "../../IO/UITypes/UIEquipInventory.h"
 #include "../../IO/UITypes/UIStatsInfo.h"
@@ -25,6 +26,7 @@
 #include "../../IO/UITypes/UIBuddyList.h"
 #include "../../IO/UITypes/UIWorldMap.h"
 #include "../../IO/UITypes/UIKeyConfig.h"
+#include "../../IO/UITypes/UIMobileKeyConfig.h"
 #include "../../IO/UITypes/UIMonsterBook.h"
 #include "../../IO/UITypes/UIQuestLog.h"
 #include "../../IO/UITypes/UIMessenger.h"
@@ -50,13 +52,22 @@ namespace ms
 		switch (ui_type)
 		{
 		case 0x00: // Equipment inventory
-			UI::get().emplace<UIEquipInventory>(player.get_inventory());
+			if (MobileUI::enabled())
+				MobileUI::open_equip();
+			else
+				UI::get().emplace<UIEquipInventory>(player.get_inventory());
 			break;
 		case 0x01: // Stats
-			UI::get().emplace<UIStatsInfo>(player.get_stats());
+			if (MobileUI::enabled())
+				MobileUI::open_stats();
+			else
+				UI::get().emplace<UIStatsInfo>(player.get_stats());
 			break;
 		case 0x02: // Skill book
-			UI::get().emplace<UISkillBook>(player.get_stats(), player.get_skills());
+			if (MobileUI::enabled())
+				MobileUI::open_skills();
+			else
+				UI::get().emplace<UISkillBook>(player.get_stats(), player.get_skills());
 			break;
 		case 0x03: // Buddy list
 			UI::get().emplace<UIBuddyList>();
@@ -71,7 +82,10 @@ namespace ms
 			UI::get().emplace<UIQuestLog>(player.get_quests());
 			break;
 		case 0x0A: // Key config
-			UI::get().emplace<UIKeyConfig>(player.get_inventory(), player.get_skills());
+			if (MobileUI::enabled())
+				MobileUI::open_keys();
+			else
+				UI::get().emplace<UIKeyConfig>(player.get_inventory(), player.get_skills());
 			break;
 		case 0x12: // Monster book
 			UI::get().emplace<UIMonsterBook>();

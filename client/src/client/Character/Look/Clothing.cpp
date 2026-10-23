@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
+#include <vector>
 
 #ifdef USE_NX
 #include <nlnx/nx.hpp>
@@ -31,7 +32,7 @@
 
 namespace ms
 {
-	Clothing::Clothing(int32_t id, const BodyDrawInfo& drawinfo) : itemid(id)
+	Clothing::Clothing(int32_t id, const BodyDrawInfo& drawinfo, int16_t weapon_type) : itemid(id)
 	{
 		bodydrawinfo = &drawinfo;
 
@@ -39,10 +40,20 @@ namespace ms
 
 		eqslot = equipdata.get_eqslot();
 
-		if (eqslot == EquipSlot::Id::WEAPON)
+		if (weapon_type > 0)
+		{
+			// A cash weapon takes the stances of the weapon type it is drawn as.
+			eqslot = EquipSlot::Id::WEAPON;
+			twohanded = weapon_type == 38 || (weapon_type >= 40 && weapon_type <= 44) || weapon_type == 46;
+		}
+		else if (eqslot == EquipSlot::Id::WEAPON)
+		{
 			twohanded = WeaponData::get(itemid).is_twohanded();
+		}
 		else
+		{
 			twohanded = false;
+		}
 
 		constexpr size_t NON_WEAPON_TYPES = 15;
 		constexpr size_t WEAPON_OFFSET = NON_WEAPON_TYPES + 15;
@@ -72,7 +83,7 @@ namespace ms
 
 		if (index < NON_WEAPON_TYPES)
 			chlayer = layers[index];
-		else if (index >= WEAPON_OFFSET && index < WEAPON_OFFSET + WEAPON_TYPES)
+		else if ((index >= WEAPON_OFFSET && index < WEAPON_OFFSET + WEAPON_TYPES) || index == 70)
 			chlayer = Clothing::Layer::WEAPON;
 		else
 			chlayer = Clothing::Layer::CAPE;
@@ -81,6 +92,13 @@ namespace ms
 		std::string category = equipdata.get_itemdata().get_category();
 		nl::node src = nl::nx::character[category][strid + ".img"];
 		nl::node info = src["info"];
+
+		// Cash weapons (170xxxx) keep one set of stances per weapon type.
+		nl::node frames = weapon_type > 0 ? src[std::to_string(weapon_type)] : src;
+
+		// Face accessories are drawn by expression rather than stance; their
+		// resting look (default/default) stands in for every stance.
+		const bool expression_only = eqslot == EquipSlot::Id::FACE && !src["stand1"] && src["default"];
 
 		// AI-skin equips carry an info/aiSkin material bitmap in their .img;
 		// every frame is then retextured from it at load (see AiSkin.h)
@@ -130,13 +148,22 @@ namespace ms
 			Stance::Id stance = iter.first;
 			const std::string& stancename = iter.second;
 
-			nl::node stancenode = src[stancename];
+			nl::node stancenode = frames[stancename];
+			std::vector<nl::node> framenodes;
 
-			if (!stancenode)
+			if (expression_only)
+				framenodes.push_back(src["default"]);
+			else
+				for (uint8_t frame = 0; nl::node framenode = stancenode[frame]; ++frame)
+					framenodes.push_back(framenode);
+
+			if (framenodes.empty())
 				continue;
 
-			for (uint8_t frame = 0; nl::node framenode = stancenode[frame]; ++frame)
+			for (uint8_t frame = 0; frame < framenodes.size(); ++frame)
 			{
+				nl::node framenode = framenodes[frame];
+
 				// A shell view replaces this frame's parts at most once
 				bool shell_used = false;
 

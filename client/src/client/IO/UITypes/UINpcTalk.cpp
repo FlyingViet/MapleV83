@@ -28,6 +28,7 @@
 #include "../../Net/Packets/NpcInteractionPackets.h"
 
 #include "../../Data/ItemData.h"
+#include "../../Util/Misc.h"
 #include "../../Constants.h"
 #include "../../Graphics/Geometry.h"
 
@@ -907,13 +908,8 @@ namespace ms
 					std::string id_str = tx.substr(i + 2, end - i - 2);
 					if (!id_str.empty())
 					{
-						// Map names: pad to 9 digits, look up in string.nx
-						std::string padded = id_str;
-						while (padded.size() < 9)
-							padded.insert(0, 1, '0');
-
-						std::string name = (std::string)nl::nx::string["Map.img"][padded]["mapName"];
-						result += name.empty() ? ("Map " + id_str) : name;
+						int32_t mapid = string_conversion::or_default<int32_t>(id_str, -1);
+						result += mapid >= 0 ? NxHelper::Map::get_map_name(mapid) : ("Map " + id_str);
 					}
 					i = end;
 					continue;

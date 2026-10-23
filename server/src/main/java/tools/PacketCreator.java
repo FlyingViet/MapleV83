@@ -198,21 +198,21 @@ public class PacketCreator {
             }
         }
 
-        p.writeByte(chr.getLevel()); // level
+        p.writeShort(chr.getLevel()); // MapleV83: level as a short (levels to 300)
         p.writeShort(chr.getJob().getId()); // job
-        p.writeShort(chr.getStr()); // str
-        p.writeShort(chr.getDex()); // dex
-        p.writeShort(chr.getInt()); // int
-        p.writeShort(chr.getLuk()); // luk
-        p.writeShort(chr.getHp()); // hp (?)
-        p.writeShort(chr.getClientMaxHp()); // maxhp
-        p.writeShort(chr.getMp()); // mp (?)
-        p.writeShort(chr.getClientMaxMp()); // maxmp
-        p.writeShort(chr.getRemainingAp()); // remaining ap
+        p.writeInt(chr.getStr()); // str
+        p.writeInt(chr.getDex()); // dex
+        p.writeInt(chr.getInt()); // int
+        p.writeInt(chr.getLuk()); // luk
+        p.writeInt(chr.getHp()); // hp (?)
+        p.writeInt(chr.getClientMaxHp()); // maxhp
+        p.writeInt(chr.getMp()); // mp (?)
+        p.writeInt(chr.getClientMaxMp()); // maxmp
+        p.writeInt(chr.getRemainingAp()); // remaining ap
         if (GameConstants.hasSPTable(chr.getJob())) {
             addRemainingSkillInfo(p, chr);
         } else {
-            p.writeShort(chr.getRemainingSp()); // remaining sp
+            p.writeInt(chr.getRemainingSp()); // MapleV83: 32-bit SP
         }
         p.writeInt(chr.getExp()); // current exp
         p.writeShort(chr.getFame()); // fame
@@ -244,7 +244,7 @@ public class PacketCreator {
             p.writeString(chr.getLinkedName());
         }
 
-        p.writeInt(chr.getMeso());
+        p.writeLong(chr.getMeso()); // MapleV83: 64-bit wallet
         addInventoryInfo(p, chr);
         addSkillInfo(p, chr);
         addQuestInfo(p, chr);
@@ -452,21 +452,21 @@ public class PacketCreator {
         }
         p.writeByte(equip.getUpgradeSlots()); // upgrade slots
         p.writeByte(equip.getLevel()); // level
-        p.writeShort(equip.getStr()); // str
-        p.writeShort(equip.getDex()); // dex
-        p.writeShort(equip.getInt()); // int
-        p.writeShort(equip.getLuk()); // luk
-        p.writeShort(equip.getHp()); // hp
-        p.writeShort(equip.getMp()); // mp
-        p.writeShort(equip.getWatk()); // watk
-        p.writeShort(equip.getMatk()); // matk
-        p.writeShort(equip.getWdef()); // wdef
-        p.writeShort(equip.getMdef()); // mdef
-        p.writeShort(equip.getAcc()); // accuracy
-        p.writeShort(equip.getAvoid()); // avoid
-        p.writeShort(equip.getHands()); // hands
-        p.writeShort(equip.getSpeed()); // speed
-        p.writeShort(equip.getJump()); // jump
+        p.writeInt(equip.getStr()); // str  (MapleV83: equip stats are 32-bit)
+        p.writeInt(equip.getDex()); // dex
+        p.writeInt(equip.getInt()); // int
+        p.writeInt(equip.getLuk()); // luk
+        p.writeInt(equip.getHp()); // hp
+        p.writeInt(equip.getMp()); // mp
+        p.writeInt(equip.getWatk()); // watk
+        p.writeInt(equip.getMatk()); // matk
+        p.writeInt(equip.getWdef()); // wdef
+        p.writeInt(equip.getMdef()); // mdef
+        p.writeInt(equip.getAcc()); // accuracy
+        p.writeInt(equip.getAvoid()); // avoid
+        p.writeInt(equip.getHands()); // hands
+        p.writeInt(equip.getSpeed()); // speed
+        p.writeInt(equip.getJump()); // jump
         p.writeString(equip.getOwner()); // owner name
         p.writeShort(equip.getFlag()); //Item Flags
 
@@ -1022,6 +1022,8 @@ public class PacketCreator {
             if (statupdate.getLeft().getValue() >= 1) {
                 if (statupdate.getLeft().getValue() == 0x1) {
                     p.writeByte(statupdate.getRight().byteValue());
+                } else if (statupdate.getLeft() == Stat.LEVEL) {
+                    p.writeShort(statupdate.getRight()); // MapleV83: levels to 300
                 } else if (statupdate.getLeft().getValue() <= 0x4) {
                     p.writeInt(statupdate.getRight());
                 } else if (statupdate.getLeft().getValue() < 0x20) {
@@ -1030,12 +1032,16 @@ public class PacketCreator {
                     if (GameConstants.hasSPTable(chr.getJob())) {
                         addRemainingSkillInfo(p, chr);
                     } else {
-                        p.writeShort(statupdate.getRight().shortValue());
+                        p.writeInt(statupdate.getRight()); // MapleV83: 32-bit SP
                     }
+                } else if (statupdate.getLeft().getValue() >= Stat.STR.getValue() && statupdate.getLeft().getValue() <= Stat.AVAILABLEAP.getValue()) {
+                    p.writeInt(statupdate.getRight()); // MapleV83: 32-bit STR..MAXMP and AP
                 } else if (statupdate.getLeft().getValue() < 0xFFFF) {
                     p.writeShort(statupdate.getRight().shortValue());
                 } else if (statupdate.getLeft().getValue() == 0x20000) {
                     p.writeShort(statupdate.getRight().shortValue());
+                } else if (statupdate.getLeft() == Stat.MESO) {
+                    p.writeLong(chr != null ? chr.getMeso() : statupdate.getRight()); // MapleV83: 64-bit wallet
                 } else {
                     p.writeInt(statupdate.getRight());
                 }
@@ -1942,7 +1948,7 @@ public class PacketCreator {
     public static Packet spawnPlayerMapObject(Client target, Character chr, boolean enteringField) {
         OutPacket p = OutPacket.create(SendOpcode.SPAWN_PLAYER);
         p.writeInt(chr.getId());
-        p.writeByte(chr.getLevel()); //v83
+        p.writeShort(chr.getLevel()); // MapleV83: short (levels to 300)
         p.writeString(chr.getName());
         if (chr.getGuildId() < 1) {
             p.writeString("");
@@ -2396,8 +2402,8 @@ public class PacketCreator {
                 if (skill == ChiefBandit.MESO_EXPLOSION) {
                     p.writeByte(value.damageLines().size());
                 }
-                for (Integer damageLine : value.damageLines()) {
-                    p.writeInt(damageLine);
+                for (Long damageLine : value.damageLines()) {
+                    p.writeLong(damageLine); // MapleV83: 64-bit lines, bit 63 = critical
                 }
             }
         }
@@ -2745,7 +2751,7 @@ public class PacketCreator {
         //3D 00 0A 43 01 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
         final OutPacket p = OutPacket.create(SendOpcode.CHAR_INFO);
         p.writeInt(chr.getId());
-        p.writeByte(chr.getLevel());
+        p.writeShort(chr.getLevel()); // MapleV83: short (levels to 300)
         p.writeShort(chr.getJob().getId());
         p.writeShort(chr.getFame());
         p.writeByte(chr.getMarriageRing() != null ? 1 : 0);
@@ -4084,7 +4090,7 @@ public class PacketCreator {
         return p;
     }
 
-    public static Packet damageMonster(int oid, int damage) {
+    public static Packet damageMonster(int oid, long damage) {
         return damageMonster(oid, damage, 0, 0);
     }
 
@@ -4092,11 +4098,11 @@ public class PacketCreator {
         return damageMonster(oid, -heal, curhp, maxhp);
     }
 
-    private static Packet damageMonster(int oid, int damage, int curhp, int maxhp) {
+    private static Packet damageMonster(int oid, long damage, int curhp, int maxhp) {
         final OutPacket p = OutPacket.create(SendOpcode.DAMAGE_MONSTER);
         p.writeInt(oid);
         p.writeByte(0);
-        p.writeInt(damage);
+        p.writeLong(damage); // MapleV83: 64-bit damage
         p.writeInt(curhp);
         p.writeInt(maxhp);
         return p;
@@ -5196,7 +5202,7 @@ public class PacketCreator {
         }
         p.writeString(hm.getDescription());
         p.writeByte(0x10); //TODO SLOTS, which is 16 for most stores...slotMax
-        p.writeInt(hm.isOwner(chr) ? chr.getMerchantMeso() : chr.getMeso());
+        p.writeInt(hm.isOwner(chr) ? chr.getMerchantMeso() : (int) Math.min(chr.getMeso(), Integer.MAX_VALUE));
         p.writeByte(hm.getItems().size());
         if (hm.getItems().isEmpty()) {
             p.writeByte(0);//Hmm??
@@ -5214,7 +5220,7 @@ public class PacketCreator {
     public static Packet updateHiredMerchant(HiredMerchant hm, Character chr) {
         final OutPacket p = OutPacket.create(SendOpcode.PLAYER_INTERACTION);
         p.writeByte(PlayerInteractionHandler.Action.UPDATE_MERCHANT.getCode());
-        p.writeInt(hm.isOwner(chr) ? chr.getMerchantMeso() : chr.getMeso());
+        p.writeInt(hm.isOwner(chr) ? chr.getMerchantMeso() : (int) Math.min(chr.getMeso(), Integer.MAX_VALUE));
         p.writeByte(hm.getItems().size());
         for (PlayerShopItem item : hm.getItems()) {
             p.writeShort(item.getBundles());
@@ -6000,7 +6006,7 @@ public class PacketCreator {
         p.writeInt(entry.getChrId()); //ID
         p.writeInt(entry.getSenior() != null ? entry.getSenior().getChrId() : 0); //parent ID
         p.writeShort(entry.getJob().getId()); //job id
-        p.writeByte(entry.getLevel()); //level
+        p.writeShort(entry.getLevel()); // MapleV83: short (levels to 300)
         p.writeBool(isOnline); //isOnline
         p.writeInt(entry.getReputation()); //current rep
         p.writeInt(entry.getTotalReputation()); //total rep

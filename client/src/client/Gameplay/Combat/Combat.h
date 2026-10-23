@@ -27,6 +27,8 @@
 #include "../../Character/Player.h"
 #include "../../Template/TimedQueue.h"
 
+#include <deque>
+
 namespace ms
 {
 	class Combat
@@ -41,12 +43,15 @@ namespace ms
 
 		// Make the player use a special move
 		void use_move(int32_t move_id);
+		// use_move for a held key: attack skills only, and quietly - no
+		// "not enough MP" message every frame.
+		void repeat_move(int32_t move_id);
 
 		// Add an attack to the attack queue
 		void push_attack(const AttackResult& attack);
 		// Show a standalone damage number over a mob (server DAMAGE_MONSTER
 		// packet: DoT, mist, Body Pressure and other attacker-less damage).
-		void show_mob_damage(int32_t oid, int32_t damage);
+		void show_mob_damage(int32_t oid, int64_t damage);
 		// Show a buff effect. `speed` and `direction` come from the packet: without
 		// them the cast plays at default speed and default facing, so a skill cast
 		// facing left renders facing right. Negative direction means "unspecified"
@@ -60,12 +65,17 @@ namespace ms
 		// Show a buff effect
 		void show_player_buff(int32_t skillid);
 
+		// An arrow key went down: Aran's commands and Combat Step read these.
+		void send_direction(KeyAction::Id dir);
+		// The attack key went down (held attacks repeat from Stage::update).
+		void attack_pressed();
+
 	private:
 		struct DamageEffect
 		{
 			AttackUser user;
 			DamageNumber number;
-			int32_t damage;
+			int64_t damage;
 			bool toleft;
 			int32_t target_oid;
 			int32_t move_id;
@@ -90,10 +100,24 @@ namespace ms
 		// Mid-air dash: horizontal impulse in the moving/facing direction with a
 		// small upward pop, only usable while airborne.
 		void apply_flash_jump();
+		// Aran: a short dash in the facing direction.
+		void apply_combat_step();
+
+		// Aran (or anyone with a polearm and Aran's skills): the attack key runs
+		// the swing chain, Triple Swing's finishers and the arrow commands.
+		bool aran_inputs() const;
+		// What the attack key does now; 0 keeps the regular attack.
+		// now: when the attack was pressed (earlier than this for a queued one).
+		int32_t aran_attack(uint32_t now);
+		// Each monster an Aran hits raises the combo (the server counts).
+		void count_aran_hits(const AttackResult& result);
+		// The combo a skill needs (Combo Smash 30...), 0 for none.
+		static int32_t combo_needed(int32_t skillid);
+		static uint16_t hit_delay(const Char& user, const AttackResult& result, size_t i);
 		void apply_bullet_effect(const BulletEffect& effect);
 		void apply_damage_effect(const DamageEffect& effect);
 		void extract_effects(const Char& user, const SpecialMove& move, const AttackResult& result);
-		std::vector<DamageNumber> place_numbers(int32_t oid, const std::vector<std::pair<int32_t, bool>>& damagelines);
+		std::vector<DamageNumber> place_numbers(int32_t oid, const std::vector<std::pair<int64_t, bool>>& damagelines);
 		const SpecialMove& get_move(int32_t move_id);
 
 		Player& player;
@@ -121,5 +145,32 @@ namespace ms
 		// must not replay it, or every sound plays twice
 		int32_t local_cast_id = 0;
 		int16_t local_cast_timeout = 0;
+
+		struct Arrow
+		{
+			KeyAction::Id dir;
+			uint32_t tick;
+		};
+
+		// Recent arrow presses, for Aran's commands and Combat Step.
+		std::deque<Arrow> arrows;
+		uint32_t ticks = 0;
+		// Ticks since the player last stopped attacking.
+		uint32_t idle_ticks = 0;
+		// The last swing of Aran's chain: 1 regular, 2 Double, 3 Triple; 0 none.
+		uint8_t aran_chain = 0;
+		// When that swing started.
+		uint32_t chain_tick = 0;
+		// Ticks since an Aran hit raised the combo; it lapses after 3 s.
+		uint32_t combo_ticks = 0;
+		// Combat Step: ticks of dash left, and the wait before the next.
+		// An attack pressed during a swing (Aran), and when.
+		bool queued_attack = false;
+		uint32_t queued_tick = 0;
+		// While a queued attack goes off: when it was pressed.
+		uint32_t pressed_tick = 0;
+		uint16_t step_ticks = 0;
+		uint16_t step_cooldown = 0;
+		bool step_right = true;
 	};
 }

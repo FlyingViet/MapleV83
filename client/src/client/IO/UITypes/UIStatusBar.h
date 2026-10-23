@@ -88,6 +88,9 @@ namespace ms
 		// the floating toast so they line up over it.
 		Point<int16_t> get_notice_anchor() const;
 
+		// Opens the notification drawer (v83's memo slot).
+		void open_notices();
+
 	protected:
 		Button::State button_pressed(uint16_t buttonid) override;
 
@@ -283,5 +286,26 @@ namespace ms
 		// Notice/notification state
 		bool has_notification;
 		uint32_t notice_pulse_tick;
+
+		// ---- The phone's HUD (UIStatusBarHud.cpp) ----
+		// v83's 800-pixel bar does not suit a phone. There it becomes a
+		// see-through HUD in the top-left corner: level and name, HP, MP and
+		// EXP, plus chips for unspent AP/SP and waiting notifications. The
+		// rest of the bar moved to the touch controls and the menu.
+		enum HudTarget : int32_t
+		{
+			HUD_NONE = -1,
+			HUD_AP,
+			HUD_SP,
+			HUD_NOTICE
+		};
+
+		Rectangle<int16_t> hud_chip(int32_t target) const;
+		int32_t hud_hit(Point<int16_t> pos) const;
+		void draw_hud(float alpha) const;
+		Cursor::State hud_cursor(bool clicked, Point<int16_t> pos);
+
+		uint32_t hud_press = 0;
+		uint32_t hud_tick = 0;
 	};
 }

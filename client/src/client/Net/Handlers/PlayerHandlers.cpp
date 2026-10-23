@@ -90,7 +90,7 @@ namespace ms
 			player.change_look(stat, recv.read_int());
 			break;
 		case MapleStat::Id::LEVEL:
-			player.change_level(recv.read_byte());
+			player.change_level(static_cast<uint16_t>(recv.read_short()));	// MapleV83: short (levels to 300)
 			break;
 		case MapleStat::Id::JOB:
 			player.change_job(recv.read_short());
@@ -99,16 +99,18 @@ namespace ms
 			player.get_stats().set_exp(recv.read_int());
 			break;
 		case MapleStat::Id::MESO:
-			player.get_inventory().set_meso(recv.read_int());
+			player.get_inventory().set_meso(recv.read_long()); // MapleV83: 64-bit wallet
 			break;
 		default:
 		{
-			int16_t value = recv.read_short();
+			// MapleV83: STR..MAXMP, AP and SP are 32-bit; fame stays 16-bit.
+			bool wide = stat >= MapleStat::Id::STR && stat <= MapleStat::Id::SP;
+			int32_t value = wide ? recv.read_int() : recv.read_short();
 
 			// Show heal number when HP increases from regen
 			if (stat == MapleStat::Id::HP)
 			{
-				int16_t old_hp = player.get_stats().get_stat(MapleStat::Id::HP);
+				int32_t old_hp = player.get_stats().get_stat(MapleStat::Id::HP);
 				if (value > old_hp)
 					player.show_heal(value - old_hp);
 			}
@@ -146,7 +148,7 @@ namespace ms
 
 		if (update_skillbook)
 		{
-			int16_t value = player.get_stats().get_stat(stat);
+			int32_t value = player.get_stats().get_stat(stat);
 
 			if (auto skillbook = UI::get().get_element<UISkillBook>())
 				skillbook->update_stat(stat, value);

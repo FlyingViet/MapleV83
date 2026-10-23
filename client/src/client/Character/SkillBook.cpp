@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SkillBook.h"
 
+#include "SkillId.h"
+
 #include "../Data/SkillData.h"
 
 namespace ms
@@ -36,7 +38,21 @@ namespace ms
 		auto iter = skillentries.find(id);
 
 		if (iter == skillentries.end())
-			return 0;
+		{
+			// The server never lists Aran's hidden swings; they follow the skill
+			// that unlocks them (Full Swing, Over Swing).
+			switch (id)
+			{
+			case SkillId::ARAN_FULL_SWING_DOUBLE:
+			case SkillId::ARAN_FULL_SWING_TRIPLE:
+				return get_level(SkillId::ARAN_FULL_SWING);
+			case SkillId::ARAN_OVER_SWING_DOUBLE:
+			case SkillId::ARAN_OVER_SWING_TRIPLE:
+				return get_level(SkillId::ARAN_OVER_SWING);
+			default:
+				return 0;
+			}
+		}
 
 		return iter->second.level;
 	}

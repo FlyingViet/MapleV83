@@ -63,11 +63,10 @@ namespace ms
 
 			for (uint8_t j = 0; j < length; j++)
 			{
-				int32_t damage = recv.read_int();
-				bool critical = (damage & 0x80000000) != 0;
-
-				if (critical)
-					damage &= ~0x80000000; // Clear the flag to get real damage
+				// MapleV83: 64-bit lines; the server sets bit 63 on critical hits.
+				int64_t line = recv.read_long();
+				bool critical = line < 0;
+				int64_t damage = line & INT64_MAX;
 
 				auto singledamage = std::make_pair(damage, critical);
 				attack.damagelines[oid].push_back(singledamage);

@@ -17,7 +17,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "PetAI.h"
 
+#include "MapleMap/Drop.h"
 #include "MapleMap/MapDrops.h"
+#include "MapleMap/MesoDrop.h"
 
 #include "../Character/Player.h"
 #include "../Net/Packets/InventoryPackets.h"
@@ -28,6 +30,14 @@ namespace ms
 {
 	void PetAI::update(Player& player, MapDrops& drops)
 	{
+		for (auto it = asked.begin(); it != asked.end();)
+		{
+			if (--it->second <= 0)
+				it = asked.erase(it);
+			else
+				++it;
+		}
+
 		if (--loot_cd > 0)
 			return;
 
@@ -35,6 +45,17 @@ namespace ms
 
 		Point<int16_t> cpos = player.get_position();
 		MapObjects* dobjs = drops.get_drops();
+
+		// Pets fetch what their gear lets them: an Item Pouch for items, a
+		// Meso Magnet for mesos (the server refuses anything else).
+		const Inventory& inventory = player.get_inventory();
+		bool items = inventory.get_item_id(InventoryType::Id::EQUIPPED, EquipSlot::Pet::ITEM_POUCH) != 0
+			|| inventory.find_item(InventoryType::Id::EQUIPPED, 1812001) != 0;
+		bool mesos = inventory.get_item_id(InventoryType::Id::EQUIPPED, EquipSlot::Pet::MESO_MAGNET) != 0
+			|| inventory.find_item(InventoryType::Id::EQUIPPED, 1812000) != 0;
+
+		if (!items && !mesos)
+			return;
 
 		for (uint8_t pi = 0; pi < 3; pi++)
 		{
@@ -51,7 +72,16 @@ namespace ms
 			{
 				MapObject* mo = it->second.get();
 
-				if (!mo || !mo->is_active())
+				if (!mo || !mo->is_active() || asked.count(mo->get_oid()))
+					continue;
+
+				if (auto drop = dynamic_cast<Drop*>(mo))
+					if (drop->is_leaving() || !drop->is_landed())
+						continue;
+
+				bool is_meso = dynamic_cast<MesoDrop*>(mo) != nullptr;
+
+				if (is_meso ? !mesos : !items)
 					continue;
 
 				Point<int16_t> dpos = mo->get_position();
@@ -59,6 +89,7 @@ namespace ms
 				if (std::abs(dpos.x() - ppos.x()) <= 30 && std::abs(dpos.y() - ppos.y()) <= 25)
 				{
 					PetLootPacket(pet.get_uniqueid(), mo->get_oid()).dispatch();
+					asked[mo->get_oid()] = 150;
 					pet.clear_loot_target();
 					nearest = nullptr;
 					loot_cd = 60;

@@ -142,7 +142,7 @@ public class Shop {
             int cost = item.getPrice() * quantity;
             if (c.getPlayer().getMeso() + value >= cost) {
                 int cardreduce = value - cost;
-                int diff = cardreduce + c.getPlayer().getMeso();
+                long diff = cardreduce + c.getPlayer().getMeso();
                 if (InventoryManipulator.checkSpace(c, itemId, quantity, "")) {
                     if (ItemConstants.isPet(itemId)) {
                         int petid = Pet.createPet(itemId);

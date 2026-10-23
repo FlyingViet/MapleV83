@@ -162,9 +162,9 @@ namespace ms
 		void cancel_status(int32_t status_mask, int32_t first_mask);
 
 		// Calculate the damage to this mob with the specified attack
-		std::vector<std::pair<int32_t, bool>> calculate_damage(const Attack& attack);
+		std::vector<std::pair<int64_t, bool>> calculate_damage(const Attack& attack);
 		// Apply damage to the mob
-		void apply_damage(int32_t damage, bool toleft);
+		void apply_damage(int64_t damage, bool toleft);
 
 		// Create a touch damage attack to the player
 		MobAttack create_touch_attack() const;
@@ -207,7 +207,7 @@ namespace ms
 		// Calculate the maximum damage
 		double calculate_maxdamage(int16_t leveldelta, double maxdamage, bool magic) const;
 		// Calculate a random damage line based on the specified values
-		std::pair<int32_t, bool> next_damage(double mindamage, double maxdamage, float hitchance, float critical) const;
+		std::pair<int64_t, bool> next_damage(double mindamage, double maxdamage, float hitchance, float critical) const;
 
 		// Return the current 'head' position
 		Point<int16_t> get_head_position(Point<int16_t> position) const;

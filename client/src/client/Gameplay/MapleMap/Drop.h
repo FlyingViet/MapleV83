@@ -29,6 +29,10 @@ namespace ms
 		virtual int8_t update(const Physics& physics) override;
 
 		void expire(int8_t, const PhysicsObject*);
+		// Taken or going away: no longer there to pick up.
+		bool is_leaving() const;
+		// Landed and floating: the server takes pickups from then on.
+		bool is_landed() const;
 
 		Rectangle<int16_t> bounds() const;
 

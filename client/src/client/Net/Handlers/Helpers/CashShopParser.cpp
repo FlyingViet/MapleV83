@@ -67,7 +67,7 @@ namespace ms
 		{
 			recv.read_int(); // character id
 
-			return LoginParser::parse_stats(recv, true, nullptr, nullptr, nullptr);
+			return LoginParser::parse_stats(recv, nullptr, nullptr, nullptr);
 		}
 
 		bool hasSPTable(int16_t job)

@@ -20,10 +20,14 @@
 #include "../../IO/UI.h"
 
 #include "../../IO/UITypes/UINpcTalk.h"
+#include "../../IO/UITypes/UIStylePicker.h"
 #include "../../IO/UITypes/UIShop.h"
+#include "../../IO/MobileUI.h"
+#include "../../IO/UITypes/UIMobileStore.h"
 
 #include "../NpcResponseTracker.h"
 
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -42,6 +46,22 @@ namespace ms
 		int8_t speaker = recv.read_byte();
 
 		std::string text = recv.read_string();
+
+		// A salon's sendStyle: the styles to pick from follow as ids.
+		if (msgtype == 7)
+		{
+			std::vector<int32_t> styles;
+			uint8_t count = recv.length() > 0 ? static_cast<uint8_t>(recv.read_byte()) : 0;
+
+			for (uint8_t i = 0; i < count && recv.length() >= 4; i++)
+				styles.push_back(recv.read_int());
+
+			UI::get().remove(UIElement::Type::NPCTALK);
+			UI::get().emplace<UIStylePicker>(npcid, text, std::move(styles));
+			UI::get().enable();
+
+			return;
+		}
 
 		// `style` is unused by the new layout but kept on the
 		// change_text signature for interface stability.
@@ -76,12 +96,66 @@ namespace ms
 		}
 	}
 
+	namespace
+	{
+		// Same layout as below: unit price (top 16 bits of a double) and set
+		// size for stars and bullets.
+		void open_mobile_store(int32_t npcid, InPacket& recv)
+		{
+			int16_t size = recv.read_short();
+			std::vector<UIMobileStore::Entry> entries;
+			entries.reserve(size);
+
+			for (int16_t i = 0; i < size; i++)
+			{
+				UIMobileStore::Entry e{};
+				e.item_id = recv.read_int();
+				e.price = recv.read_int();
+				recv.skip(4); // pitch
+				recv.skip(4); // time
+				recv.skip(4);
+
+				e.rechargeable = recv.read_short() != 1;
+
+				if (!e.rechargeable)
+				{
+					recv.skip(2);
+				}
+				else
+				{
+					recv.skip(4);
+					uint64_t bits = static_cast<uint64_t>(static_cast<uint16_t>(recv.read_short())) << 48;
+					std::memcpy(&e.unit_price, &bits, sizeof(bits));
+					e.slot_max = recv.read_short();
+				}
+
+				entries.push_back(e);
+			}
+
+			auto store = UI::get().get_element<UIMobileStore>();
+
+			if (!store || !store->is_active())
+				UI::get().emplace<UIMobileStore>();
+
+			if (auto opened = UI::get().get_element<UIMobileStore>())
+				opened->set_stock(npcid, std::move(entries));
+		}
+	}
+
 	void OpenNpcShopHandler::handle(InPacket& recv) const
 	{
 		int32_t npcid = recv.read_int();
 
 		// Server responded (shop opened) — drop the stale-response timer.
 		NpcResponseTracker::get().clear_pending(npcid);
+
+		// The phone shows every shop, and its own store (@store, a shop
+		// without an NPC), in its shop panel.
+		if (MobileUI::enabled())
+		{
+			open_mobile_store(npcid, recv);
+			return;
+		}
 
 		auto oshop = UI::get().get_element<UIShop>();
 

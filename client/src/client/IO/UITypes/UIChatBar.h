@@ -28,6 +28,7 @@
 #include "../../Graphics/Texture.h"
 
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -124,6 +125,9 @@ namespace ms
 		bool is_chatopen();
 		bool is_chatfieldopen();
 
+		// Lines that arrived while the phone's chat window was closed.
+		uint16_t unread() const;
+
 		void set_chat_target(ChatTarget target);
 		void cycle_chat_target();
 
@@ -144,6 +148,8 @@ namespace ms
 
 	private:
 		void set_chat_open(bool open);
+		// Sends what the input line holds; false when it was empty.
+		bool submit_chatfield();
 		int32_t resolve_party_member_id(const std::string& token) const;
 		bool handle_party_command(const std::string& message);
 		void send_chat_message(const std::string& message);
@@ -225,6 +231,45 @@ namespace ms
 		int16_t rowmax;
 		Slider slider;
 		bool dragchattop;
+
+		// ---- The phone's chat window (UIChatBarMobile.cpp) ----
+		// v83's chat line lives on the status bar, which a phone does not
+		// show. There a touch button opens a see-through window on the left
+		// instead: the log, the chat target and an input line. `chatopen`
+		// says whether it is showing.
+		bool mobile = false;
+
+		struct MobileLine
+		{
+			Text text;
+			Color color;
+			int16_t height;
+		};
+
+		std::deque<MobileLine> mobile_lines;
+		// How far the log is scrolled up from its newest line, in pixels.
+		int16_t mobile_scroll = 0;
+		uint16_t mobile_unread = 0;
+		bool mobile_tracking = false;
+		bool mobile_dragging = false;
+		int32_t mobile_target = -1;
+		uint32_t mobile_press = 0;
+		Point<int16_t> mobile_start;
+		Point<int16_t> mobile_last;
+
+		static int16_t mobile_input_width();
+		Rectangle<int16_t> mobile_window() const;
+		Rectangle<int16_t> mobile_log() const;
+		Rectangle<int16_t> mobile_input() const;
+		Rectangle<int16_t> mobile_send() const;
+		Rectangle<int16_t> mobile_target_chip() const;
+		Rectangle<int16_t> mobile_close() const;
+		int16_t mobile_content() const;
+		void mobile_clamp_scroll();
+		int32_t mobile_hit(Point<int16_t> pos) const;
+		void mobile_add_line(const std::string& line, LineType type);
+		void mobile_draw(float inter) const;
+		Cursor::State mobile_cursor(bool clicking, Point<int16_t> pos);
 	};
 
 	// Convenience namespace for the very common

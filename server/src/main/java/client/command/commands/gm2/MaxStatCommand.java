@@ -36,19 +36,23 @@ public class MaxStatCommand extends Command {
 
     @Override
     public void execute(Client c, String[] params) {
+        // MapleV83: the server's real limits - level 300, and STR/DEX/INT/LUK and
+        // max HP/MP at the integer limit (fame is a 16-bit v83 field: 30000).
         Character player = c.getPlayer();
-        player.loseExp(player.getExp(), false, false);
-        player.setLevel(255);
+        player.setExp(0);
+        player.setLevel(Character.MAX_LEVEL);
         player.resetPlayerRates();
         if (YamlConfig.config.server.USE_ADD_RATES_BY_LEVEL) {
             player.setPlayerRates();
         }
         player.setWorldRates();
-        player.updateStrDexIntLuk(Short.MAX_VALUE);
-        player.setFame(13337);
-        player.updateMaxHpMaxMp(30000, 30000);
-        player.updateSingleStat(Stat.LEVEL, 255);
-        player.updateSingleStat(Stat.FAME, 13337);
-        player.yellowMessage("Stats maxed out.");
+        player.updateStrDexIntLuk(YamlConfig.config.server.MAX_AP);
+        player.setFame(30000);
+        player.updateMaxHpMaxMp(Integer.MAX_VALUE, Integer.MAX_VALUE);
+        player.healHpMp();
+        player.updateSingleStat(Stat.EXP, 0);
+        player.updateSingleStat(Stat.LEVEL, Character.MAX_LEVEL);
+        player.updateSingleStat(Stat.FAME, 30000);
+        player.yellowMessage("Stats maxed out: level " + Character.MAX_LEVEL + ", every stat and max HP/MP at 2,147,483,647.");
     }
 }

@@ -61,6 +61,48 @@ namespace ms
 		return false;
 	}
 
+	bool Job::meets_req_job(int16_t reqjob) const
+	{
+		if (reqjob == 0 || id == 900 || id == 910)
+			return true;
+
+		// Class branch: 0 beginner/Noblesse/Legend, Aran counts as warrior,
+		// Explorer and Cygnus use the hundreds digit (4xx / 14xx -> thief).
+		uint16_t branch;
+
+		if (id % 1000 == 0)
+			branch = 0;
+		else if (id >= 2000)
+			branch = 1;
+		else
+			branch = (id / 100) % 10;
+
+		if (reqjob < 0)
+			return branch == 0;
+
+		if (branch < 1 || branch > 5)
+			return false;
+
+		return (reqjob & (1 << (branch - 1))) != 0;
+	}
+
+	std::vector<uint8_t> Job::req_job_classes(int16_t reqjob)
+	{
+		if (reqjob == 0)
+			return { 0, 1, 2, 3, 4, 5 };
+
+		if (reqjob < 0)
+			return { 0 };
+
+		std::vector<uint8_t> classes;
+
+		for (uint8_t bit = 0; bit < 5; bit++)
+			if (reqjob & (1 << bit))
+				classes.push_back(bit + 1);
+
+		return classes;
+	}
+
 	bool Job::can_use(int32_t skill_id) const
 	{
 		uint16_t required = static_cast<uint16_t>(skill_id / 10000);

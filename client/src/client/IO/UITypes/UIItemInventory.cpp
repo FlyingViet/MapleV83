@@ -23,6 +23,7 @@
 #include "UIMapleTV.h"
 #include "UIMegaphone.h"
 
+#include "../ItemActions.h"
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
@@ -273,9 +274,8 @@ namespace ms
 
 		int16_t numslots = inventory.get_slotmax(tab);
 
-		for (int16_t i = 1; i <= MAXFULLSLOTS; i++)
-			if (i <= numslots)
-				update_slot(i);
+		for (int16_t i = 1; i <= numslots; i++)
+			update_slot(i);
 	}
 
 	int16_t UIItemInventory::used_rows() const
@@ -398,154 +398,7 @@ namespace ms
 		int16_t slot = slot_by_position(cursorpos - position);
 
 		if (icons.count(slot) && is_visible(slot))
-		{
-			if (int32_t item_id = inventory.get_item_id(tab, slot))
-			{
-				// Consumables with an ItemEff sprite play their effect once on
-				// use (the server only shows it to other players, so do it here
-				// for ourselves). Persistent auras come from equipped rings, not
-				// from consumables.
-				if (nl::nx::effect["ItemEff.img"][std::to_string(item_id)])
-					Stage::get().get_player().show_item_use_effect(item_id);
-
-				switch (tab)
-				{
-					case InventoryType::Id::EQUIP:
-					{
-						if (can_wear_equip(slot))
-							EquipItemPacket(slot, inventory.find_equipslot(item_id)).dispatch();
-
-						break;
-					}
-					case InventoryType::Id::USE:
-					{
-						if (item_id / 10000 == 212)
-							PetFoodPacket(slot, item_id).dispatch();
-						else
-							UseItemPacket(slot, item_id).dispatch();
-
-						break;
-					}
-					case InventoryType::Id::SETUP:
-					{
-						Stage::get().get_player().use_item(item_id);
-						break;
-					}
-					case InventoryType::Id::CASH:
-					{
-						if (item_id / 10000 == 503)
-						{
-							MiniRooms::get().set_pending_permit(item_id);
-							HiredMerchantRequestPacket().dispatch();
-							break;
-						}
-
-						if (item_id / 10000 == 514)
-						{
-							UI::get().emplace<UIEnterText>(
-								"Shop name:",
-								[item_id](const std::string& desc)
-								{
-									if (!desc.empty())
-										CreateShopPacket(desc, item_id, 4).dispatch();
-								},
-								30
-							);
-							break;
-						}
-
-						if (item_id / 10000 == 523)
-						{
-							UI::get().remove(UIElement::Type::OWL);
-							UI::get().emplace<UIOwl>(slot, item_id);
-							break;
-						}
-
-						if (item_id / 10000 == 500)
-						{
-							SpawnPetPacket(slot).dispatch();
-							break;
-						}
-
-						if (item_id / 10000 == 517)
-						{
-							UI::get().emplace<UIEnterText>(
-								"New pet name:",
-								[slot, item_id](const std::string& newname)
-								{
-									if (!newname.empty())
-										UsePetNameTagPacket(slot, item_id, newname).dispatch();
-								},
-								12
-							);
-							break;
-						}
-
-						// Avatar megaphones (539xxxx): Diablo / Cloud 9 /
-						// Lion King — open the AvatarMegaphone compose.
-						if (item_id / 10000 == 539)
-						{
-							UI::get().remove(UIElement::Type::AVATARMEGAPHONE);
-							UI::get().emplace<UIAvatarMegaphone>();
-							if (auto am = UI::get().get_element<UIAvatarMegaphone>())
-								am->configure_item(slot, item_id);
-							break;
-						}
-
-						// Cash megaphones/speakers: prompt for message text,
-						// then dispatch USE_CASH_ITEM with the appropriate
-						// sub-type payload. Non-megaphone cash items fall
-						// through to a generic USE_ITEM dispatch.
-						int32_t category = item_id / 10000;
-						if (category == 507)
-						{
-							int32_t subtype = (item_id / 1000) % 10;
-							int16_t use_slot = slot;
-							int32_t use_id = item_id;
-
-							// Maple TV (5075xxx) — dedicated UIMapleTV window.
-							if (subtype == 5)
-							{
-								UI::get().remove(UIElement::Type::MAPLETV);
-								UI::get().emplace<UIMapleTV>();
-								if (auto tv = UI::get().get_element<UIMapleTV>())
-									tv->configure_item(use_slot, use_id);
-								break;
-							}
-
-							// Regular / Super / Triple megaphone (5070/5071/
-							// 5072/5077) — all share the Megaphone compose
-							// window. Sub-type 7 reveals the 2 extra text rows;
-							// sub-type 2 swaps the bg to backgrnd_super.
-							if (subtype == 0 || subtype == 1 || subtype == 2 || subtype == 7)
-							{
-								UI::get().remove(UIElement::Type::MEGAPHONE);
-								UI::get().emplace<UIMegaphone>();
-								if (auto m = UI::get().get_element<UIMegaphone>())
-									m->configure_item(use_slot, use_id);
-								break;
-							}
-
-							// Item Megaphone (5076xxx) — opens the dedicated
-							// UIItemMegaphone window.
-							if (subtype == 6)
-							{
-								UI::get().remove(UIElement::Type::ITEMMEGAPHONE);
-								UI::get().emplace<UIItemMegaphone>();
-								if (auto im = UI::get().get_element<UIItemMegaphone>())
-									im->configure_item(use_slot, use_id);
-								break;
-							}
-						}
-						else
-						{
-							UseItemPacket(slot, item_id).dispatch();
-						}
-						break;
-					}
-				}
-			}
-		}
+			ItemActions::use(tab, slot);
 	}
 
 	bool UIItemInventory::send_icon(const Icon& icon, Point<int16_t> cursorpos)
@@ -844,96 +697,6 @@ namespace ms
 		return slot < range.first || slot > range.second;
 	}
 
-	bool UIItemInventory::can_wear_equip(int16_t slot) const
-	{
-		const Player& player = Stage::get().get_player();
-		const CharStats& stats = player.get_stats();
-		const CharLook& look = player.get_look();
-		const bool alerted = look.get_alerted();
-
-		if (alerted)
-		{
-			UI::get().emplace<UIOk>("You cannot complete this action right now.\\nEvade the attack and try again.", [](bool) {});
-			return false;
-		}
-
-		const int32_t item_id = inventory.get_item_id(InventoryType::Id::EQUIP, slot);
-		const EquipData& equipdata = EquipData::get(item_id);
-		const ItemData& itemdata = equipdata.get_itemdata();
-
-		const int8_t reqGender = itemdata.get_gender();
-		const bool female = stats.get_female();
-
-		switch (reqGender)
-		{
-			// Male
-			case 0:
-			{
-				if (female)
-					return false;
-
-				break;
-			}
-			// Female
-			case 1:
-			{
-				if (!female)
-					return false;
-
-				break;
-			}
-			// Unisex
-			case 2:
-			default:
-			{
-				break;
-			}
-		}
-
-		const std::string jobname = stats.get_jobname();
-
-		if (jobname == "GM" || jobname == "SuperGM")
-			return true;
-
-		int16_t reqJOB = equipdata.get_reqstat(MapleStat::Id::JOB);
-
-		if (!stats.get_job().is_sub_job(reqJOB))
-		{
-			UI::get().emplace<UIOk>("Your current job\\ncannot equip the selected item.", [](bool) {});
-			return false;
-		}
-
-		int16_t reqLevel = equipdata.get_reqstat(MapleStat::Id::LEVEL);
-		int16_t reqDEX = equipdata.get_reqstat(MapleStat::Id::DEX);
-		int16_t reqSTR = equipdata.get_reqstat(MapleStat::Id::STR);
-		int16_t reqLUK = equipdata.get_reqstat(MapleStat::Id::LUK);
-		int16_t reqINT = equipdata.get_reqstat(MapleStat::Id::INT);
-		int16_t reqFAME = equipdata.get_reqstat(MapleStat::Id::FAME);
-
-		int8_t i = 0;
-
-		if (reqLevel > stats.get_stat(MapleStat::Id::LEVEL))
-			i++;
-		else if (reqDEX > stats.get_total(EquipStat::Id::DEX))
-			i++;
-		else if (reqSTR > stats.get_total(EquipStat::Id::STR))
-			i++;
-		else if (reqLUK > stats.get_total(EquipStat::Id::LUK))
-			i++;
-		else if (reqINT > stats.get_total(EquipStat::Id::INT))
-			i++;
-		else if (reqFAME > stats.get_honor())
-			i++;
-
-		if (i > 0)
-		{
-			UI::get().emplace<UIOk>("Your stats are too low to equip this item\\nor you do not meet the job requirement.", [](bool) {});
-			return false;
-		}
-
-		return true;
-	}
-
 	int16_t UIItemInventory::slot_by_position(Point<int16_t> cursorpos) const
 	{
 		int16_t xoff = cursorpos.x() - (full_enabled ? FULL_SLOT_X : SLOT_X);
@@ -1079,57 +842,7 @@ namespace ms
 
 	void UIItemInventory::ItemIcon::drop_on_stage() const
 	{
-		constexpr char* dropmessage = "How many will you drop?";
-		constexpr char* untradablemessage = "This item can't be taken back once thrown away.\\nWill you still drop it?";
-		constexpr char* cashmessage = "You can't drop this item.";
-
-		if (cashitem)
-		{
-			UI::get().emplace<UIOk>(cashmessage, [](bool) {});
-		}
-		else
-		{
-			if (untradable)
-			{
-				auto onok = [&, dropmessage](bool ok)
-				{
-					if (ok)
-					{
-						if (count <= 1)
-						{
-							MoveItemPacket(sourcetab, source, 0, 1).dispatch();
-						}
-						else
-						{
-							auto onenter = [&](int32_t qty)
-							{
-								MoveItemPacket(sourcetab, source, 0, qty).dispatch();
-							};
-
-							UI::get().emplace<UIEnterNumber>(dropmessage, onenter, count, count);
-						}
-					}
-				};
-
-				UI::get().emplace<UIYesNo>(untradablemessage, onok);
-			}
-			else
-			{
-				if (count <= 1)
-				{
-					MoveItemPacket(sourcetab, source, 0, 1).dispatch();
-				}
-				else
-				{
-					auto onenter = [&](int32_t qty)
-					{
-						MoveItemPacket(sourcetab, source, 0, qty).dispatch();
-					};
-
-					UI::get().emplace<UIEnterNumber>(dropmessage, onenter, count, count);
-				}
-			}
-		}
+		ItemActions::drop(sourcetab, source, item_id, count, untradable, cashitem);
 	}
 
 	void UIItemInventory::ItemIcon::drop_on_equips(EquipSlot::Id eqslot) const
@@ -1139,7 +852,7 @@ namespace ms
 			case InventoryType::Id::EQUIP:
 			{
 				if (eqsource == eqslot)
-					if (parent.can_wear_equip(source))
+					if (ItemActions::can_wear(source))
 						EquipItemPacket(source, eqslot).dispatch();
 
 				Sound(Sound::Name::DRAGEND).play();

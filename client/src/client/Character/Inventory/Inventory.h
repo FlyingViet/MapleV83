@@ -72,7 +72,7 @@ namespace ms
 		// Add a pet item
 		void add_pet(InventoryType::Id type, int16_t slot, int32_t itemid, bool cash, int64_t expire, const std::string& name, int8_t level, int16_t closeness, int8_t fullness);
 		// Add an equip item
-		void add_equip(InventoryType::Id type, int16_t slot, int32_t itemid, bool cash, int64_t expire, uint8_t slots, uint8_t level, const EnumMap<EquipStat::Id, uint16_t>& stats, const std::string& owner, int16_t flag, uint8_t itemlevel, uint16_t itemexp, int32_t vicious);
+		void add_equip(InventoryType::Id type, int16_t slot, int32_t itemid, bool cash, int64_t expire, uint8_t slots, uint8_t level, const EnumMap<EquipStat::Id, int32_t>& stats, const std::string& owner, int16_t flag, uint8_t itemlevel, uint16_t itemexp, int32_t vicious);
 
 		// Check if the use inventory contains at least one projectile
 		bool has_projectile() const;
@@ -87,7 +87,7 @@ namespace ms
 		// Return the number of slots for the specified inventory
 		uint8_t get_slotmax(InventoryType::Id type) const;
 		// Return a total stat
-		uint16_t get_stat(EquipStat::Id type) const;
+		int32_t get_stat(EquipStat::Id type) const;
 		// Return the amount of meso
 		int64_t get_meso() const;
 		// Find a free slot for the specified equip
@@ -133,7 +133,7 @@ namespace ms
 		std::unordered_map<int32_t, Pet> pets;
 		int32_t running_uid;
 
-		EnumMap<EquipStat::Id, uint16_t> totalstats;
+		EnumMap<EquipStat::Id, int32_t> totalstats;
 		EnumMap<InventoryType::Id, uint8_t> slotmaxima;
 		int64_t meso;
 		int16_t bulletslot;

@@ -17,6 +17,15 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SocketAsio.h"
 
+#include <algorithm>
+#include <cerrno>
+#include <cstdlib>
+#include <vector>
+
+#ifndef _WIN32
+#include <sys/socket.h>
+#endif
+
 #if defined(USE_ASIO) && !defined(MS_PLATFORM_WASM)
 namespace ms
 {
@@ -33,17 +42,74 @@ namespace ms
 
 	bool SocketAsio::open(const char* address, const char* port)
 	{
-		auto endpoints = resolver.resolve(address, port);
+		// A numeric address is used as is. Looking it up instead lets iOS on an
+		// IPv6-only network (T-Mobile) turn it into a NAT64 address, which sends
+		// a Tailscale/LAN address out over cellular where nothing answers.
 		error_code error;
-		asio::connect(socket, endpoints, error);
+		std::vector<tcp::endpoint> endpoints;
+		asio::ip::address literal = asio::ip::make_address(address, error);
 
 		if (!error)
 		{
-			size_t result = socket.read_some(asio::buffer(buffer), error);
-			return !error && (result == HANDSHAKE_LEN);
+			endpoints.emplace_back(literal, static_cast<unsigned short>(std::atoi(port)));
+		}
+		else
+		{
+			auto results = resolver.resolve(address, port, error);
+
+			if (error)
+				return false;
+
+			for (const auto& entry : results)
+				endpoints.push_back(entry.endpoint());
+
+			// IPv4 first: the Mac is only reachable that way.
+			std::stable_partition(endpoints.begin(), endpoints.end(),
+				[](const tcp::endpoint& e) { return e.address().is_v4(); });
 		}
 
-		return !error;
+		if (endpoints.empty())
+			return false;
+
+		// Connect and read the server's greeting within a deadline, so a
+		// route that accepts but stalls fails instead of hanging the game.
+		bool done = false;
+		error_code result = asio::error::timed_out;
+		size_t received = 0;
+
+		asio::async_connect(socket, endpoints,
+			[&](const error_code& ec, const tcp::endpoint&)
+			{
+				if (ec)
+				{
+					result = ec;
+					done = true;
+					return;
+				}
+
+				socket.async_read_some(asio::buffer(buffer),
+					[&](const error_code& rec, size_t n)
+					{
+						result = rec;
+						received = n;
+						done = true;
+					});
+			});
+
+		iocontext.restart();
+		iocontext.run_for(std::chrono::seconds(CONNECT_TIMEOUT_S));
+
+		if (!done)
+		{
+			// Cancel what is still pending and let its handlers finish.
+			socket.close(error);
+			iocontext.restart();
+			iocontext.run();
+
+			return false;
+		}
+
+		return !result && received == HANDSHAKE_LEN;
 	}
 
 	bool SocketAsio::close()
@@ -57,14 +123,33 @@ namespace ms
 
 	size_t SocketAsio::receive(bool* recvok)
 	{
-		if (socket.available() > 0)
+		error_code error;
+		size_t waiting = socket.available(error);
+
+		if (error)
 		{
-			error_code error;
+			*recvok = false;
+			return 0;
+		}
+
+		if (waiting > 0)
+		{
 			size_t result = socket.read_some(asio::buffer(buffer), error);
 			*recvok = !error;
 
 			return result;
 		}
+
+#ifndef _WIN32
+		// A connection the server closed (or that iOS reclaimed while the app
+		// was in the background) never has bytes waiting: only a read sees
+		// the end. Peek without blocking to notice it.
+		char probe;
+		ssize_t peeked = ::recv(socket.native_handle(), &probe, 1, MSG_PEEK | MSG_DONTWAIT);
+
+		if (peeked == 0 || (peeked < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+			*recvok = false;
+#endif
 
 		return 0;
 	}

@@ -19,6 +19,8 @@
 
 #ifdef USE_NX
 #include <fstream>
+#include <string>
+#include <unistd.h>
 
 #include <nlnx/node.hpp>
 #include <nlnx/nx.hpp>
@@ -30,7 +32,7 @@
 #include <string>
 #endif
 
-#ifdef PLATFORM_IOS
+#ifdef OPENSTORY_GLKIT_IOS
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -71,9 +73,22 @@ namespace ms
 {
 	namespace NxFiles
 	{
+		namespace
+		{
+			std::function<std::string(const std::string&)> path_of;
+		}
+
+		void set_resolver(std::function<std::string(const std::string&)> resolver)
+		{
+			path_of = resolver;
+#ifndef MS_PLATFORM_WASM
+			nl::nx::set_path_resolver(std::move(resolver));
+#endif
+		}
+
 		Error init()
 		{
-#ifdef PLATFORM_IOS
+#ifdef OPENSTORY_GLKIT_IOS
 			std::string nx_dir = get_ios_nx_directory();
 
 			if (nx_dir.empty())
@@ -102,8 +117,12 @@ namespace ms
 			}
 #else
 			for (auto filename : filenames)
-				if (std::ifstream{ filename }.good() == false)
+			{
+				std::string path = path_of ? path_of(filename) : filename;
+
+				if (path.empty() || std::ifstream{ path }.good() == false)
 					return Error(Error::Code::MISSING_FILE, filename);
+			}
 #endif
 
 			try

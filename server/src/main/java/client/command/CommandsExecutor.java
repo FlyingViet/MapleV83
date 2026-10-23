@@ -24,8 +24,16 @@
 package client.command;
 
 import client.Client;
+import client.command.commands.gm0.AfkCommand;
+import client.command.commands.gm0.MapleAdminCommand;
+import client.command.commands.gm0.Mv83WarpCommand;
 import client.command.commands.gm0.ChangeLanguageCommand;
 import client.command.commands.gm0.DisposeCommand;
+import client.command.commands.gm0.ResetApCommand;
+import client.command.commands.gm0.ResetSpCommand;
+import client.command.commands.gm0.Mv83InfoCommand;
+import client.command.commands.gm0.StoreCommand;
+import client.command.commands.gm2.SetRatesCommand;
 import client.command.commands.gm0.DropLimitCommand;
 import client.command.commands.gm0.EnableAuthCommand;
 import client.command.commands.gm0.EquipLvCommand;
@@ -367,6 +375,14 @@ public class CommandsExecutor {
         addCommand("mylawn", MapOwnerClaimCommand.class);
         addCommand("bosshp", BossHpCommand.class);
         addCommand("mobhp", MobHpCommand.class);
+        addCommand("resetap", ResetApCommand.class);
+        addCommand("resetsp", ResetSpCommand.class);
+        addCommand("mv83info", Mv83InfoCommand.class);
+        addCommand("store", StoreCommand.class);
+        addCommand("mv83afk", AfkCommand.class);
+        addCommand("mv83warp", Mv83WarpCommand.class);
+        addCommand("mapleadmin", MapleAdminCommand.class);
+        addCommand("setrates", 2, SetRatesCommand.class);
 
         commandsNameDesc.add(levelCommandsCursor);
     }

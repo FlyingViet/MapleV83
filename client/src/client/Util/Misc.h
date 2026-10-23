@@ -79,6 +79,12 @@ namespace ms
 				std::string full_name;
 			};
 
+			// Returns the String.nx Map.img/<region>/<id> node, scanning every region if the category guess misses
+			nl::node get_map_string_node(int32_t mapid);
+
+			// Returns the map's display name, or "Map <id>" when String.nx has none
+			std::string get_map_name(int32_t mapid);
+
 			// Returns all relative map info
 			MapInfo get_map_info_by_id(int32_t mapid);
 

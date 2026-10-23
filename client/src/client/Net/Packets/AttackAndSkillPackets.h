@@ -71,10 +71,7 @@ namespace ms
 				skip(14);
 
 				for (auto& singledamage : damagetomob.second)
-				{
-					write_int(singledamage.first);
-					// Critical hit flag placeholder
-				}
+					write_long(singledamage.first); // MapleV83: 64-bit lines (protocol 6)
 
 				if (attack.skill != 5221004)
 					skip(4);
@@ -119,6 +116,15 @@ namespace ms
 
 		// From mob attack result
 		TakeDamagePacket(const MobAttackResult& result, From from) : TakeDamagePacket(from, 0, result.damage, result.mobid, result.oid, result.direction) {}
+	};
+
+	// One monster hit by an Aran: the server counts the combo and answers
+	// with SHOW_COMBO.
+	// Opcode: ARAN_COMBO_COUNTER(163)
+	class AranComboPacket : public OutPacket
+	{
+	public:
+		AranComboPacket() : OutPacket(OutPacket::Opcode::ARAN_COMBO_COUNTER) {}
 	};
 
 	// Packet which notifies the server of a skill usage

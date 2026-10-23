@@ -17,6 +17,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UIEquipInventory.h"
 
+#include "../ItemActions.h"
 #include "../UI.h"
 
 #include "../Components/MapleButton.h"
@@ -264,8 +265,7 @@ namespace ms
 		EquipSlot::Id slot = slot_by_position(cursorpos);
 
 		if (icons[slot])
-			if (int16_t freeslot = inventory.find_free_slot(InventoryType::Id::EQUIP))
-				UnequipItemPacket(slot, freeslot).dispatch();
+			ItemActions::unequip(slot);
 	}
 
 	bool UIEquipInventory::is_in_range(Point<int16_t> cursorpos) const

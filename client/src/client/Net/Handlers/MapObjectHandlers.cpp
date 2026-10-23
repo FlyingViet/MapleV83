@@ -43,7 +43,7 @@ namespace ms
 		if (Stage::get().is_player(cid))
 			return;
 
-		uint8_t level = recv.read_byte();
+		uint16_t level = static_cast<uint16_t>(recv.read_short());	// MapleV83: short (levels to 300)
 		std::string name = recv.read_string();
 
 		recv.read_string();	// guildname
@@ -543,7 +543,7 @@ namespace ms
 		int8_t mode = recv.read_byte();
 		int32_t oid = recv.read_int();
 
-		Optional<PhysicsObject> looter;
+		Optional<const PhysicsObject> looter;
 
 		if (mode > 1)
 		{
@@ -551,10 +551,21 @@ namespace ms
 
 			auto character = Stage::get().get_character(cid);
 
+			// Mode 5: the character's pet (by slot) picked it up and the drop
+			// flies to the pet.
 			if (recv.length() > 0)
-				recv.read_byte(); // pet
+			{
+				uint8_t pet = static_cast<uint8_t>(recv.read_byte());
+
+				if (character && pet < 3 && character->get_pet(pet).get_itemid() != 0)
+					looter = &character->get_pet(pet).get_phobj();
+				else if (character)
+					looter = character->get_phobj();
+			}
 			else if (character)
+			{
 				looter = character->get_phobj();
+			}
 
 			// Attenuate the pickup sound by the looting player's distance.
 			if (character)
@@ -892,7 +903,7 @@ namespace ms
 	{
 		int32_t oid = recv.read_int();
 		recv.read_byte(); // 0
-		int32_t damage = recv.read_int();
+		int64_t damage = recv.read_long(); // MapleV83: 64-bit (protocol 6)
 
 		// Cosmic routes attacker-less mob damage here (DoT, mist, Body
 		// Pressure, etc.). Show the number instead of dropping it; the

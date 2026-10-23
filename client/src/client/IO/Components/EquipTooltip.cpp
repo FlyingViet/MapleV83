@@ -155,43 +155,9 @@ namespace ms
 						reqstatstrings_preview[ms] = reqstr;
 					}
 
-					okjobs_preview.clear();
-
-					switch (equipdata.get_reqstat(MapleStat::Id::JOB))
-					{
-					case 0:
-						okjobs_preview.push_back(0);
-						okjobs_preview.push_back(1);
-						okjobs_preview.push_back(2);
-						okjobs_preview.push_back(3);
-						okjobs_preview.push_back(4);
-						okjobs_preview.push_back(5);
-						canequip_preview[MapleStat::Id::JOB] = true;
-						break;
-					case 1:
-						okjobs_preview.push_back(1);
-						canequip_preview[MapleStat::Id::JOB] = (stats.get_stat(MapleStat::Id::JOB) / 100 == 1) || (stats.get_stat(MapleStat::Id::JOB) / 100 >= 20);
-						break;
-					case 2:
-						okjobs_preview.push_back(2);
-						canequip_preview[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 2;
-						break;
-					case 4:
-						okjobs_preview.push_back(3);
-						canequip_preview[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 3;
-						break;
-					case 8:
-						okjobs_preview.push_back(4);
-						canequip_preview[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 4;
-						break;
-					case 16:
-						okjobs_preview.push_back(5);
-						canequip_preview[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 5;
-						break;
-					default:
-						canequip_preview[MapleStat::Id::JOB] = false;
-						break;
-					}
+					int16_t reqjob = equipdata.get_reqstat(MapleStat::Id::JOB);
+					okjobs_preview = Job::req_job_classes(reqjob);
+					canequip_preview[MapleStat::Id::JOB] = stats.get_job().meets_req_job(reqjob);
 
 					prank_preview = equip.get_potrank();
 
@@ -319,7 +285,7 @@ namespace ms
 					{
 						if (equip.get_stat(es) > 0)
 						{
-							int16_t delta = equip.get_stat(es) - equipdata.get_defstat(es);
+							int32_t delta = equip.get_stat(es) - equipdata.get_defstat(es);
 							std::string statstr = std::to_string(equip.get_stat(es));
 
 							if (delta != 0)
@@ -367,43 +333,9 @@ namespace ms
 			reqstatstrings[ms] = reqstr;
 		}
 
-		okjobs.clear();
-
-		switch (equipdata.get_reqstat(MapleStat::Id::JOB))
-		{
-		case 0:
-			okjobs.push_back(0);
-			okjobs.push_back(1);
-			okjobs.push_back(2);
-			okjobs.push_back(3);
-			okjobs.push_back(4);
-			okjobs.push_back(5);
-			canequip[MapleStat::Id::JOB] = true;
-			break;
-		case 1:
-			okjobs.push_back(1);
-			canequip[MapleStat::Id::JOB] = (stats.get_stat(MapleStat::Id::JOB) / 100 == 1) || (stats.get_stat(MapleStat::Id::JOB) / 100 >= 20);
-			break;
-		case 2:
-			okjobs.push_back(2);
-			canequip[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 2;
-			break;
-		case 4:
-			okjobs.push_back(3);
-			canequip[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 3;
-			break;
-		case 8:
-			okjobs.push_back(4);
-			canequip[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 4;
-			break;
-		case 16:
-			okjobs.push_back(5);
-			canequip[MapleStat::Id::JOB] = stats.get_stat(MapleStat::Id::JOB) / 100 == 5;
-			break;
-		default:
-			canequip[MapleStat::Id::JOB] = false;
-			break;
-		}
+		int16_t reqjob = equipdata.get_reqstat(MapleStat::Id::JOB);
+		okjobs = Job::req_job_classes(reqjob);
+		canequip[MapleStat::Id::JOB] = stats.get_job().meets_req_job(reqjob);
 
 		prank = equip.get_potrank();
 
@@ -531,7 +463,7 @@ namespace ms
 		{
 			if (equip.get_stat(es) > 0)
 			{
-				int16_t delta = equip.get_stat(es) - equipdata.get_defstat(es);
+				int32_t delta = equip.get_stat(es) - equipdata.get_defstat(es);
 				std::string statstr = std::to_string(equip.get_stat(es));
 
 				if (delta != 0)

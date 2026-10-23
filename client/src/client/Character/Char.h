@@ -84,6 +84,8 @@ namespace ms
 		virtual bool is_hidden() const;
 		// Set hidden state (GM dark sight transparency)
 		void set_hidden(bool hidden);
+		// Shadow Partner: a dark copy of the character follows behind.
+		void set_shadow_partner(bool active);
 		// Return the character's level
 		virtual uint16_t get_level() const = 0;
 		// Return the a skill's level from the character
@@ -250,6 +252,7 @@ namespace ms
 		TimedBool invincible;
 		TimedBool ironbody;
 		bool hidden = false;
+		bool shadow_partner = false;
 		std::list<DamageNumber> damagenumbers;
 
 		CharAuras auras;

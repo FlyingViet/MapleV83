@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "SkillData.h"
 
+#include <stdexcept>
+
 #include "../Character/SkillId.h"
 #include "../Util/Misc.h"
 
@@ -86,7 +88,16 @@ namespace ms
 
 		masterlevel = static_cast<int32_t>(stats.size());
 		passive = (id % 10000) / 1000 == 0;
+
+		// Aran's attacks keep a passive-looking ID (Double Swing 21000002, Combo
+		// Smash 21100004...): they fire from arrow-key commands, not hotkeys.
+		if (passive && id / 1000000 == 21 && src["action"].size() > 0)
+			passive = false;
+
 		flags = flags_of(id);
+
+		if (!passive && looks_like_attack(src))
+			flags |= ATTACK;
 		invisible = src["invisible"].get_bool();
 
 		/// Load required skills
@@ -99,6 +110,58 @@ namespace ms
 
 			reqskills.emplace(skillid, reqlv);
 		}
+	}
+
+	bool SkillData::looks_like_attack(nl::node src)
+	{
+		// The hand list below only covers warriors and mages. Every other
+		// attack (Lucky Seven, Double Stab, Arrow Blow, Flash Fist ...) is
+		// recognised from its data: it deals damage or throws something.
+		// Without this they were cast as buffs: glow, no swing, no star.
+		nl::node level = src["level"]["1"];
+
+		// Some values are stored as text; anything unreadable counts as 0.
+		auto number = [&](const char* key) -> int64_t
+		{
+			try
+			{
+				return level[key].get_integer(0);
+			}
+			catch (const std::exception&)
+			{
+				return 0;
+			}
+		};
+
+		auto positive = [&](const char* key) { return number(key) > 0; };
+
+		bool deals_damage = positive("damage") || positive("mad") || positive("fixdamage")
+			|| positive("bulletCount") || positive("attackCount");
+		bool hit = src["hit"].size() > 0;
+		bool projectile = hit && src["ball"].size() > 0;
+		int64_t time = number("time");
+
+		if (!deals_damage && !projectile)
+			return false;
+
+		// Summons and party buffs.
+		if (src["summon"].size() > 0 || src["affected"].size() > 0)
+			return false;
+
+		// Lasting buffs that carry damage figures (elemental charges, Combo).
+		if (time >= 10 && !hit)
+			return false;
+
+		// Status effects on mobs (Crash skills, Ninja Ambush); Poison Mist's
+		// cloud (tile) does attack.
+		if (src["mob"].size() > 0 && !hit && src["tile"].size() == 0)
+			return false;
+
+		// Lasting debuffs that fly at a mob (Taunt, Hypnotize).
+		if (projectile && !deals_damage && time >= 10)
+			return false;
+
+		return true;
 	}
 
 	int32_t SkillData::flags_of(int32_t id) const

@@ -1839,9 +1839,19 @@ public class Monster extends AbstractLoadedLife {
         Character newControllerDead = null;
 
         Character newControllerWithPuppet = null;
+        Character newControllerHidden = null;
 
         for (Character chr : getMap().getAllPlayers()) {
-            if (!chr.isHidden()) {
+            // MapleV83: a hidden GM, or a phone in the background (AFK), runs
+            // the mobs only when nobody else is here; otherwise they stand
+            // frozen until hit.
+            boolean away = chr.isHidden() || (chr.getClient() != null && chr.getClient().isAfk());
+
+            if (away && newControllerHidden == null && chr.isAlive()) {
+                newControllerHidden = chr;
+            }
+
+            if (!away) {
                 int ctrlMonsSize = chr.getNumControlledMonsters();
 
                 if (isCharacterPuppetInVicinity(chr)) {
@@ -1865,8 +1875,10 @@ public class Monster extends AbstractLoadedLife {
             return newControllerWithPuppet;
         } else if (newController != null) {
             return newController;
-        } else {
+        } else if (newControllerDead != null) {
             return newControllerDead;
+        } else {
+            return newControllerHidden;
         }
     }
 

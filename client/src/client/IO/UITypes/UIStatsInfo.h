@@ -97,7 +97,8 @@ namespace ms
 			BT_INT,
 			BT_LUK,
 			BT_AUTO,
-			BT_DETAIL
+			BT_DETAIL,
+			BT_RESET
 		};
 
 		const CharStats& stats;

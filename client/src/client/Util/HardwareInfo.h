@@ -17,6 +17,15 @@
 //////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <cstring>
+#include <string>
+
 #include "../Configuration.h"
 #ifdef MS_PLATFORM_WASM
 #include <emscripten.h>
@@ -63,6 +72,51 @@ namespace ms
 			std::string macs;
 			for (size_t i = 0; i < mac.size(); i += 2)
 				macs += (i ? "-" : "") + mac.substr(i, 2);
+			Configuration::get().set_macs(&macs[0]);
+			Configuration::get().set_hwid(&mac[0], &serial[0]);
+		}
+#elif defined(__APPLE__)
+		// iOS hides real MACs and has no host UUID, and the Mac app should not
+		// send real ones either. Like the browser build, use a random
+		// "<12 hex mac><8 hex serial>" id kept in device.id beside Settings
+		// (Cosmic rejects an empty host string at character select).
+		HardwareInfo()
+		{
+			static const char hex[] = "0123456789ABCDEF";
+			char id[21] = {};
+			bool valid = false;
+
+			if (FILE* file = std::fopen("device.id", "rb"))
+			{
+				valid = std::fread(id, 1, 20, file) == 20;
+				std::fclose(file);
+
+				for (int i = 0; valid && i < 20; i++)
+					valid = std::strchr(hex, id[i]) != nullptr && id[i] != '\0';
+			}
+
+			if (!valid)
+			{
+				uint8_t bytes[20];
+				arc4random_buf(bytes, sizeof(bytes));
+
+				for (int i = 0; i < 20; i++)
+					id[i] = hex[bytes[i] & 0xF];
+
+				if (FILE* file = std::fopen("device.id", "wb"))
+				{
+					std::fwrite(id, 1, 20, file);
+					std::fclose(file);
+				}
+			}
+
+			std::string mac(id, 12);
+			std::string serial(id + 12, 8);
+			std::string macs;
+
+			for (size_t i = 0; i < mac.size(); i += 2)
+				macs += (i ? "-" : "") + mac.substr(i, 2);
+
 			Configuration::get().set_macs(&macs[0]);
 			Configuration::get().set_hwid(&mac[0], &serial[0]);
 		}

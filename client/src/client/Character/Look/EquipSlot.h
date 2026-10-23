@@ -61,6 +61,41 @@ namespace ms
 
 		Id by_id(size_t id);
 
+		// Cash (cosmetic) items are worn at their slot + CASH_OFFSET and drawn
+		// over the regular gear in that slot.
+		constexpr int16_t CASH_OFFSET = 100;
+
+		constexpr int16_t base_of(int16_t slot)
+		{
+			return slot > CASH_OFFSET ? static_cast<int16_t>(slot - CASH_OFFSET) : slot;
+		}
+
 		constexpr Enumeration<Id> values;
+
+		// Pet gear (all cash) sits in v83's pet slots: the pet's own
+		// accessory at 114, its ability items (Item Pouch, Meso Magnet ...)
+		// at 121-130.
+		namespace Pet
+		{
+			constexpr int16_t WEAR = 114;
+			constexpr int16_t LABEL = 121;
+			constexpr int16_t ITEM_POUCH = 122;
+			constexpr int16_t MESO_MAGNET = 123;
+			constexpr int16_t AUTO_HP = 124;
+			constexpr int16_t AUTO_MP = 125;
+			constexpr int16_t WING_BOOTS = 126;
+			constexpr int16_t BINOCULAR = 127;
+			constexpr int16_t MAGIC_SCALES = 128;
+			constexpr int16_t ITEM_IGNORE = 129;
+			constexpr int16_t QUOTE = 130;
+		}
+
+		constexpr bool is_pet(int16_t slot)
+		{
+			return slot == Pet::WEAR || (slot >= Pet::LABEL && slot <= Pet::QUOTE);
+		}
+
+		// Where a piece of pet gear is worn; 0 for anything else.
+		int16_t pet_slot(int32_t item_id);
 	};
 }

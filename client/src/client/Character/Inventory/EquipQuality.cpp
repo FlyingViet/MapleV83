@@ -21,7 +21,7 @@
 
 namespace ms
 {
-	EquipQuality::Id EquipQuality::check_quality(int32_t item_id, bool scrolled, const EnumMap<EquipStat::Id, uint16_t>& stats)
+	EquipQuality::Id EquipQuality::check_quality(int32_t item_id, bool scrolled, const EnumMap<EquipStat::Id, int32_t>& stats)
 	{
 		const EquipData& data = EquipData::get(item_id);
 

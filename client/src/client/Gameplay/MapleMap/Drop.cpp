@@ -115,14 +115,28 @@ namespace ms
 		case 1:
 			deactivate();
 			break;
-		case 2:
+		case 2:	// a player picked it up
+		case 5:	// a pet picked it up
 			angle.set(0.0f);
 			state = Drop::State::PICKEDUP;
 			looter = lt;
 			phobj.vspeed = -4.5f;
 			phobj.type = PhysicsObject::Type::NORMAL;
 			break;
+		default:	// 4: an exploded meso; anything else just goes
+			state = Drop::State::PICKEDUP;
+			break;
 		}
+	}
+
+	bool Drop::is_landed() const
+	{
+		return state == Drop::State::FLOATING;
+	}
+
+	bool Drop::is_leaving() const
+	{
+		return state == Drop::State::PICKEDUP || !is_active();
 	}
 
 	Rectangle<int16_t> Drop::bounds() const

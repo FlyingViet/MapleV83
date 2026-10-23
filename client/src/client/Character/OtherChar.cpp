@@ -27,7 +27,7 @@
 
 namespace ms
 {
-	OtherChar::OtherChar(int32_t id, const CharLook& lk, uint8_t lvl, int16_t jb, const std::string& nm, int8_t st, Point<int16_t> pos) : Char(id, lk, nm)
+	OtherChar::OtherChar(int32_t id, const CharLook& lk, uint16_t lvl, int16_t jb, const std::string& nm, int8_t st, Point<int16_t> pos) : Char(id, lk, nm)
 	{
 		level = lvl;
 		job = jb;

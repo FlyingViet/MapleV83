@@ -26,7 +26,9 @@
 
 #include <vector>
 
-#if defined(PLATFORM_IOS)
+#if defined(PLATFORM_SDL)
+#include "../../platform/shared/GLCompat.h"
+#elif defined(PLATFORM_IOS)
 #include <OpenGLES/ES3/gl.h>
 #include <OpenGLES/ES3/glext.h>
 #elif defined(__EMSCRIPTEN__)
@@ -89,6 +91,10 @@ namespace ms
 
 		// Draw a rectangle filled with the specified color
 		void drawrectangle(int16_t x, int16_t y, int16_t width, int16_t height, float red, float green, float blue, float alpha);
+		// Draw a rectangle with rounded corners (antialiased at any scale)
+		void drawroundrect(int16_t x, int16_t y, int16_t width, int16_t height, int16_t radius, float red, float green, float blue, float alpha);
+		// Draw a rectangle turned by angle (radians) about its centre
+		void drawrotatedrect(int16_t cx, int16_t cy, int16_t width, int16_t height, float angle, float red, float green, float blue, float alpha);
 		// Fill the screen with the specified color
 		void drawscreenfill(float red, float green, float blue, float alpha);
 
@@ -101,6 +107,24 @@ namespace ms
 		void flush(float opacity);
 		// Clear the buffer contents
 		void clearscene();
+
+		// A second pass over what is already on screen - the iPhone's touch
+		// controls - in a coordinate space of its own, without clearing and
+		// without disturbing the scene's queued quads or the fade lock. The
+		// caller sets the viewport.
+		void begin_overlay(int16_t width, int16_t height);
+		void end_overlay();
+
+		// Everything drawn between these is scaled by `scale` about `from` and
+		// moved so that `from` lands on `to` - a window shown larger and docked
+		// elsewhere than its own position (the iPhone's side panels).
+		void begin_transform(Point<int16_t> from, Point<int16_t> to, float scale);
+		void end_transform();
+
+		// Quads drawn between these are cut to the rows top..bottom (a
+		// scrolling list inside a panel).
+		void begin_clip(int16_t top, int16_t bottom);
+		void end_clip();
 
 	private:
 		void clearinternal();
@@ -138,6 +162,7 @@ namespace ms
 		Offset upload(size_t id, GLshort width, GLshort height, const void* data);
 
 		static const int HD_SCALE = 2;
+		bool hd_upscale = true;
 		std::vector<uint32_t> hdbuffer;
 		const void* upscale(const void* data, GLshort w, GLshort h);
 
@@ -318,8 +343,8 @@ namespace ms
 		int16_t VHEIGHT;
 		Rectangle<int16_t> SCREEN;
 
-		static const GLshort ATLASW = 8192;
-		static const GLshort ATLASH = 8192;
+		GLshort ATLASW = 8192;
+		GLshort ATLASH = 8192;
 		static const GLshort MINLOSIZE = 32;
 
 		bool locked;
@@ -333,6 +358,19 @@ namespace ms
 		// arrays do not exist there.
 		std::vector<GLuint> indices;
 		GLuint IBO = 0;
+		std::vector<Quad> overlay_saved;
+		bool overlay_saved_locked = false;
+		Rectangle<int16_t> overlay_saved_screen;
+
+		bool transforming = false;
+		bool clipping = false;
+		size_t clip_start = 0;
+		GLshort clip_top = 0;
+		GLshort clip_bottom = 0;
+		size_t transform_start = 0;
+		Point<int16_t> transform_from;
+		Point<int16_t> transform_to;
+		float transform_scale = 1.0f;
 #endif
 		GLuint atlas;
 

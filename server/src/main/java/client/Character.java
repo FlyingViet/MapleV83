@@ -184,6 +184,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
@@ -202,6 +203,7 @@ public class Character extends AbstractCharacterObject {
 
     private int world;
     private int accountid, id, level;
+    private int reborns = 0;   // MapleV83: rebirths taken at level 300 (characters.reborns)
     private int rank, rankMove, jobRank, jobRankMove;
     private int gender, hair, face;
     private int fame, quest_fame;
@@ -246,7 +248,7 @@ public class Character extends AbstractCharacterObject {
     private final AtomicBoolean awayFromWorld = new AtomicBoolean(true);  // player is online, but on cash shop or mts
     private final AtomicInteger exp = new AtomicInteger();
     private final AtomicInteger gachaexp = new AtomicInteger();
-    private final AtomicInteger meso = new AtomicInteger();
+    private final AtomicLong meso = new AtomicLong(); // MapleV83: 64-bit wallet (v83 capped at 2,147,483,647)
     private final AtomicInteger chair = new AtomicInteger(-1);
     private long totalExpGained = 0;
     private int merchantmeso;
@@ -404,10 +406,7 @@ public class Character extends AbstractCharacterObject {
         savedLocations = new SavedLocation[SavedLocationType.values().length];
 
         for (InventoryType type : InventoryType.values()) {
-            byte b = 24;
-            if (type == InventoryType.CASH) {
-                b = 96;
-            }
+            byte b = (byte) ItemConstants.INVENTORY_SLOTS;
             inventory[type.ordinal()] = new Inventory(this, type, b);
         }
         inventory[InventoryType.CANHOLD.ordinal()] = new InventoryProof(this);
@@ -471,10 +470,10 @@ public class Character extends AbstractCharacterObject {
         ret.accountid = c.getAccID();
         ret.buddylist = new BuddyList(20);
         ret.maplemount = null;
-        ret.getInventory(InventoryType.EQUIP).setSlotLimit(24);
-        ret.getInventory(InventoryType.USE).setSlotLimit(24);
-        ret.getInventory(InventoryType.SETUP).setSlotLimit(24);
-        ret.getInventory(InventoryType.ETC).setSlotLimit(24);
+        ret.getInventory(InventoryType.EQUIP).setSlotLimit(ItemConstants.INVENTORY_SLOTS);
+        ret.getInventory(InventoryType.USE).setSlotLimit(ItemConstants.INVENTORY_SLOTS);
+        ret.getInventory(InventoryType.SETUP).setSlotLimit(ItemConstants.INVENTORY_SLOTS);
+        ret.getInventory(InventoryType.ETC).setSlotLimit(ItemConstants.INVENTORY_SLOTS);
 
         // Select a keybinding method
         int[] selectedKey;
@@ -789,8 +788,8 @@ public class Character extends AbstractCharacterObject {
         return false;
     }
 
-    public int calculateMaxBaseDamage(int watk, WeaponType weapon) {
-        int mainstat, secondarystat;
+    public long calculateMaxBaseDamage(int watk, WeaponType weapon) {
+        long mainstat, secondarystat;
         if (getJob().isA(Job.THIEF) && weapon == WeaponType.DAGGER_OTHER) {
             weapon = WeaponType.DAGGER_THIEVES;
         }
@@ -800,16 +799,16 @@ public class Character extends AbstractCharacterObject {
             secondarystat = localstr;
         } else if (weapon == WeaponType.CLAW || weapon == WeaponType.DAGGER_THIEVES) {
             mainstat = localluk;
-            secondarystat = localdex + localstr;
+            secondarystat = (long) localdex + localstr;
         } else {
             mainstat = localstr;
             secondarystat = localdex;
         }
-        return (int) Math.ceil(((weapon.getMaxDamageMultiplier() * mainstat + secondarystat) / 100.0) * watk);
+        return (long) Math.ceil(((weapon.getMaxDamageMultiplier() * mainstat + secondarystat) / 100.0) * watk);
     }
 
-    public int calculateMaxBaseDamage(int watk) {
-        int maxbasedamage;
+    public long calculateMaxBaseDamage(int watk) {
+        long maxbasedamage;
         Item weapon_item = getInventory(InventoryType.EQUIPPED).getItem((short) -11);
         if (weapon_item != null) {
             maxbasedamage = calculateMaxBaseDamage(watk, ItemInformationProvider.getInstance().getWeaponType(weapon_item.getItemId()));
@@ -821,7 +820,7 @@ public class Character extends AbstractCharacterObject {
                 }
 
                 int attack = (int) Math.min(Math.floor((2 * getLevel() + 31) / 3), 31);
-                maxbasedamage = (int) Math.ceil((localstr * weapMulti + localdex) * attack / 100.0);
+                maxbasedamage = (long) Math.ceil((localstr * weapMulti + localdex) * attack / 100.0);
             } else {
                 maxbasedamage = 1;
             }
@@ -1267,6 +1266,8 @@ public class Character extends AbstractCharacterObject {
             }
             createDragon();
         }
+
+        maxJobSkills(true);
 
         if (YamlConfig.config.server.USE_ANNOUNCE_CHANGEJOB) {
             if (!this.isGM()) {
@@ -3229,28 +3230,31 @@ public class Character extends AbstractCharacterObject {
         }
     }
 
-    public boolean canHoldMeso(int gain) {  // thanks lucasziron for pointing out a need to check space availability for mesos on player transactions
-        long nextMeso = (long) meso.get() + gain;
-        return nextMeso <= Integer.MAX_VALUE;
+    // 9 quintillion: exact as a double (NPC scripts see mesos as JS numbers) and leaves
+    // headroom below Long.MAX_VALUE for unchecked "meso + x" arithmetic.
+    public static final long MAX_MESO = 9_000_000_000_000_000_000L;
+
+    public boolean canHoldMeso(long gain) {  // thanks lucasziron for pointing out a need to check space availability for mesos on player transactions
+        return gain <= 0 || meso.get() <= MAX_MESO - gain;
     }
 
-    public void gainMeso(int gain) {
+    public void gainMeso(long gain) {
         gainMeso(gain, true, false, true);
     }
 
-    public void gainMeso(int gain, boolean show) {
+    public void gainMeso(long gain, boolean show) {
         gainMeso(gain, show, false, false);
     }
 
-    public void gainMeso(int gain, boolean show, boolean enableActions, boolean inChat) {
+    public void gainMeso(long gain, boolean show, boolean enableActions, boolean inChat) {
         long nextMeso;
         petLock.lock();
         try {
-            nextMeso = (long) meso.get() + gain;  // thanks Thora for pointing integer overflow here
-            if (nextMeso > Integer.MAX_VALUE) {
-                gain -= (nextMeso - Integer.MAX_VALUE);
-            } else if (nextMeso < 0) {
-                gain = -meso.get();
+            long current = meso.get();
+            if (gain > 0 && current > MAX_MESO - gain) {
+                gain = MAX_MESO - current;
+            } else if (gain < 0 && current + gain < 0) {
+                gain = -current;
             }
             nextMeso = meso.addAndGet(gain);
         } finally {
@@ -3258,9 +3262,10 @@ public class Character extends AbstractCharacterObject {
         }
 
         if (gain != 0) {
-            updateSingleStat(Stat.MESO, (int) nextMeso, enableActions);
+            // PacketCreator.updatePlayerStats writes the full 64-bit wallet for MESO.
+            updateSingleStat(Stat.MESO, (int) Math.min(nextMeso, Integer.MAX_VALUE), enableActions);
             if (show) {
-                sendPacket(PacketCreator.getShowMesoGain(gain, inChat));
+                sendPacket(PacketCreator.getShowMesoGain((int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, gain)), inChat));
             }
         } else {
             sendPacket(PacketCreator.enableActions());
@@ -5300,8 +5305,11 @@ public class Character extends AbstractCharacterObject {
         return localwatk;
     }
 
+    // MapleV83: every class goes to 300; a level 300 character can be reborn.
+    public static final int MAX_LEVEL = 300;
+
     public int getMaxClassLevel() {
-        return isCygnus() ? 120 : 200;
+        return MAX_LEVEL;
     }
 
     public int getMaxLevel() {
@@ -5312,7 +5320,7 @@ public class Character extends AbstractCharacterObject {
         return GameConstants.getJobMaxLevel(job);
     }
 
-    public int getMeso() {
+    public long getMeso() {
         return meso.get();
     }
 
@@ -6398,12 +6406,17 @@ public class Character extends AbstractCharacterObject {
                     final String names = (getMedalText() + name);
                     getWorldServer().broadcastPacket(PacketCreator.serverNotice(6, String.format(LEVEL_200, names, maxClassLevel, names)));
                 }
+
+                if (maxClassLevel == MAX_LEVEL) {
+                    yellowMessage("You've reached level " + MAX_LEVEL + "! Talk to the Maple Administrator to be reborn.");
+                }
             }
 
             level = maxClassLevel; //To prevent levels past the maximum
         }
 
         levelUpGainSp();
+        maxJobSkills(true);
 
         effLock.lock();
         statWlock.lock();
@@ -6866,6 +6879,7 @@ public class Character extends AbstractCharacterObject {
                     ret.name = rs.getString("name");
                     ret.level = rs.getInt("level");
                     ret.fame = rs.getInt("fame");
+                    ret.reborns = rs.getInt("reborns");
                     ret.quest_fame = rs.getInt("fquest");
                     ret.str = rs.getInt("str");
                     ret.dex = rs.getInt("dex");
@@ -6881,7 +6895,7 @@ public class Character extends AbstractCharacterObject {
                     ret.hasMerchant = rs.getInt("HasMerchant") == 1;
                     ret.remainingAp = rs.getInt("ap");
                     ret.loadCharSkillPoints(rs.getString("sp").split(","));
-                    ret.meso.set(rs.getInt("meso"));
+                    ret.meso.set(rs.getLong("meso"));
                     ret.merchantmeso = rs.getInt("MerchantMesos");
                     ret.setGMLevel(rs.getInt("gm"));
                     ret.skinColor = SkinColor.getById(rs.getInt("skincolor"));
@@ -6929,10 +6943,10 @@ public class Character extends AbstractCharacterObject {
 
                     wserv = Server.getInstance().getWorld(ret.world);
 
-                    ret.getInventory(InventoryType.EQUIP).setSlotLimit(rs.getByte("equipslots"));
-                    ret.getInventory(InventoryType.USE).setSlotLimit(rs.getByte("useslots"));
-                    ret.getInventory(InventoryType.SETUP).setSlotLimit(rs.getByte("setupslots"));
-                    ret.getInventory(InventoryType.ETC).setSlotLimit(rs.getByte("etcslots"));
+                    ret.getInventory(InventoryType.EQUIP).setSlotLimit(Math.max(rs.getByte("equipslots"), ItemConstants.INVENTORY_SLOTS));
+                    ret.getInventory(InventoryType.USE).setSlotLimit(Math.max(rs.getByte("useslots"), ItemConstants.INVENTORY_SLOTS));
+                    ret.getInventory(InventoryType.SETUP).setSlotLimit(Math.max(rs.getByte("setupslots"), ItemConstants.INVENTORY_SLOTS));
+                    ret.getInventory(InventoryType.ETC).setSlotLimit(Math.max(rs.getByte("etcslots"), ItemConstants.INVENTORY_SLOTS));
 
                     short sandboxCheck = 0x0;
                     for (Pair<Item, InventoryType> item : ItemFactory.INVENTORY.loadItems(ret.id, !channelserver)) {
@@ -7597,6 +7611,11 @@ public class Character extends AbstractCharacterObject {
         }, 4000, 4000);
     }
 
+    // MapleV83: stats go up to Integer.MAX_VALUE, so totals saturate instead of wrapping negative.
+    private static int satAdd(long a, double b) {
+        return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, a + b));
+    }
+
     private void recalcEquipStats() {
         if (equipchanged) {
             equipmaxhp = 0;
@@ -7612,14 +7631,14 @@ public class Character extends AbstractCharacterObject {
 
             for (Item item : getInventory(InventoryType.EQUIPPED)) {
                 Equip equip = (Equip) item;
-                equipmaxhp += equip.getHp();
-                equipmaxmp += equip.getMp();
-                equipdex += equip.getDex();
-                equipint_ += equip.getInt();
-                equipstr += equip.getStr();
-                equipluk += equip.getLuk();
-                equipmagic += equip.getMatk() + equip.getInt();
-                equipwatk += equip.getWatk();
+                equipmaxhp = satAdd(equipmaxhp, equip.getHp());
+                equipmaxmp = satAdd(equipmaxmp, equip.getMp());
+                equipdex = satAdd(equipdex, equip.getDex());
+                equipint_ = satAdd(equipint_, equip.getInt());
+                equipstr = satAdd(equipstr, equip.getStr());
+                equipluk = satAdd(equipluk, equip.getLuk());
+                equipmagic = satAdd(equipmagic, (long) equip.getMatk() + equip.getInt());
+                equipwatk = satAdd(equipwatk, equip.getWatk());
                 //equipspeed += equip.getSpeed();
                 //equipjump += equip.getJump();
             }
@@ -7627,14 +7646,14 @@ public class Character extends AbstractCharacterObject {
             equipchanged = false;
         }
 
-        localmaxhp += equipmaxhp;
-        localmaxmp += equipmaxmp;
-        localdex += equipdex;
-        localint_ += equipint_;
-        localstr += equipstr;
-        localluk += equipluk;
-        localmagic += equipmagic;
-        localwatk += equipwatk;
+        localmaxhp = satAdd(localmaxhp, equipmaxhp);
+        localmaxmp = satAdd(localmaxmp, equipmaxmp);
+        localdex = satAdd(localdex, equipdex);
+        localint_ = satAdd(localint_, equipint_);
+        localstr = satAdd(localstr, equipstr);
+        localluk = satAdd(localluk, equipluk);
+        localmagic = satAdd(localmagic, equipmagic);
+        localwatk = satAdd(localwatk, equipwatk);
     }
 
     private void reapplyLocalStats() {
@@ -7654,37 +7673,36 @@ public class Character extends AbstractCharacterObject {
 
             recalcEquipStats();
 
-            localmagic = Math.min(localmagic, 2000);
+            // MapleV83: no magic cap (v83 capped at 2000).
 
             Integer hbhp = getBuffedValue(BuffStat.HYPERBODYHP);
             if (hbhp != null) {
-                localmaxhp += (hbhp.doubleValue() / 100) * localmaxhp;
+                localmaxhp = satAdd(localmaxhp, (hbhp.doubleValue() / 100) * localmaxhp);
             }
             Integer hbmp = getBuffedValue(BuffStat.HYPERBODYMP);
             if (hbmp != null) {
-                localmaxmp += (hbmp.doubleValue() / 100) * localmaxmp;
+                localmaxmp = satAdd(localmaxmp, (hbmp.doubleValue() / 100) * localmaxmp);
             }
 
-            localmaxhp = Math.min(30000, localmaxhp);
-            localmaxmp = Math.min(30000, localmaxmp);
+            // MapleV83: no HP/MP cap (v83 capped both at 30000).
 
             StatEffect combo = getBuffEffect(BuffStat.ARAN_COMBO);
             if (combo != null) {
-                localwatk += combo.getX();
+                localwatk = satAdd(localwatk, combo.getX());
             }
 
             if (energybar == 15000) {
                 Skill energycharge = isCygnus() ? SkillFactory.getSkill(ThunderBreaker.ENERGY_CHARGE) : SkillFactory.getSkill(Marauder.ENERGY_CHARGE);
                 StatEffect ceffect = energycharge.getEffect(getSkillLevel(energycharge));
-                localwatk += ceffect.getWatk();
+                localwatk = satAdd(localwatk, ceffect.getWatk());
             }
 
             Integer mwarr = getBuffedValue(BuffStat.MAPLE_WARRIOR);
             if (mwarr != null) {
-                localstr += getStr() * mwarr / 100;
-                localdex += getDex() * mwarr / 100;
-                localint_ += getInt() * mwarr / 100;
-                localluk += getLuk() * mwarr / 100;
+                localstr = satAdd(localstr, (long) getStr() * mwarr / 100);
+                localdex = satAdd(localdex, (long) getDex() * mwarr / 100);
+                localint_ = satAdd(localint_, (long) getInt() * mwarr / 100);
+                localluk = satAdd(localluk, (long) getLuk() * mwarr / 100);
             }
             if (job.isA(Job.BOWMAN)) {
                 Skill expert = null;
@@ -7696,35 +7714,35 @@ public class Character extends AbstractCharacterObject {
                 if (expert != null) {
                     int boostLevel = getSkillLevel(expert);
                     if (boostLevel > 0) {
-                        localwatk += expert.getEffect(boostLevel).getX();
+                        localwatk = satAdd(localwatk, expert.getEffect(boostLevel).getX());
                     }
                 }
             }
 
             Integer watkbuff = getBuffedValue(BuffStat.WATK);
             if (watkbuff != null) {
-                localwatk += watkbuff.intValue();
+                localwatk = satAdd(localwatk, watkbuff.intValue());
             }
             Integer matkbuff = getBuffedValue(BuffStat.MATK);
             if (matkbuff != null) {
-                localmagic += matkbuff.intValue();
+                localmagic = satAdd(localmagic, matkbuff.intValue());
             }
 
             /*
             Integer speedbuff = getBuffedValue(BuffStat.SPEED);
             if (speedbuff != null) {
-                localspeed += speedbuff.intValue();
+                localspeed = satAdd(localspeed, speedbuff.intValue());
             }
             Integer jumpbuff = getBuffedValue(BuffStat.JUMP);
             if (jumpbuff != null) {
-                localjump += jumpbuff.intValue();
+                localjump = satAdd(localjump, jumpbuff.intValue());
             }
             */
 
             Integer blessing = getSkillLevel(10000000 * getJobType() + 12);
             if (blessing > 0) {
-                localwatk += blessing;
-                localmagic += blessing * 2;
+                localwatk = satAdd(localwatk, blessing);
+                localmagic = satAdd(localmagic, blessing * 2);
             }
 
             if (job.isA(Job.THIEF) || job.isA(Job.BOWMAN) || job.isA(Job.PIRATE) || job.isA(Job.NIGHTWALKER1) || job.isA(Job.WINDARCHER1)) {
@@ -7745,7 +7763,7 @@ public class Character extends AbstractCharacterObject {
                                 if ((claw && ItemConstants.isThrowingStar(item.getItemId())) || (gun && ItemConstants.isBullet(item.getItemId())) || (bow && ItemConstants.isArrowForBow(item.getItemId())) || (crossbow && ItemConstants.isArrowForCrossBow(item.getItemId()))) {
                                     if (item.getQuantity() > 0) {
                                         // Finally there!
-                                        localwatk += ii.getWatkForProjectile(item.getItemId());
+                                        localwatk = satAdd(localwatk, ii.getWatkForProjectile(item.getItemId()));
                                         break;
                                     }
                                 }
@@ -7964,6 +7982,233 @@ public class Character extends AbstractCharacterObject {
         }
     }
 
+    public int getReborns() {
+        return reborns;
+    }
+
+    /**
+     * MapleV83 rebirth, at level 300: back to a level 1 Beginner with no EXP. Stats
+     * (STR/DEX/INT/LUK, max HP/MP, unspent AP and SP), skills and items all stay;
+     * the Maple Administrator then lets the player pick any 1st job right away.
+     *
+     * @return the new rebirth count, or -1 when the character isn't level 300
+     */
+    public synchronized int rebirth() {
+        if (level < MAX_LEVEL) {
+            return -1;
+        }
+
+        reborns++;
+        level = 1;
+        exp.set(0);
+
+        // Straight to Beginner, without changeJob's advancement HP/MP, AP and SP.
+        if (canRecvPartySearchInvite && getParty() == null) {
+            updatePartySearchAvailability(false);
+            job = Job.BEGINNER;
+            updatePartySearchAvailability(true);
+        } else {
+            job = Job.BEGINNER;
+        }
+        setMasteries(job.getId());
+
+        List<Pair<Stat, Integer>> statup = new ArrayList<>(3);
+        statup.add(new Pair<>(Stat.LEVEL, level));
+        statup.add(new Pair<>(Stat.EXP, 0));
+        statup.add(new Pair<>(Stat.JOB, job.getId()));
+        sendPacket(PacketCreator.updatePlayerStats(statup, true, this));
+        broadcastChangeJob();
+
+        getMap().broadcastMessage(this, PacketCreator.showForeignEffect(getId(), 0), false);
+        sendPacket(PacketCreator.showSpecialEffect(0));
+        setMPC(new PartyCharacter(this));
+        silentPartyUpdate();
+        guildUpdate();
+
+        final String names = getMedalText() + name;
+        getWorldServer().broadcastPacket(PacketCreator.serverNotice(6, "[Rebirth] " + names + " has been reborn"
+                + (reborns > 1 ? " for the " + ordinal(reborns) + " time" : "") + "!"));
+
+        saveCharToDB();
+        return reborns;
+    }
+
+    private static String ordinal(int n) {
+        int mod100 = n % 100;
+        String suffix = (mod100 >= 11 && mod100 <= 13) ? "th" : switch (n % 10) {
+            case 1 -> "st";
+            case 2 -> "nd";
+            case 3 -> "rd";
+            default -> "th";
+        };
+        return n + suffix;
+    }
+
+    /**
+     * Puts every STR/DEX/INT/LUK point above the job's minimum back into the AP
+     * pool, so the player can distribute it again (MapleV83 starter NPC). Beginner
+     * jobs go back to 4/4/4/4; 1st job and later keep their advancement minimum.
+     *
+     * @return the number of AP refunded
+     */
+    public synchronized int refundAbilityPoints() {
+        int minStr = 4, minDex = 4, minInt = 4, minLuk = 4;
+        int jobId = job.getId();
+
+        if (jobId % 1000 != 0) {
+            switch ((jobId % 1000) / 100) {
+                case 1 -> minStr = 35;
+                case 2 -> minInt = 20;
+                case 3, 4 -> minDex = 25;
+                case 5 -> minDex = 20;
+                default -> { }
+            }
+        }
+
+        effLock.lock();
+        statWlock.lock();
+        try {
+            int total = remainingAp + str + dex + int_ + luk;
+            int newAp = total - (minStr + minDex + minInt + minLuk);
+            int refunded = newAp - remainingAp;
+
+            if (newAp < 0 || refunded <= 0) {
+                return 0;
+            }
+
+            updateStrDexIntLuk(minStr, minDex, minInt, minLuk, newAp);
+            return refunded;
+        } finally {
+            statWlock.unlock();
+            effLock.unlock();
+        }
+    }
+
+    /**
+     * Takes back every skill point spent on the skills of this character's job line
+     * (1st job up to the current one) and returns them as SP to place again (MapleV83
+     * stat/skill window reset). Beginner skills, GM skills and hidden skills are left
+     * alone; mastery levels from skill books are kept.
+     *
+     * @return the number of SP refunded
+     */
+    // USE_AUTO_MAX_SKILLS: every skill of the character's job line (its beginner's
+    // basic three, then each advancement up to the current job) sits at its master
+    // level, so SP has nothing left to buy and is cleared. Runs on login before the
+    // character info goes out (notify = false), on job change and on level-up.
+    public synchronized void maxJobSkills(boolean notify) {
+        if (!YamlConfig.config.server.USE_AUTO_MAX_SKILLS) {
+            return;
+        }
+
+        int jobId = job.getId();
+        int beginner = (jobId == 2001 || jobId / 100 == 22) ? 2001 : jobId / 1000 * 1000;
+
+        for (Skill skill : new ArrayList<>(SkillFactory.getAllSkills())) {
+            int skillId = skill.getId();
+            int skillJob = skillId / 10000;
+            boolean basics = skillJob == beginner && skillId % 10000 >= 1000 && skillId % 10000 <= 1002;
+
+            if (!basics && (skillJob % 1000 == 0 || skillJob == 2001 || (skillJob >= 800 && skillJob < 1000)
+                    || !isJobLineAncestor(skillJob, jobId))) {
+                continue;
+            }
+
+            int max = skill.getMaxLevel();
+            if (max <= 0 || GameConstants.isHiddenSkills(skillId)) {
+                continue;
+            }
+
+            SkillEntry se = skills.get(skill);
+            if (se != null && se.skillevel >= max && se.masterlevel >= max) {
+                continue;
+            }
+
+            long expiration = se != null ? se.expiration : -1;
+            if (notify) {
+                changeSkillLevel(skill, (byte) max, max, expiration);
+            } else {
+                skills.put(skill, new SkillEntry((byte) max, max, expiration));
+            }
+        }
+
+        // Aran's hidden swings (what Full Swing and Over Swing turn Double and
+        // Triple Swing into) follow the skill that unlocks them, as on an SP buy.
+        int[][] hidden = {
+                {Aran.FULL_SWING, Aran.HIDDEN_FULL_DOUBLE}, {Aran.FULL_SWING, Aran.HIDDEN_FULL_TRIPLE},
+                {Aran.OVER_SWING, Aran.HIDDEN_OVER_DOUBLE}, {Aran.OVER_SWING, Aran.HIDDEN_OVER_TRIPLE}};
+        for (int[] pair : hidden) {
+            Skill parent = SkillFactory.getSkill(pair[0]);
+            Skill swing = SkillFactory.getSkill(pair[1]);
+            SkillEntry pe = parent != null ? skills.get(parent) : null;
+            if (swing == null || pe == null || pe.skillevel <= 0) {
+                continue;
+            }
+
+            SkillEntry se = skills.get(swing);
+            if (se != null && se.skillevel == pe.skillevel && se.masterlevel == pe.masterlevel) {
+                continue;
+            }
+
+            if (notify) {
+                changeSkillLevel(swing, pe.skillevel, pe.masterlevel, pe.expiration);
+            } else {
+                skills.put(swing, new SkillEntry(pe.skillevel, pe.masterlevel, pe.expiration));
+            }
+        }
+
+        int book = GameConstants.getSkillBook(jobId);
+        if (remainingSp[book] > 0) {
+            remainingSp[book] = 0;
+
+            if (notify) {
+                sendPacket(PacketCreator.updatePlayerStats(new ArrayList<>(List.of(new Pair<>(Stat.AVAILABLESP, 0))), false, this));
+            }
+        }
+    }
+
+    public synchronized int refundSkillPoints() {
+        int jobId = job.getId();
+        if (isBeginnerJob()) {
+            return 0;
+        }
+
+        int refunded = 0;
+        for (Map.Entry<Skill, SkillEntry> entry : new ArrayList<>(getSkills().entrySet())) {
+            int skillId = entry.getKey().getId();
+            int skillJob = skillId / 10000;
+            SkillEntry se = entry.getValue();
+
+            if (se.skillevel <= 0 || skillJob % 1000 == 0 || (skillJob >= 800 && skillJob < 1000)
+                    || GameConstants.isHiddenSkills(skillId) || !isJobLineAncestor(skillJob, jobId)) {
+                continue;
+            }
+
+            refunded += se.skillevel;
+            changeSkillLevel(entry.getKey(), (byte) 0, se.masterlevel, se.expiration);
+        }
+
+        if (refunded > 0) {
+            gainSp(refunded, GameConstants.getSkillBook(jobId), false);
+            updateLocalStats();
+        }
+        return refunded;
+    }
+
+    // skillJob is the job itself or an earlier advancement on the way to it (e.g. 100, 110, 111 for 112)
+    private static boolean isJobLineAncestor(int skillJob, int jobId) {
+        if (skillJob / 100 != jobId / 100) {
+            return false;
+        }
+        if (skillJob % 100 == 0) {
+            return true;
+        }
+        if (skillJob % 10 == 0) {
+            return skillJob / 10 == jobId / 10;
+        }
+        return skillJob / 10 == jobId / 10 && skillJob <= jobId;
+    }
+
     public void resetBattleshipHp() {
         int bshipLevel = Math.max(getLevel() - 120, 0);  // thanks alex12 for noticing battleship HP issues for low-level players
         this.battleshipHp = 400 * getSkillLevel(SkillFactory.getSkill(Corsair.BATTLE_SHIP)) + (bshipLevel * 200);
@@ -8108,7 +8353,7 @@ public class Character extends AbstractCharacterObject {
                     ps.setInt(9, hair);
                     ps.setInt(10, face);
                     ps.setInt(11, mapid);
-                    ps.setInt(12, Math.abs(meso.get()));
+                    ps.setLong(12, Math.abs(meso.get()));
                     ps.setInt(13, 0);
                     ps.setInt(14, accountid);
                     ps.setString(15, name);
@@ -8256,7 +8501,7 @@ public class Character extends AbstractCharacterObject {
             con.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
 
             try {
-                try (PreparedStatement ps = con.prepareStatement("UPDATE characters SET level = ?, fame = ?, str = ?, dex = ?, luk = ?, `int` = ?, exp = ?, gachaexp = ?, hp = ?, mp = ?, maxhp = ?, maxmp = ?, sp = ?, ap = ?, gm = ?, skincolor = ?, gender = ?, job = ?, hair = ?, face = ?, map = ?, meso = ?, hpMpUsed = ?, spawnpoint = ?, party = ?, buddyCapacity = ?, messengerid = ?, messengerposition = ?, mountlevel = ?, mountexp = ?, mounttiredness= ?, equipslots = ?, useslots = ?, setupslots = ?, etcslots = ?,  monsterbookcover = ?, vanquisherStage = ?, dojoPoints = ?, lastDojoStage = ?, finishedDojoTutorial = ?, vanquisherKills = ?, matchcardwins = ?, matchcardlosses = ?, matchcardties = ?, omokwins = ?, omoklosses = ?, omokties = ?, dataString = ?, fquest = ?, jailexpire = ?, partnerId = ?, marriageItemId = ?, lastExpGainTime = ?, ariantPoints = ?, partySearch = ? WHERE id = ?", Statement.RETURN_GENERATED_KEYS)) {
+                try (PreparedStatement ps = con.prepareStatement("UPDATE characters SET level = ?, fame = ?, str = ?, dex = ?, luk = ?, `int` = ?, exp = ?, gachaexp = ?, hp = ?, mp = ?, maxhp = ?, maxmp = ?, sp = ?, ap = ?, gm = ?, skincolor = ?, gender = ?, job = ?, hair = ?, face = ?, map = ?, meso = ?, hpMpUsed = ?, spawnpoint = ?, party = ?, buddyCapacity = ?, messengerid = ?, messengerposition = ?, mountlevel = ?, mountexp = ?, mounttiredness= ?, equipslots = ?, useslots = ?, setupslots = ?, etcslots = ?,  monsterbookcover = ?, vanquisherStage = ?, dojoPoints = ?, lastDojoStage = ?, finishedDojoTutorial = ?, vanquisherKills = ?, matchcardwins = ?, matchcardlosses = ?, matchcardties = ?, omokwins = ?, omoklosses = ?, omokties = ?, dataString = ?, fquest = ?, jailexpire = ?, partnerId = ?, marriageItemId = ?, lastExpGainTime = ?, ariantPoints = ?, partySearch = ?, reborns = ? WHERE id = ?", Statement.RETURN_GENERATED_KEYS)) {
                     ps.setInt(1, level);    // thanks CanIGetaPR for noticing an unnecessary "level" limitation when persisting DB data
                     ps.setInt(2, fame);
 
@@ -8303,7 +8548,7 @@ public class Character extends AbstractCharacterObject {
                             ps.setInt(21, getHp() < 1 ? map.getReturnMapId() : map.getId());
                         }
                     }
-                    ps.setInt(22, meso.get());
+                    ps.setLong(22, meso.get());
                     ps.setInt(23, hpMpApUsed);
                     if (map == null || map.getId() == MapId.CRIMSONWOOD_VALLEY_1 || map.getId() == MapId.CRIMSONWOOD_VALLEY_2) {  // reset to first spawnpoint on those maps
                         ps.setInt(24, 0);
@@ -8370,7 +8615,8 @@ public class Character extends AbstractCharacterObject {
                     ps.setTimestamp(53, new Timestamp(lastExpGainTime));
                     ps.setInt(54, ariantPoints);
                     ps.setBoolean(55, canRecvPartySearchInvite);
-                    ps.setInt(56, id);
+                    ps.setInt(56, reborns);
+                    ps.setInt(57, id);
 
                     int updateRows = ps.executeUpdate();
                     if (updateRows < 1) {
@@ -8760,7 +9006,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void setExp(int amount) {
-        this.exp.set(amount);
+        this.exp.set(Math.max(0, amount));
     }
 
     public void setGachaExp(int amount) {
@@ -8772,7 +9018,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void setFame(int fame) {
-        this.fame = fame;
+        this.fame = Math.max(-30000, Math.min(fame, 30000));   // a 16-bit field in v83 packets
     }
 
     public void setFamilyId(int familyId) {
@@ -8849,26 +9095,26 @@ public class Character extends AbstractCharacterObject {
 
     public synchronized void withdrawMerchantMesos() {
         int merchantMeso = this.getMerchantNetMeso();
-        int playerMeso = this.getMeso();
+        long playerMeso = this.getMeso();
 
         if (merchantMeso > 0) {
-            int possible = Integer.MAX_VALUE - playerMeso;
+            long possible = MAX_MESO - playerMeso;
 
             if (possible > 0) {
                 if (possible < merchantMeso) {
                     this.gainMeso(possible, false);
-                    this.setMerchantMeso(merchantMeso - possible);
+                    this.setMerchantMeso((int) (merchantMeso - possible));
                 } else {
                     this.gainMeso(merchantMeso, false);
                     this.setMerchantMeso(0);
                 }
             }
         } else {
-            int nextMeso = playerMeso + merchantMeso;
+            long nextMeso = playerMeso + merchantMeso;
 
             if (nextMeso < 0) {
                 this.gainMeso(-playerMeso, false);
-                this.setMerchantMeso(merchantMeso + playerMeso);
+                this.setMerchantMeso((int) (merchantMeso + playerMeso));
             } else {
                 this.gainMeso(merchantMeso, false);
                 this.setMerchantMeso(0);
@@ -8939,7 +9185,7 @@ public class Character extends AbstractCharacterObject {
 
     private int calcHpRatioUpdate(int curpoint, int maxpoint, int diffpoint) {
         int curMax = maxpoint;
-        int nextMax = Math.min(30000, maxpoint + diffpoint);
+        int nextMax = (int) Math.min(Integer.MAX_VALUE, (long) maxpoint + diffpoint);
 
         float temp = curpoint * nextMax;
         int ret = (int) Math.ceil(temp / curMax);
@@ -8950,7 +9196,7 @@ public class Character extends AbstractCharacterObject {
 
     private int calcMpRatioUpdate(int curpoint, int maxpoint, int diffpoint) {
         int curMax = maxpoint;
-        int nextMax = Math.min(30000, maxpoint + diffpoint);
+        int nextMax = (int) Math.min(Integer.MAX_VALUE, (long) maxpoint + diffpoint);
 
         float temp = curpoint * nextMax;
         int ret = (int) Math.ceil(temp / curMax);
@@ -9040,7 +9286,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void setLevel(int level) {
-        this.level = level;
+        this.level = Math.max(1, Math.min(level, MAX_LEVEL));
     }
 
     public void setMap(int PmapId) {
@@ -9151,12 +9397,12 @@ public class Character extends AbstractCharacterObject {
     }
 
     public byte getSlots(int type) {
-        return type == InventoryType.CASH.getType() ? 96 : inventory[type].getSlotLimit();
+        return type == InventoryType.CASH.getType() ? (byte) ItemConstants.INVENTORY_SLOTS : inventory[type].getSlotLimit();
     }
 
     public boolean canGainSlots(int type, int slots) {
         slots += inventory[type].getSlotLimit();
-        return slots <= 96;
+        return slots <= ItemConstants.INVENTORY_SLOTS;
     }
 
     public boolean gainSlots(int type, int slots) {
@@ -10641,7 +10887,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public static boolean doWorldTransfer(Connection con, int characterId, int oldWorld, int newWorld, int worldTransferId) {
-        int mesos = 0;
+        long mesos = 0;
         try (PreparedStatement ps = con.prepareStatement("SELECT meso FROM characters WHERE id = ?")) {
             ps.setInt(1, characterId);
             ResultSet rs = ps.executeQuery();
@@ -10649,14 +10895,14 @@ public class Character extends AbstractCharacterObject {
                 log.warn("Character data invalid for world transfer? chrId {}", characterId);
                 return false;
             }
-            mesos = rs.getInt("meso");
+            mesos = rs.getLong("meso");
         } catch (SQLException e) {
             log.error("Failed to do world transfer for chrId {}", characterId, e);
             return false;
         }
         try (PreparedStatement ps = con.prepareStatement("UPDATE characters SET world = ?, meso = ?, guildid = ?, guildrank = ? WHERE id = ?")) {
             ps.setInt(1, newWorld);
-            ps.setInt(2, Math.min(mesos, 1000000)); // might want a limit in "YamlConfig.config.server" for this
+            ps.setLong(2, Math.min(mesos, 1000000)); // might want a limit in "YamlConfig.config.server" for this
             ps.setInt(3, 0);
             ps.setInt(4, 5);
             ps.setInt(5, characterId);

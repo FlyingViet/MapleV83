@@ -34,6 +34,9 @@ namespace ms
 	const size_t HANDSHAKE_LEN = 16;
 #endif
 
+	// Connecting plus the server's greeting must finish within this.
+	constexpr int CONNECT_TIMEOUT_S = 8;
+
 	using asio::io_context;
 	using asio::ip::tcp;
 	using asio::error_code;

@@ -51,6 +51,6 @@ namespace ms
 		virtual bool is_skill() const = 0;
 		virtual int32_t get_id() const = 0;
 
-		virtual ForbidReason can_use(int32_t level, Weapon::Type weapon, const Job& job, uint16_t hp, uint16_t mp, uint16_t bullets) const = 0;
+		virtual ForbidReason can_use(int32_t level, Weapon::Type weapon, const Job& job, int32_t hp, int32_t mp, uint16_t bullets) const = 0;
 	};
 }

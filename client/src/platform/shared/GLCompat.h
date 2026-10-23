@@ -20,6 +20,14 @@
 	#ifndef GL_BGRA
 		#define GL_BGRA GL_BGRA_EXT
 	#endif
+#elif defined(PLATFORM_MACOS_SDL)
+	// The native macOS app: OpenGL 4.1 core profile, the same GLSL 3.x shaders
+	// as GL ES 3.0 (only the #version line differs) and the same VAO path.
+	#ifndef GL_SILENCE_DEPRECATION
+		#define GL_SILENCE_DEPRECATION
+	#endif
+	#include <OpenGL/gl3.h>
+	#include <OpenGL/gl3ext.h>
 #elif defined(__EMSCRIPTEN__) || defined(PLATFORM_GLES)
 	// Core OpenGL ES 3.0 header from the Emscripten sysroot; there is no GLEW.
 	#include <GLES3/gl3.h>

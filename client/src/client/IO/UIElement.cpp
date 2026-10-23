@@ -18,6 +18,7 @@
 #include "UIElement.h"
 
 #include "../Audio/Audio.h"
+#include "UI.h"
 #include "UIScale.h"
 
 namespace ms
@@ -154,8 +155,14 @@ namespace ms
 
 		if (hit)
 		{
-			if (down)
+			if (down && fired_press == UI::get().get_press_serial())
 			{
+				// The same press again (a move while held): already handled.
+				ret = Cursor::State::IDLE;
+			}
+			else if (down)
+			{
+				fired_press = UI::get().get_press_serial();
 				Sound(Sound::Name::BUTTONCLICK).play();
 
 				Button::State after = button_pressed(hitid);

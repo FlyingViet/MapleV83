@@ -67,9 +67,7 @@ namespace ms
 		// Scale the render so the logical view stays ~1280 wide at any
 		// resolution. Without this a large window (e.g. 4K) gives a huge
 		// logical view and every sprite looks tiny.
-		float ui_scale = res_w / 1280.0f;
-		if (ui_scale < 1.0f) ui_scale = 1.0f;
-		if (ui_scale > 4.0f) ui_scale = 4.0f;
+		float ui_scale = Constants::Constants::ui_scale_for(res_w, res_h);
 
 		Constants::Constants::get().set_ui_scale(ui_scale);
 		Constants::Constants::get().set_viewwidth(res_w);
@@ -104,7 +102,7 @@ namespace ms
 		uint8_t skin;
 		int32_t faceid;
 		int32_t hairid;
-		StatsEntry statsentry = LoginParser::parse_stats(recv, false, &skin, &faceid, &hairid);
+		StatsEntry statsentry = LoginParser::parse_stats(recv, &skin, &faceid, &hairid);
 
 		// Build minimal look entry with skin/face/hair
 		LookEntry look;
@@ -129,7 +127,10 @@ namespace ms
 		// Update the player's visual look from equipped items in inventory
 		for (auto eqslot : EquipSlot::values)
 		{
-			if (int32_t itemid = player.get_inventory().get_item_id(InventoryType::Id::EQUIPPED, eqslot))
+			const Inventory& inventory = player.get_inventory();
+
+			if (inventory.get_item_id(InventoryType::Id::EQUIPPED, eqslot)
+				|| inventory.get_item_id(InventoryType::Id::EQUIPPED, static_cast<int16_t>(eqslot + EquipSlot::CASH_OFFSET)))
 				player.change_equip(eqslot);
 		}
 

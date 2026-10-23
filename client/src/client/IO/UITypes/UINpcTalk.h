@@ -63,6 +63,9 @@ namespace ms
 
 		UINpcTalk();
 
+		// NPC text with its # macros filled in (names) or kept (icons).
+		static std::string format_text(const std::string& tx, const int32_t& npcid);
+
 		void draw(float inter) const override;
 		void update() override;
 
@@ -82,7 +85,6 @@ namespace ms
 
 	private:
 		bool is_valid_type(int8_t value);
-		std::string format_text(const std::string& tx, const int32_t& npcid);
 		std::string parse_simple_selections(const std::string& tx);
 
 		static constexpr int16_t MAX_HEIGHT = 248;

@@ -21,8 +21,11 @@
 
 #include "../Template/Singleton.h"
 
-#if defined(PLATFORM_IOS)
-	#include <OpenGLES/ES3/gl.h>
+#include "../../platform/shared/PlatformConfig.h"
+
+#if defined(PLATFORM_SDL)
+	#include <SDL.h>
+	#include "../../platform/shared/GLCompat.h"
 #elif defined(__EMSCRIPTEN__)
 	// Emscripten: GL ES 3.0 header (no GLEW) and the GLFW port's header.
 	// GLFW_INCLUDE_NONE keeps glfw3.h from pulling in the legacy GL/gl.h.
@@ -76,10 +79,12 @@ namespace ms
 	private:
 		void updateopc();
 
-#ifndef PLATFORM_IOS
+#ifndef PLATFORM_SDL
 		GLFWwindow* glwnd;
 		GLFWwindow* context;
 #else
+		SDL_Window* glwnd;
+		SDL_GLContext context;
 		bool closed;
 #endif
 		bool fullscreen;

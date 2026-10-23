@@ -48,7 +48,7 @@ public final class ItemConstants {
     public final static short ACCOUNT_SHARING = 0x100;
     public final static short MERGE_UNTRADEABLE = 0x200;
 
-    public final static boolean EXPIRING_ITEMS = true;
+    public final static boolean EXPIRING_ITEMS = false; // Cash Shop items never expire (2026-10-18)
     public final static Set<Integer> permanentItemids = new HashSet<>();
 
     static {
@@ -86,6 +86,17 @@ public final class ItemConstants {
 
     public static boolean isConsumable(int itemId) {
         return isPotion(itemId) || isFood(itemId);
+    }
+
+    // MapleV83 (mobile): every tab holds this many slots, and stackable items go this high.
+    public static final int INVENTORY_SLOTS = 99;
+    public static final short STACK_MAX = 9999;
+
+    public static short expandedSlotMax(int itemId, short wzMax) {
+        if (isRechargeable(itemId) || isPet(itemId) || getInventoryType(itemId) == InventoryType.EQUIP) {
+            return wzMax;
+        }
+        return (short) Math.max(wzMax, STACK_MAX);
     }
 
     public static boolean isRechargeable(int itemId) {

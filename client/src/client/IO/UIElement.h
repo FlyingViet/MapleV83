@@ -132,6 +132,24 @@ namespace ms
 			PARTYMEMBERMENU,
 			PARTYSEARCHSTART,
 			PARTYHELPER,
+			MOBILEKEYCONFIG,
+			MOBILESTATS,
+			MOBILESKILLS,
+			MOBILEMENU,
+			MOBILECONFIRM,
+			MOBILEITEMMENU,
+			MOBILEINVENTORY,
+			MOBILEEQUIP,
+			MOBILESTORE,
+			MOBILEADMIN,
+			MOBILELOBBY,
+			MOBILEQUESTS,
+			MOBILESOCIAL,
+			MOBILEWORLDMAP,
+			MOBILECHANNEL,
+			MOBILEOPTIONS,
+			MOBILEINBOX,
+			STYLEPICKER,
 			NUM_TYPES
 		};
 
@@ -142,7 +160,7 @@ namespace ms
 		virtual void update_screen(int16_t new_width, int16_t new_height) {}
 
 		void makeactive();
-		void deactivate();
+		virtual void deactivate();
 		bool is_active() const;
 
 		virtual void toggle_active();
@@ -156,8 +174,19 @@ namespace ms
 		virtual Cursor::State send_cursor(bool clicked, Point<int16_t> cursorpos);
 		virtual void send_scroll(double yoffset) {}
 		virtual void send_key(int32_t keycode, bool pressed, bool escape) {}
+		// A touch held still is a right-click, unless the element pressed
+		// handles holds itself (the mobile panels' repeating "+").
+		virtual bool captures_hold() const { return false; }
 
 		virtual UIElement::Type get_type() const = 0;
+
+		Point<int16_t> get_position() const { return position; }
+		Point<int16_t> get_dimension() const { return dimension; }
+
+		// Shown as a side panel on the iPhone (UIStateGame docks it): drawn
+		// scaled elsewhere, so the window must not be dragged around.
+		void set_docked(bool value) { docked = value; }
+		bool is_docked() const { return docked; }
 
 	protected:
 		UIElement(Point<int16_t> position, Point<int16_t> dimension, bool active);
@@ -181,5 +210,8 @@ namespace ms
 		Point<int16_t> dimension;
 		bool active;
 		ScaleMode scale_mode;
+		bool docked = false;
+		// UI::get_press_serial() of the press that last fired a button here
+		uint32_t fired_press = 0;
 	};
 }

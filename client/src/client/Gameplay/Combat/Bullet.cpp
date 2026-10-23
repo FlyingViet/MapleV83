@@ -22,6 +22,7 @@ namespace ms
 	Bullet::Bullet(Animation a, Point<int16_t> origin, bool toleft)
 	{
 		animation = a;
+		leftward = toleft;
 
 		moveobj.set_x(origin.x() + (toleft ? -30.0 : 30.0));
 		moveobj.set_y(origin.y() - 26.0);
@@ -39,8 +40,17 @@ namespace ms
 		double xdelta = target.x() - moveobj.crnt_x();
 		double ydelta = target.y() - moveobj.crnt_y();
 
-		if (std::abs(xdelta) < 10.0)
-			return true;
+		// A monster at point-blank range still sees the star leave the hand:
+		// start it far enough back for a short, visible flight.
+		constexpr double MIN_FLIGHT = 36.0;
+
+		if (std::abs(xdelta) < MIN_FLIGHT)
+		{
+			double dir = leftward ? -1.0 : 1.0;
+
+			moveobj.set_x(target.x() - dir * MIN_FLIGHT);
+			xdelta = dir * MIN_FLIGHT;
+		}
 
 		flip = xdelta > 0.0;
 
@@ -72,6 +82,6 @@ namespace ms
 		moveobj.move();
 
 		int16_t xdelta = target.x() - moveobj.get_x();
-		return moveobj.hspeed > 0.0 ? xdelta < 10 : xdelta > 10;
+		return moveobj.hspeed > 0.0 ? xdelta < 10 : xdelta > -10;
 	}
 }

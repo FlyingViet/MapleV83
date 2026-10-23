@@ -15,6 +15,7 @@
 //	You should have received a copy of the GNU Affero General Public License	//
 //	along with this program.  If not, see <https://www.gnu.org/licenses/>.		//
 //////////////////////////////////////////////////////////////////////////////////
+#include <iostream>
 #include "GraphicsGL.h"
 
 #include <cstdlib>
@@ -125,7 +126,7 @@ namespace
 	}
 }
 
-#ifdef PLATFORM_IOS
+#if defined(PLATFORM_IOS) && !defined(PLATFORM_GLES)
 // Defined in FontPathIOS.mm
 extern const char* ios_font_path_normal();
 extern const char* ios_font_path_bold();
@@ -145,9 +146,16 @@ namespace ms
 	Error GraphicsGL::init()
 	{
 #if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+#ifdef PLATFORM_MACOS_SDL
+		// Desktop GL 4.1 core accepts the GLSL ES 3.00 shaders as GLSL 3.30
+		// (precision qualifiers are allowed and ignored).
+#define GLSL_VERSION_LINE "#version 330 core\n"
+#else
+#define GLSL_VERSION_LINE "#version 300 es\n"
+#endif
 		// OpenGL ES 3.0 / WebGL2 shaders (GLSL ES 3.00)
 		const char* vertexShaderSource =
-			"#version 300 es\n"
+			GLSL_VERSION_LINE
 			"in vec4 coord;\n"
 			"in vec4 color;\n"
 			"out vec2 texpos;\n"
@@ -165,7 +173,7 @@ namespace ms
 			"}\n";
 
 		const char* fragmentShaderSource =
-			"#version 300 es\n"
+			GLSL_VERSION_LINE
 			// highp: texpos addresses an 8192px atlas, an fp16 mediump would
 			// quantise texcoords above 2048 (ES 3.0 guarantees fragment highp)
 			"precision highp float;\n"
@@ -178,7 +186,17 @@ namespace ms
 			"\n"
 			"void main(void)\n"
 			"{\n"
-			"	if (texpos.y == 0.0)\n"
+			// Quarter disc for rounded corners: texpos carries the offset
+			// from the circle's centre in 1/1024ths of its radius, y stored
+			// as -(2048 + v). Derivatives are taken here, before any branch:
+			// next to a corner the neighbouring pixels take other branches.
+			"	float d = length(vec2(texpos.x, -texpos.y - 2048.0)) / 1024.0;\n"
+			"	float aa = max(fwidth(d), 0.0001);\n"
+			"	if (texpos.y < -1024.0)\n"
+			"	{\n"
+			"		fragColor = vec4(colormod.rgb, colormod.a * (1.0 - smoothstep(1.0 - aa, 1.0 + aa * 0.5, d)));\n"
+			"	}\n"
+			"	else if (texpos.y == 0.0)\n"
 			"	{\n"
 			"		fragColor = colormod;\n"
 			"	}\n"
@@ -222,7 +240,13 @@ namespace ms
 
 			"void main(void)"
 			"{"
-			"	if (texpos.y == 0)"
+			"	float d = length(vec2(texpos.x, -texpos.y - 2048.0)) / 1024.0;"
+			"	float aa = max(fwidth(d), 0.0001);"
+			"	if (texpos.y < -1024.0)"
+			"	{"
+			"		gl_FragColor = vec4(colormod.rgb, colormod.a * (1.0 - smoothstep(1.0 - aa, 1.0 + aa * 0.5, d)));"
+			"	}"
+			"	else if (texpos.y == 0)"
 			"	{"
 			"		gl_FragColor = colormod;"
 			"	}"
@@ -298,6 +322,14 @@ namespace ms
 			return Error(Error::Code::SHADER_PROGRAM_LINK, infoLog);
 		}
 
+#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
+		// VAO required by OpenGL ES 3.0 / WebGL2, and by a desktop core
+		// profile already for glValidateProgram.
+		GLuint VAO;
+		glGenVertexArrays(1, &VAO);
+		glBindVertexArray(VAO);
+#endif
+
 		glValidateProgram(shaderProgram);
 
 		glGetProgramiv(shaderProgram, GL_VALIDATE_STATUS, &success);
@@ -322,13 +354,6 @@ namespace ms
 		if (attribute_coord == -1 || attribute_color == -1 || uniform_texture == -1 || uniform_atlassize == -1 || uniform_screensize == -1 || uniform_yoffset == -1)
 			return Error::Code::SHADER_VARS;
 
-#if defined(PLATFORM_IOS) || defined(PLATFORM_GLES)
-		// VAO required by OpenGL ES 3.0 / WebGL2
-		GLuint VAO;
-		glGenVertexArrays(1, &VAO);
-		glBindVertexArray(VAO);
-#endif
-
 		// Vertex Buffer Object
 		glGenBuffers(1, &VBO);
 
@@ -337,11 +362,29 @@ namespace ms
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+#ifdef PLATFORM_SDL
+		// iPhones cap textures below the 8192 the atlas assumes (the Simulator
+		// at 4096). A smaller atlas only fills, and resets, sooner.
+		{
+			GLint max_size = 0;
+			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
+
+			if (max_size > 0 && max_size < ATLASW)
+				ATLASW = ATLASH = static_cast<GLshort>(max_size);
+
+			// 2x upscaling takes four times the atlas space; a smaller atlas
+			// then fills and resets mid-frame, dropping whole windows.
+			hd_upscale = ATLASW >= 8192;
+
+			std::cout << "[Init] GL_MAX_TEXTURE_SIZE " << max_size << ", atlas " << ATLASW << "x" << ATLASH
+				<< ", HD upscale " << (hd_upscale ? "on" : "off") << std::endl;
+		}
+#endif
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ATLASW, ATLASH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
 		fontborder.set_y(1);
 
-#ifdef PLATFORM_IOS
+#if defined(PLATFORM_IOS) && !defined(PLATFORM_GLES)
 		const char* FONT_NORMAL_STR = ios_font_path_normal();
 		const char* FONT_BOLD_STR = ios_font_path_bold();
 
@@ -367,9 +410,17 @@ namespace ms
 		addfont(FONT_BOLD_STR, Text::Font::A14B, 0, 14);
 		addfont(FONT_BOLD_STR, Text::Font::A15B, 0, 15);
 		addfont(FONT_NORMAL_STR, Text::Font::A18M, 0, 18);
+		// Mobile panels: rasterised at twice their size and drawn at half
+		// scale, so they stay sharp on a Retina screen.
+		addfont(FONT_NORMAL_STR, Text::Font::H11M, 0, 22);
+		addfont(FONT_BOLD_STR, Text::Font::H11B, 0, 22);
+		addfont(FONT_NORMAL_STR, Text::Font::H13M, 0, 26);
+		addfont(FONT_BOLD_STR, Text::Font::H13B, 0, 26);
+		addfont(FONT_BOLD_STR, Text::Font::H16B, 0, 32);
+		addfont(FONT_BOLD_STR, Text::Font::H20B, 0, 40);
 
 
-#ifndef PLATFORM_IOS
+#ifndef PLATFORM_SDL
 		// Hebrew first: Roboto has no Hebrew glyphs at all, so without this every
 		// Hebrew character renders as a missing-glyph box.
 		fallback_faces.push_back(Setting<FontPathHebrew>().get().load());
@@ -875,7 +926,7 @@ namespace ms
 		GLshort x = 0;
 		GLshort y = 0;
 
-		if (width <= 0 || height <= 0)
+		if (width <= 0 || height <= 0 || !data)
 			return nulloffset;
 
 		const GLshort srcw = width;
@@ -884,7 +935,7 @@ namespace ms
 
 		// Reserve — and fill — HD_SCALE x the space, so the atlas rect that the
 		// quad samples carries the upscaled sprite.
-		if (static_cast<int>(width) * HD_SCALE < ATLASW
+		if (hd_upscale && static_cast<int>(width) * HD_SCALE < ATLASW
 			&& static_cast<int>(height) * HD_SCALE < ATLASH)
 		{
 			pixels = upscale(data, srcw, srch);
@@ -957,6 +1008,12 @@ namespace ms
 					yrange = Range<GLshort>();
 			}
 
+			// A tall texture can also run off the bottom while it still fits
+			// across the current row; the upload would then fail and the quad
+			// would sample whatever was left there. Start over instead.
+			if (border.y() + height > ATLASH)
+				clearinternal();
+
 			x = border.x();
 			y = border.y();
 
@@ -1003,7 +1060,7 @@ namespace ms
 		if (color.invisible())
 			return;
 
-		if (!rect.overlaps(SCREEN))
+		if (!transforming && !rect.overlaps(SCREEN))
 			return;
 
 		Offset offset = getoffset(bmp);
@@ -1022,7 +1079,7 @@ namespace ms
 		if (color.invisible())
 			return;
 
-		if (!rect.overlaps(SCREEN))
+		if (!transforming && !rect.overlaps(SCREEN))
 			return;
 
 		Offset offset = getoffset(id, width, height, data);
@@ -1509,6 +1566,60 @@ namespace ms
 		quads.emplace_back(x, x + width, y, y + height, nulloffset, Color(red, green, blue, alpha), 0.0f);
 	}
 
+	void GraphicsGL::drawroundrect(int16_t x, int16_t y, int16_t width, int16_t height, int16_t radius, float red, float green, float blue, float alpha)
+	{
+		if (locked || width <= 0 || height <= 0)
+			return;
+
+		radius = std::max<int16_t>(0, std::min<int16_t>(radius, std::min(width, height) / 2));
+		Color color(red, green, blue, alpha);
+
+		if (radius == 0)
+		{
+			quads.emplace_back(x, x + width, y, y + height, nulloffset, color, 0.0f);
+			return;
+		}
+
+		GLshort r = radius;
+		GLshort l = x, t = y, rt = x + width, b = y + height;
+
+		// Body: a centre column and the two side columns between the corners.
+		if (width > r * 2)
+			quads.emplace_back(l + r, rt - r, t, b, nulloffset, color, 0.0f);
+
+		if (height > r * 2)
+		{
+			quads.emplace_back(l, l + r, t + r, b - r, nulloffset, color, 0.0f);
+			quads.emplace_back(rt - r, rt, t + r, b - r, nulloffset, color, 0.0f);
+		}
+
+		// Corners: the disc's centre sits on the inner corner of each quad.
+		auto corner = [&](GLshort left, GLshort top, bool flip_x, bool flip_y)
+		{
+			Offset o;
+			o.left = flip_x ? 0 : 1024;
+			o.right = flip_x ? 1024 : 0;
+			o.top = flip_y ? -2048 : -3072;
+			o.bottom = flip_y ? -3072 : -2048;
+			quads.emplace_back(left, left + r, top, top + r, o, color, 0.0f);
+		};
+
+		corner(l, t, false, false);
+		corner(rt - r, t, true, false);
+		corner(l, b - r, false, true);
+		corner(rt - r, b - r, true, true);
+	}
+
+	void GraphicsGL::drawrotatedrect(int16_t cx, int16_t cy, int16_t width, int16_t height, float angle, float red, float green, float blue, float alpha)
+	{
+		if (locked || width <= 0 || height <= 0)
+			return;
+
+		GLshort l = cx - width / 2;
+		GLshort t = cy - height / 2;
+		quads.emplace_back(l, l + width, t, t + height, nulloffset, Color(red, green, blue, alpha), angle);
+	}
+
 	void GraphicsGL::drawscreenfill(float red, float green, float blue, float alpha)
 	{
 		drawrectangle(0, 0, VWIDTH, VHEIGHT, red, green, blue, alpha);
@@ -1697,6 +1808,160 @@ namespace ms
 
 		if (coverscene)
 			quads.pop_back();
+	}
+
+	void GraphicsGL::begin_transform(Point<int16_t> from, Point<int16_t> to, float scale)
+	{
+		transforming = true;
+		transform_start = quads.size();
+		transform_from = from;
+		transform_to = to;
+		transform_scale = scale;
+	}
+
+	void GraphicsGL::end_transform()
+	{
+		if (!transforming)
+			return;
+
+		transforming = false;
+
+		const float s = transform_scale;
+		const int fx = transform_from.x(), fy = transform_from.y();
+		const int tx = transform_to.x(), ty = transform_to.y();
+
+		for (size_t i = transform_start; i < quads.size(); i++)
+		{
+			for (Quad::Vertex& v : quads[i].vertices)
+			{
+				v.localcoord_x = static_cast<GLshort>(tx + std::lround((v.localcoord_x - fx) * s));
+				v.localcoord_y = static_cast<GLshort>(ty + std::lround((v.localcoord_y - fy) * s));
+			}
+		}
+	}
+
+	void GraphicsGL::begin_clip(int16_t top, int16_t bottom)
+	{
+		clip_start = quads.size();
+		clip_top = top;
+		clip_bottom = bottom;
+		clipping = true;
+	}
+
+	void GraphicsGL::end_clip()
+	{
+		if (!clipping)
+			return;
+
+		clipping = false;
+
+		for (size_t i = clip_start; i < quads.size(); i++)
+		{
+			Quad::Vertex* v = quads[i].vertices;
+			GLshort top = std::min({ v[0].localcoord_y, v[1].localcoord_y, v[2].localcoord_y, v[3].localcoord_y });
+			GLshort bottom = std::max({ v[0].localcoord_y, v[1].localcoord_y, v[2].localcoord_y, v[3].localcoord_y });
+
+			if (bottom <= clip_top || top >= clip_bottom)
+			{
+				// Wholly outside: collapse it.
+				for (size_t k = 0; k < Quad::LENGTH; k++)
+					v[k] = v[0];
+
+				continue;
+			}
+
+			// Only axis-aligned quads (0,3 on top, 1,2 at the bottom) are cut;
+			// turned ones are left whole.
+			bool aligned = v[0].localcoord_y == v[3].localcoord_y && v[1].localcoord_y == v[2].localcoord_y
+				&& v[0].localcoord_y < v[1].localcoord_y;
+
+			if (!aligned)
+				continue;
+
+			float height = static_cast<float>(v[1].localcoord_y - v[0].localcoord_y);
+
+			if (v[0].localcoord_y < clip_top)
+			{
+				float f = (clip_top - v[0].localcoord_y) / height;
+
+				for (size_t k : { 0, 3 })
+				{
+					size_t below = k == 0 ? 1 : 2;
+					v[k].texcoord_y = static_cast<GLshort>(std::lround(v[k].texcoord_y + (v[below].texcoord_y - v[k].texcoord_y) * f));
+					v[k].localcoord_y = clip_top;
+				}
+			}
+
+			if (v[1].localcoord_y > clip_bottom)
+			{
+				float f = (v[1].localcoord_y - clip_bottom) / height;
+
+				for (size_t k : { 1, 2 })
+				{
+					size_t above = k == 1 ? 0 : 3;
+					v[k].texcoord_y = static_cast<GLshort>(std::lround(v[k].texcoord_y + (v[above].texcoord_y - v[k].texcoord_y) * f));
+					v[k].localcoord_y = clip_bottom;
+				}
+			}
+		}
+	}
+
+	void GraphicsGL::begin_overlay(int16_t width, int16_t height)
+	{
+		overlay_saved.swap(quads);
+		quads.clear();
+		overlay_saved_locked = locked;
+		overlay_saved_screen = SCREEN;
+		locked = false;
+
+		SCREEN = Rectangle<int16_t>(0, width, 0, height);
+
+		glUseProgram(shaderProgram);
+		glUniform2f(uniform_screensize, width, height);
+		glUniform1i(uniform_yoffset, 0);
+	}
+
+	void GraphicsGL::end_overlay()
+	{
+#ifdef PLATFORM_GLES
+		if (!quads.empty())
+		{
+			glBindTexture(GL_TEXTURE_2D, atlas);
+			glEnableVertexAttribArray(attribute_coord);
+			glEnableVertexAttribArray(attribute_color);
+			glBindBuffer(GL_ARRAY_BUFFER, VBO);
+			glBufferData(GL_ARRAY_BUFFER, quads.size() * sizeof(Quad), quads.data(), GL_STREAM_DRAW);
+			glVertexAttribPointer(attribute_coord, 4, GL_SHORT, GL_FALSE, sizeof(Quad::Vertex), 0);
+			glVertexAttribPointer(attribute_color, 4, GL_FLOAT, GL_FALSE, sizeof(Quad::Vertex), (const void*)8);
+
+			indices.clear();
+
+			for (size_t i = 0; i < quads.size(); i++)
+			{
+				GLuint base = static_cast<GLuint>(i * Quad::LENGTH);
+				indices.insert(indices.end(), { base, base + 1, base + 2, base, base + 2, base + 3 });
+			}
+
+			if (IBO == 0)
+				glGenBuffers(1, &IBO);
+
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STREAM_DRAW);
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, nullptr);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+			glDisableVertexAttribArray(attribute_coord);
+			glDisableVertexAttribArray(attribute_color);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		}
+#endif
+
+		quads.swap(overlay_saved);
+		overlay_saved.clear();
+		locked = overlay_saved_locked;
+		SCREEN = overlay_saved_screen;
+
+		glUniform2f(uniform_screensize, VWIDTH, VHEIGHT);
 	}
 
 	void GraphicsGL::clearscene()

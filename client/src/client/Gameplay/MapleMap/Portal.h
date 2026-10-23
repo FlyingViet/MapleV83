@@ -55,16 +55,25 @@ namespace ms
 			std::string name;
 			bool intramap;
 			bool valid;
+			// Entered through a server portal script (Free Market entrances, ships...):
+			// these have no target map and use CHANGE_MAP_SPECIAL.
+			bool scripted;
 
-			WarpInfo(int32_t m, bool i, std::string tn, std::string n) : mapid(m), intramap(i), toname(tn), name(n)
+			WarpInfo(int32_t m, bool i, std::string tn, std::string n, bool s = false) : mapid(m), intramap(i), toname(tn), name(n), scripted(s)
 			{
 				valid = mapid < 999999999;
 			}
 
 			WarpInfo() : WarpInfo(999999999, false, {}, {}) {}
+
+			// Something happens when the player enters it.
+			bool usable() const
+			{
+				return valid || scripted;
+			}
 		};
 
-		Portal(const Animation* animation, Type type, std::string name, bool intramap, Point<int16_t> position, int32_t tomap, std::string toname);
+		Portal(const Animation* animation, Type type, std::string name, bool intramap, Point<int16_t> position, int32_t tomap, std::string toname, bool scripted = false);
 		Portal();
 
 		void update(Point<int16_t> playerpos);

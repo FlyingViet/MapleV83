@@ -34,6 +34,7 @@
 #include "UIItemInventory.h"
 #include "UIJoypad.h"
 #include "UIKeyConfig.h"
+#include "UIMobileKeyConfig.h"
 #include "UIQuestLog.h"
 #include "UINotice.h"
 #include "UINotificationList.h"
@@ -48,6 +49,8 @@
 #include "UIQuit.h"
 #include "UISkillBook.h"
 #include "UIStatsInfo.h"
+
+#include "../MobileUI.h"
 #include "UIRanking.h"
 #include "UIMonsterBook.h"
 #include "UIWhisper.h"
@@ -425,8 +428,9 @@ namespace ms
 		// reporting its HP (auto-hides via boss_hp_ticks in update()).
 		if (boss_hp_ticks > 0 && boss_gage.is_active())
 		{
+			// On a phone the touch controls' menu row runs along the top.
 			Point<int16_t> boss_pos(
-				static_cast<int16_t>((vwidth - boss_gage.width()) / 2), 18);
+				static_cast<int16_t>((vwidth - boss_gage.width()) / 2), MobileUI::enabled() ? 62 : 18);
 			boss_gage.draw(boss_pos, boss_hp_percent);
 		}
 
@@ -439,8 +443,11 @@ namespace ms
 			int16_t filled = static_cast<int16_t>(
 				static_cast<int64_t>(amount) * ENERGY_WIDTH / ENERGY_MAX);
 
-			// Just above the bar, centred.
-			Point<int16_t> ep((vwidth - ENERGY_WIDTH) / 2, position.y() - 24);
+			// Just above the bar, centred (near the bottom on a phone).
+			int16_t ey = MobileUI::enabled()
+				? static_cast<int16_t>(Constants::Constants::get().get_viewheight() - 40)
+				: static_cast<int16_t>(position.y() - 24);
+			Point<int16_t> ep((vwidth - ENERGY_WIDTH) / 2, ey);
 
 			for (int16_t x = 0; x < ENERGY_WIDTH; x++)
 				energy_bar_c.draw(DrawArgument(ep + Point<int16_t>(x, 0)));
@@ -454,6 +461,12 @@ namespace ms
 
 			if (amount >= ENERGY_MAX)
 				energy_full_effect.draw(DrawArgument(ep + Point<int16_t>(ENERGY_WIDTH / 2, 0)), alpha);
+		}
+
+		if (MobileUI::enabled())
+		{
+			draw_hud(alpha);
+			return;
 		}
 
 		// Quickslot panel - drawn FIRST so the status bar renders on top of
@@ -736,7 +749,7 @@ namespace ms
 		}
 
 		// Age notification entries; auto-decline anything older than
-		// NotificationCenter::TTL_TICKS (~2 minutes). When the queue
+		// NotificationCenter::TTL_MS (10 minutes). When the queue
 		// drains we drop the badge but keep the slot clickable.
 		NotificationCenter::get().tick();
 		if (NotificationCenter::get().empty())
@@ -791,6 +804,8 @@ namespace ms
 		// Pulse counter for the notification badge (only advances when active)
 		if (has_notification)
 			notice_pulse_tick++;
+
+		hud_tick++;
 	}
 
 	Button::State UIStatusBar::button_pressed(uint16_t id)
@@ -807,6 +822,13 @@ namespace ms
 
 		case BT_STATS:
 		case BT_MENU_STAT:
+			if (MobileUI::enabled())
+			{
+				MobileUI::open_stats();
+				remove_menus();
+				return Button::State::NORMAL;
+			}
+
 			UI::get().emplace<UIStatsInfo>(
 				Stage::get().get_player().get_stats()
 			);
@@ -815,6 +837,13 @@ namespace ms
 
 		case BT_INVENTORY:
 		case BT_MENU_ITEM:
+			if (MobileUI::enabled())
+			{
+				MobileUI::open_items();
+				remove_menus();
+				return Button::State::NORMAL;
+			}
+
 			UI::get().emplace<UIItemInventory>(
 				Stage::get().get_player().get_inventory()
 			);
@@ -823,6 +852,13 @@ namespace ms
 
 		case BT_EQUIPS:
 		case BT_MENU_EQUIP:
+			if (MobileUI::enabled())
+			{
+				MobileUI::open_equip();
+				remove_menus();
+				return Button::State::NORMAL;
+			}
+
 			UI::get().emplace<UIEquipInventory>(
 				Stage::get().get_player().get_inventory()
 			);
@@ -831,6 +867,13 @@ namespace ms
 
 		case BT_SKILL:
 		case BT_MENU_SKILL:
+			if (MobileUI::enabled())
+			{
+				MobileUI::open_skills();
+				remove_menus();
+				return Button::State::NORMAL;
+			}
+
 			UI::get().emplace<UISkillBook>(
 				Stage::get().get_player().get_stats(),
 				Stage::get().get_player().get_skills()
@@ -857,6 +900,14 @@ namespace ms
 		}
 
 		case BT_MENU:
+			// The iPhone's menu is a panel of large tiles: v83's popup rows
+			// are 16 px tall, too close together for a finger.
+			if (MobileUI::enabled())
+			{
+				MobileUI::open_menu();
+				return Button::State::NORMAL;
+			}
+
 			toggle_menu();
 			return Button::State::NORMAL;
 
@@ -865,25 +916,21 @@ namespace ms
 		case BT_KEYSETTING:
 		case BT_KEYSET:
 		case BT_SYS_KEYSETTING:
+#ifdef PLATFORM_IOS
+			// The iPhone binds its touch buttons instead of a keyboard layout.
+			UI::get().emplace<UIMobileKeyConfig>();
+#else
 			UI::get().emplace<UIKeyConfig>(
 				Stage::get().get_player().get_inventory(),
 				Stage::get().get_player().get_skills()
 			);
+#endif
 			remove_menus();
 			return Button::State::NORMAL;
 
 		case BT_NOTICE:
-		{
-			if (auto alarm = UI::get().get_element<UIAlarmInvite>())
-				if (alarm->is_active())
-					alarm->stash();
-
-			// Open the notification drawer anchored above the memo slot.
-			// The popup positions itself so its bottom-right corner is
-			// the slot's top-left.
-			UI::get().emplace<UINotificationList>(get_notice_anchor());
+			open_notices();
 			return Button::State::NORMAL;
-		}
 
 		case BT_SYS_CHANNEL:
 			UI::get().emplace<UIChannel>();
@@ -952,6 +999,10 @@ namespace ms
 
 	bool UIStatusBar::is_in_range(Point<int16_t> cursorpos) const
 	{
+		// The phone's HUD lets taps through to the game, except on its chips.
+		if (MobileUI::enabled())
+			return hud_hit(cursorpos) != HUD_NONE;
+
 		int16_t vwidth = Constants::Constants::get().get_viewwidth();
 
 		// The bar itself spans the full view width (the strip is stretched).
@@ -1025,13 +1076,15 @@ namespace ms
 	{
 		int16_t level = stats.get_stat(MapleStat::Id::LEVEL);
 
-		if (level >= ExpTable::LEVELCAP)
+		int64_t need = ExpTable::need(level);
+
+		if (need <= 0)
 			return 0.0f;
 
 		int64_t exp = stats.get_exp();
 
 		return static_cast<float>(
-			static_cast<double>(exp) / ExpTable::values[level]
+			static_cast<double>(exp) / need
 		);
 	}
 
@@ -1073,6 +1126,24 @@ namespace ms
 	Point<int16_t> UIStatusBar::get_notice_anchor() const
 	{
 		return notice_rect().get_left_top();
+	}
+
+	void UIStatusBar::open_notices()
+	{
+		if (MobileUI::enabled())
+		{
+			MobileUI::open_inbox();
+			return;
+		}
+
+		if (auto alarm = UI::get().get_element<UIAlarmInvite>())
+			if (alarm->is_active())
+				alarm->stash();
+
+		// Open the notification drawer anchored above the memo slot.
+		// The popup positions itself so its bottom-right corner is
+		// the slot's top-left.
+		UI::get().emplace<UINotificationList>(get_notice_anchor());
 	}
 
 	// === Quickslot drop / render ===
@@ -1177,6 +1248,9 @@ namespace ms
 
 	Cursor::State UIStatusBar::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
+		if (MobileUI::enabled())
+			return hud_cursor(clicked, cursorpos);
+
 		// Menu popup rows (text rows, not MapleButtons): hover highlight and
 		// click dispatch through button_pressed with the row's id.
 		if (show_menu)

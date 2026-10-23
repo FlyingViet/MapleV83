@@ -45,6 +45,11 @@ namespace ms
 		void set_face(int32_t faceid);
 		void add_equip(int32_t equipid);
 		void remove_equip(EquipSlot::Id slot);
+		// The cash weapon drawn over the real one (0: none).
+		void set_weapon_skin(int32_t itemid);
+		// The Cash Shop's try-on: like add_equip, but a cash weapon shows even
+		// over a weapon type it has no art for.
+		void try_on(int32_t itemid);
 
 		void attack(bool degenerate);
 		void attack(Stance::Id stance);
@@ -70,6 +75,9 @@ namespace ms
 		const Body* get_body() const;
 		const Hair* get_hair() const;
 		const Face* get_face() const;
+		int32_t get_skin_id() const { return skin_id; }
+		int32_t get_hair_id() const { return hair_id; }
+		int32_t get_face_id() const { return face_id; }
 		const CharEquips& get_equips() const;
 
 		// Initialize drawinfo
@@ -111,6 +119,9 @@ namespace ms
 		Randomizer randomizer;
 		TimedBool alerted;
 
+		int32_t skin_id = 0;
+		int32_t hair_id = 0;
+		int32_t face_id = 0;
 		static BodyDrawInfo drawinfo;
 		static std::unordered_map<int32_t, Hair> hairstyles;
 		static std::unordered_map<int32_t, Face> facetypes;

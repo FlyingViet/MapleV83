@@ -294,7 +294,7 @@ namespace ms
 			if (type == 3) // Trade invite
 			{
 				// Show accept/decline dialog
-				UI::get().emplace<UIAlarmInvite>(
+				UIAlarmInvite::show(
 					"Trade request from " + inviter + ". Accept?",
 					[room_id](bool yes)
 					{

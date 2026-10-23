@@ -77,10 +77,11 @@ namespace ms
 			uint8_t level = recv.read_byte();
 
 			// Read equip stats
-			EnumMap<EquipStat::Id, uint16_t> stats;
+			// MapleV83: 32-bit equipment stats (v83 sent shorts).
+			EnumMap<EquipStat::Id, int32_t> stats;
 
 			for (auto iter : stats)
-				iter.second = recv.read_short();
+				iter.second = recv.read_int();
 
 			// Some more information
 			std::string owner = recv.read_string();

@@ -17,7 +17,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include "UINotice.h"
 
+#include "../MobileUI.h"
 #include "../NotificationCenter.h"
+#include "../Notifications.h"
 #include "UIStatusBar.h"
 
 #include "../UI.h"
@@ -31,9 +33,121 @@
 #include <nlnx/nx.hpp>
 #endif
 
+#include <cctype>
+#include <cstdlib>
+
 namespace ms
 {
-	UINotice::UINotice(std::string message, NoticeType t, Text::Alignment a) : UIDragElement<PosNOTICE>(Point<int16_t>(250, 20)), type(t), alignment(a)
+	using Kind = MobileNoticeCard::Kind;
+	using MobileUI::Style;
+
+	namespace
+	{
+		// The number in a field, or -1 when it isn't one (empty, letters,
+		// more digits than an int holds).
+		int64_t parse_amount(const std::string& str)
+		{
+			if (str.empty() || str.size() > 10 || str.find_first_not_of("0123456789") != std::string::npos)
+				return -1;
+
+			return std::strtoll(str.c_str(), nullptr, 10);
+		}
+
+		// The phone's text fields: white 18 px text, the row's full width so a
+		// tap anywhere on it keeps the keyboard up.
+		Textfield card_textfield(const MobileUI::Rect& field, size_t limit)
+		{
+			return Textfield(Text::Font::A18M, Text::Alignment::LEFT, Color::Name::WHITE, Color::Name::WHITE, 1.0f,
+				Rectangle<int16_t>(Point<int16_t>(16, 14), Point<int16_t>(static_cast<int16_t>(field.width() - 16), field.height())), limit);
+		}
+
+		// "PARTY INVITE" -> "Party Invite".
+		std::string title_case(const std::string& upper)
+		{
+			std::string out = upper;
+			bool start = true;
+
+			for (char& c : out)
+			{
+				c = start ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				start = c == ' ';
+			}
+
+			return out;
+		}
+	}
+
+	void UINoticeFrame::use_card(Kind kind, const std::string& eyebrow, const std::string& message)
+	{
+		mobile = true;
+		card.setup(MobileNoticeCard::Layout::DIALOG, kind, eyebrow, message);
+
+		position = Point<int16_t>(0, 0);
+		dimension = Point<int16_t>(Constants::Constants::get().get_viewwidth(), Constants::Constants::get().get_viewheight());
+	}
+
+	void UINoticeFrame::update()
+	{
+		UIElement::update();
+
+		if (mobile)
+			card.update();
+	}
+
+	void UINoticeFrame::update_screen(int16_t new_width, int16_t new_height)
+	{
+		if (mobile)
+			dimension = Point<int16_t>(new_width, new_height);
+		else
+			UIDragElement::update_screen(new_width, new_height);
+	}
+
+	bool UINoticeFrame::is_in_range(Point<int16_t> cursorpos) const
+	{
+		// The dimmed screen is part of the notice.
+		return mobile || UIElement::is_in_range(cursorpos);
+	}
+
+	Cursor::State UINoticeFrame::send_cursor(bool clicked, Point<int16_t> cursorpos)
+	{
+		if (!mobile)
+			return UIDragElement::send_cursor(clicked, cursorpos);
+
+		MobileNoticeCard::Touch touch = card.touch(clicked, cursorpos);
+		Cursor::State state = clicked ? Cursor::State::CLICKING : Cursor::State::IDLE;
+
+		// Each of these can close or replace this notice: nothing after them
+		// may use a member.
+		switch (touch.tap)
+		{
+		case MobileNoticeCard::Tap::ACTION:
+			Sound(Sound::Name::BUTTONCLICK).play();
+			card_action(touch.id);
+			break;
+		case MobileNoticeCard::Tap::FIELD:
+			card_field();
+			break;
+		case MobileNoticeCard::Tap::OUTSIDE:
+			card_outside();
+			break;
+		default:
+			break;
+		}
+
+		return state;
+	}
+
+	void UINoticeFrame::card_action(int32_t id)
+	{
+		button_pressed(static_cast<uint16_t>(id));
+	}
+
+	void UINoticeFrame::card_outside()
+	{
+		send_key(KeyAction::Id::ESCAPE, true, true);
+	}
+
+	UINotice::UINotice(std::string message, NoticeType t, Text::Alignment a) : UINoticeFrame(Point<int16_t>(250, 20)), type(t), alignment(a)
 	{
 		// v83 Basic.img has no Notice6. Notice3 is the plain blue notice and
 		// Notice4 the variant whose bottom piece carries a white text field,
@@ -140,12 +254,22 @@ namespace ms
 
 		buttons[Buttons::YES] = std::make_unique<MapleButton>(src["BtOK2"], Point<int16_t>(BTN_YES_X + button_x_offset, belowtext));
 		buttons[Buttons::NO] = std::make_unique<MapleButton>(src["BtCancel2"], Point<int16_t>(BTN_NO_X + button_x_offset, belowtext));
+
+		if (MobileUI::enabled())
+		{
+			use_card(Kind::QUESTION, "CONFIRM", message);
+			card.add(Buttons::NO, "No", Style::SECONDARY);
+			card.add(Buttons::YES, "Yes", Style::PRIMARY);
+		}
 	}
 
 	UIYesNo::UIYesNo(std::string message, std::function<void(bool yes)> yesnohandler) : UIYesNo(message, yesnohandler, Text::Alignment::CENTER) {}
 
 	void UIYesNo::draw(float alpha) const
 	{
+		if (mobile)
+			return card.draw();
+
 		UINotice::draw(false);
 		UIElement::draw(alpha);
 	}
@@ -155,15 +279,18 @@ namespace ms
 		if (!pressed)
 			return;
 
+		// The handler may open the next notice, which replaces this one.
+		auto handler = yesnohandler;
+
 		if (keycode == KeyAction::Id::RETURN)
 		{
-			yesnohandler(true);
 			deactivate();
+			handler(true);
 		}
 		else if (escape)
 		{
-			yesnohandler(false);
 			deactivate();
+			handler(false);
 		}
 	}
 
@@ -174,15 +301,16 @@ namespace ms
 
 	Button::State UIYesNo::button_pressed(uint16_t buttonid)
 	{
+		auto handler = yesnohandler;
 		deactivate();
 
 		switch (buttonid)
 		{
 		case Buttons::YES:
-			yesnohandler(true);
+			handler(true);
 			break;
 		case Buttons::NO:
-			yesnohandler(false);
+			handler(false);
 			break;
 		}
 
@@ -203,8 +331,21 @@ namespace ms
 		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK2"], BTN_YES_X + button_x_offset, pos_y);
 		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel2"], BTN_NO_X + button_x_offset, pos_y);
 
-		// Black text on the white field baked into Notice4/s
-		numfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), 10);
+		if (MobileUI::enabled())
+		{
+			use_card(Kind::AMOUNT, "HOW MANY?  (UP TO " + std::to_string(max) + ")", message);
+			card.add_field(true);
+			card.add(Buttons::CANCEL, "Cancel", Style::SECONDARY);
+			card.add(Buttons::OK, "OK", Style::PRIMARY);
+
+			numfield = card_textfield(card.field_rect(), 10);
+		}
+		else
+		{
+			// Black text on the white field baked into Notice4/s
+			numfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), 10);
+		}
+
 		numfield.change_text(std::to_string(quantity));
 
 		numfield.set_enter_callback(
@@ -222,11 +363,39 @@ namespace ms
 			}
 		);
 
-		numfield.set_state(Textfield::State::FOCUSED);
+		// A phone sets the amount with - / + / Max; the keyboard waits for a
+		// tap on the number.
+		if (!mobile)
+			numfield.set_state(Textfield::State::FOCUSED);
+	}
+
+	UIEnterNumber::~UIEnterNumber()
+	{
+		unfocus();
+	}
+
+	void UIEnterNumber::unfocus()
+	{
+		if (numfield.get_state() == Textfield::State::FOCUSED)
+			UI::get().remove_textfield();
+	}
+
+	void UIEnterNumber::deactivate()
+	{
+		unfocus();
+		UINotice::deactivate();
 	}
 
 	void UIEnterNumber::draw(float alpha) const
 	{
+		if (mobile)
+		{
+			card.draw(numfield.get_state() == Textfield::State::FOCUSED);
+			numfield.draw(card.field_rect().get_left_top());
+
+			return;
+		}
+
 		UINotice::draw(true);
 		UIElement::draw(alpha);
 
@@ -235,13 +404,44 @@ namespace ms
 
 	void UIEnterNumber::update()
 	{
-		UIElement::update();
+		UINoticeFrame::update();
 
-		numfield.update(position);
+		numfield.update(mobile ? card.field_rect().get_left_top() : position);
+	}
+
+	void UIEnterNumber::card_field()
+	{
+		numfield.set_state(Textfield::State::FOCUSED);
+	}
+
+	void UIEnterNumber::card_action(int32_t id)
+	{
+		int64_t amount = parse_amount(numfield.get_text());
+
+		switch (id)
+		{
+		case MobileNoticeCard::STEP_DOWN:
+			amount = std::min<int64_t>(amount - 1, max);
+			break;
+		case MobileNoticeCard::STEP_UP:
+			amount = amount + 1;
+			break;
+		case MobileNoticeCard::STEP_MAX:
+			amount = max;
+			break;
+		default:
+			return UINotice::card_action(id);
+		}
+
+		amount = std::max<int64_t>(1, std::min<int64_t>(amount, max));
+		numfield.change_text(std::to_string(amount));
 	}
 
 	Cursor::State UIEnterNumber::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
+		if (mobile)
+			return UINoticeFrame::send_cursor(clicked, cursorpos);
+
 		if (numfield.get_state() == Textfield::State::NORMAL)
 		{
 			Cursor::State nstate = numfield.send_cursor(cursorpos, clicked);
@@ -255,6 +455,15 @@ namespace ms
 
 	void UIEnterNumber::send_key(int32_t keycode, bool pressed, bool escape)
 	{
+		// A phone keeps the card up when the amount is out of range.
+		if (mobile && keycode == KeyAction::Id::RETURN)
+		{
+			if (pressed)
+				handlestring(numfield.get_text());
+
+			return;
+		}
+
 		if (keycode == KeyAction::Id::RETURN)
 		{
 			handlestring(numfield.get_text());
@@ -288,6 +497,26 @@ namespace ms
 
 	void UIEnterNumber::handlestring(std::string numstr)
 	{
+		// A phone corrects the field rather than replacing the card with an
+		// error: the player sees the nearest amount allowed and taps OK again.
+		if (mobile)
+		{
+			int64_t amount = parse_amount(numstr);
+
+			if (amount < 1 || amount > max)
+			{
+				numfield.change_text(std::to_string(amount < 1 ? 1 : max));
+
+				return;
+			}
+
+			auto handler = numhandler;
+			deactivate();
+			handler(static_cast<int32_t>(amount));
+
+			return;
+		}
+
 		int num = -1;
 		bool has_only_digits = (numstr.find_first_not_of("0123456789") == std::string::npos);
 
@@ -339,15 +568,28 @@ namespace ms
 		buttons[Buttons::OK]     = std::make_unique<MapleButton>(src["BtOK2"],     BTN_YES_X + button_x_offset, pos_y);
 		buttons[Buttons::CANCEL] = std::make_unique<MapleButton>(src["BtCancel2"], BTN_NO_X + button_x_offset, pos_y);
 
-		textfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), maxlength);
+		if (MobileUI::enabled())
+		{
+			use_card(Kind::TEXT, "TYPE YOUR ANSWER", message);
+			card.add_field(false);
+			card.add(Buttons::CANCEL, "Cancel", Style::SECONDARY);
+			card.add(Buttons::OK, "OK", Style::PRIMARY);
+
+			textfield = card_textfield(card.field_rect(), maxlength);
+		}
+		else
+		{
+			textfield = Textfield(Text::Font::A11M, Text::Alignment::LEFT, Color::Name::BLACK, Rectangle<int16_t>(FIELD_LEFT, FIELD_RIGHT, field_top, field_top + FIELD_H), maxlength);
+		}
 
 		textfield.set_enter_callback(
 			[&](std::string str)
 			{
 				if (!str.empty())
 				{
-					texthandler(str);
+					auto handler = texthandler;
 					deactivate();
+					handler(str);
 				}
 			}
 		);
@@ -363,8 +605,39 @@ namespace ms
 		textfield.set_state(Textfield::State::FOCUSED);
 	}
 
+	UIEnterText::~UIEnterText()
+	{
+		unfocus();
+	}
+
+	void UIEnterText::unfocus()
+	{
+		if (textfield.get_state() == Textfield::State::FOCUSED)
+			UI::get().remove_textfield();
+	}
+
+	void UIEnterText::deactivate()
+	{
+		unfocus();
+		UINotice::deactivate();
+	}
+
 	void UIEnterText::draw(float alpha) const
 	{
+		if (mobile)
+		{
+			bool focused = textfield.get_state() == Textfield::State::FOCUSED;
+			MobileUI::Rect field = card.field_rect();
+			card.draw(focused);
+
+			if (textfield.empty() && !focused)
+				MobileUI::text_in("Tap to type", MobileUI::Font::BODY, MobileUI::Theme::FAINT, field, Text::Alignment::LEFT, 16);
+
+			textfield.draw(field.get_left_top());
+
+			return;
+		}
+
 		UINotice::draw(true);
 		UIElement::draw(alpha);
 
@@ -373,13 +646,21 @@ namespace ms
 
 	void UIEnterText::update()
 	{
-		UIElement::update();
+		UINoticeFrame::update();
 
-		textfield.update(position);
+		textfield.update(mobile ? card.field_rect().get_left_top() : position);
+	}
+
+	void UIEnterText::card_field()
+	{
+		textfield.set_state(Textfield::State::FOCUSED);
 	}
 
 	Cursor::State UIEnterText::send_cursor(bool clicked, Point<int16_t> cursorpos)
 	{
+		if (mobile)
+			return UINoticeFrame::send_cursor(clicked, cursorpos);
+
 		if (textfield.get_state() == Textfield::State::NORMAL)
 		{
 			Cursor::State nstate = textfield.send_cursor(cursorpos, clicked);
@@ -411,8 +692,9 @@ namespace ms
 			std::string str = textfield.get_text();
 			if (!str.empty())
 			{
-				texthandler(str);
+				auto handler = texthandler;
 				deactivate();
+				handler(str);
 			}
 			break;
 		}
@@ -430,10 +712,15 @@ namespace ms
 	{
 		// No buttons — purely informational. The trade/quest handler
 		// will UI::remove() us when the pending state resolves.
+		if (MobileUI::enabled())
+			use_card(Kind::WAIT, "PLEASE WAIT", message);
 	}
 
 	void UIWaitNotice::draw(float alpha) const
 	{
+		if (mobile)
+			return card.draw();
+
 		UINotice::draw(false);
 		UIElement::draw(alpha);
 	}
@@ -448,10 +735,19 @@ namespace ms
 		nl::node src = nl::nx::ui["Basic.img"];
 
 		buttons[Buttons::OK] = std::make_unique<MapleButton>(src["BtOK2"], BTN_OK_X, button_row_y());
+
+		if (MobileUI::enabled())
+		{
+			use_card(Kind::INFO, "NOTICE", message);
+			card.add(Buttons::OK, "OK", Style::PRIMARY);
+		}
 	}
 
 	void UIOk::draw(float alpha) const
 	{
+		if (mobile)
+			return card.draw();
+
 		UINotice::draw(false);
 		UIElement::draw(alpha);
 	}
@@ -460,15 +756,18 @@ namespace ms
 	{
 		if (pressed)
 		{
+			// The handler may open the next notice, which replaces this one.
+			auto handler = okhandler;
+
 			if (keycode == KeyAction::Id::RETURN)
 			{
-				okhandler(true);
 				deactivate();
+				handler(true);
 			}
 			else if (escape)
 			{
-				okhandler(false);
 				deactivate();
+				handler(false);
 			}
 		}
 	}
@@ -480,12 +779,13 @@ namespace ms
 
 	Button::State UIOk::button_pressed(uint16_t buttonid)
 	{
+		auto handler = okhandler;
 		deactivate();
 
 		switch (buttonid)
 		{
 		case Buttons::OK:
-			okhandler(true);
+			handler(true);
 			break;
 		}
 
@@ -493,6 +793,20 @@ namespace ms
 	}
 
 	// ---------- UIAlarmInvite ----------
+
+	void UIAlarmInvite::show(std::string message, std::function<void(bool yes)> handler, int variant)
+	{
+		if (MobileUI::enabled())
+		{
+			std::string eyebrow;
+			MobileNoticeCard::invite_kind(message, eyebrow);
+			Notifications::invite(title_case(eyebrow), MobileNoticeCard::clean(message), std::move(handler));
+
+			return;
+		}
+
+		UI::get().emplace<UIAlarmInvite>(std::move(message), std::move(handler), variant);
+	}
 
 	UIAlarmInvite::UIAlarmInvite(std::string message, std::function<void(bool yes)> h, int variant)
 		: UIDragElement<PosNOTICE>(Point<int16_t>(0, 0))
@@ -583,7 +897,10 @@ namespace ms
 			return;
 
 		stashed = true;
-		NotificationCenter::get().push("Invite", message_text, handler);
+
+		std::string eyebrow;
+		MobileNoticeCard::invite_kind(message_text, eyebrow);
+		NotificationCenter::get().push(title_case(eyebrow), MobileNoticeCard::clean(message_text), handler, true);
 
 		if (auto statusbar = UI::get().get_element<UIStatusBar>())
 			statusbar->notify();
@@ -621,7 +938,7 @@ namespace ms
 	// ---------- UIDeathNotice ----------
 
 	UIDeathNotice::UIDeathNotice(std::string message, std::function<void(bool ok)> oh)
-		: UIDragElement<PosNOTICE>(Point<int16_t>(0, 0))
+		: UINoticeFrame(Point<int16_t>(0, 0))
 	{
 		okhandler = oh;
 
@@ -640,11 +957,20 @@ namespace ms
 			basic["BtOK2"],
 			Point<int16_t>(dimension.x() / 2 - 23, dimension.y() - 30));
 
+		if (MobileUI::enabled())
+		{
+			use_card(Kind::DEATH, "YOU DIED", "You have died.\nYou'll go back to the nearest town.");
+			card.add(Buttons::OK, "Return to town", Style::PRIMARY);
+		}
+
 		Sound(Sound::Name::DLGNOTICE).play();
 	}
 
 	void UIDeathNotice::draw(float alpha) const
 	{
+		if (mobile)
+			return card.draw();
+
 		// The UIWindow.img/Notice tombstone sprite already has its message
 		// baked in, so we don't draw our own text over it.
 		backdrop.draw(DrawArgument(position));
@@ -655,8 +981,9 @@ namespace ms
 	{
 		if (pressed && (keycode == KeyAction::Id::RETURN || escape))
 		{
-			okhandler(true);
+			auto handler = okhandler;
 			deactivate();
+			handler(true);
 		}
 	}
 
@@ -669,8 +996,9 @@ namespace ms
 	{
 		if (buttonid == Buttons::OK)
 		{
-			okhandler(true);
+			auto handler = okhandler;
 			deactivate();
+			handler(true);
 		}
 		return Button::State::NORMAL;
 	}
