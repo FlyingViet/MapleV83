@@ -65,7 +65,11 @@ done
 [ -z "$HEAD_COMMIT" ] && HEAD_COMMIT="$GRAFT"
 TREE="$(git write-tree)"
 if [ "$TREE" = "$(git rev-parse "$HEAD_COMMIT^{tree}")" ] && [ ${#PARENTS[@]} -eq 0 ]; then
-  echo "Nothing new to publish ($(git rev-parse --short main 2>/dev/null || echo none))"; exit 0
+  if [ "$(git rev-parse -q --verify origin/main || true)" = "$(git rev-parse main)" ]; then
+    echo "Nothing new to publish ($(git rev-parse --short main))"; exit 0
+  fi
+  [ "$DRY" = 1 ] && { echo "Dry run: main $(git rev-parse --short main) not pushed yet"; exit 0; }
+  git push -q -u origin main && echo "Pushed $(git rev-parse --short main) to $REMOTE"; exit 0
 fi
 
 # Scan every file of the snapshot; stop on any private value not on the allow list.
